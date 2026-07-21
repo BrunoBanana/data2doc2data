@@ -1,0 +1,7 @@
+interface:
+  display_name: "Data2Doc2Data-面向真实业务的数据+文本循环推理架构"
+  short_description: "让数据与文本形成可验证、可追溯、可行动的真实业务循环推理闭环。"
+  brand_color: "#0F766E"
+  default_prompt: "使用 $data2doc2data 配置本地证据工作区，并分析一个真实业务指标变化。"
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,152 @@
+from pathlib import Path
+import tempfile
+import unittest
+
+from data2doc2data.analysis import (
+    MAX_CSV_BYTES,
+    MAX_DOCUMENT_BYTES,
+    DocumentContext,
+    InputValidationError,
+    Signal,
+    _validate,
+    analyze,
+)
+from data2doc2data.config import Profile
+
+
+class AnalysisTests(unittest.TestCase):
+    def test_analysis_returns_signal_context_and_evidence_for_demo(self):
+        result = analyze("Why did retention fall?", Profile.demo())
+
+        self.assertEqual(result.signal.metric, "retention_rate")
+        self.assertTrue(result.context.source.endswith("strategy.md"))
+        self.assertIn(result.validation.status, {"supported", "mixed", "insufficient"})
+        self.assertGreaterEqual(len(result.evidence), 2)
+
+    def test_demo_document_condition_is_supported_after_second_data_test(self):
+        result = analyze("Why did retention fall?", Profile.demo())
+
+        self.assertEqual(result.validation.status, "supported")
+        self.assertEqual(result.verification.status, "confirmed")
+        self.assertEqual(result.verification.metric, "activation_rate")
+
+    def test_demo_analysis_uses_chinese_generated_copy(self):
+        result = analyze("留存为什么下降？", Profile.demo())
+
+        self.assertIn("留存率", result.signal.summary)
+        self.assertIn("获得数据支持", result.validation.summary)
+        self.assertTrue(result.evidence[0].startswith("指标来源："))
+        self.assertIn("本地分析", result.limitation)
+
+    def test_local_analysis_rejects_a_csv_missing_required_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            notes = root / "notes"
+            notes.mkdir()
+            csv_path.write_text("day,amount\n2026-01-05,12\n", encoding="utf-8")
+            (notes / "decision.md").write_text("Review retention weekly.", encoding="utf-8")
+
+            with self.assertRaisesRegex(InputValidationError, "date, metric, value"):
+                analyze("Why did retention fall?", Profile("local", str(csv_path), str(notes)))
+
+    def test_local_analysis_rejects_missing_document_directory(self):
+        profile = Profile("local", "/missing/metrics.csv", "/missing/notes")
+
+        with self.assertRaisesRegex(InputValidationError, "CSV file"):
+            analyze("What changed?", profile)
+
+    def test_chinese_retention_question_resolves_to_retention_rate(self):
+        result = analyze("留存为什么下降？", Profile.demo())
+
+        self.assertEqual(result.signal.metric, "retention_rate")
+        self.assertGreater(result.context.relevance, 0)
+
+    def test_zero_relevance_context_cannot_be_mixed(self):
+        signal = Signal("retention_rate", 0.66, 0.56, -15.0, "down", "Retention fell.")
+        context = DocumentContext("decision.md", "Retention safeguard", 0)
+
+        validation = _validate(signal, context)
+
+        self.assertEqual(validation.status, "insufficient")
+
+    def test_analysis_limitation_has_no_release_label(self):
+        limitation = analyze("retention", Profile.demo()).limitation
+
+        self.assertNotIn("v0.1", limitation)
+        self.assertNotIn("v1.1", limitation)
+
+    def test_unresolved_metric_requires_an_override(self):
+        with self.assertRaisesRegex(InputValidationError, "Specify --metric"):
+            analyze("What changed?", Profile.demo())
+
+    def test_metric_override_selects_an_available_metric(self):
+        result = analyze("What changed?", Profile.demo(), metric_override="retention_rate")
+
+        self.assertEqual(result.signal.metric, "retention_rate")
+
+    def test_unknown_metric_override_is_rejected(self):
+        with self.assertRaisesRegex(InputValidationError, "is not available"):
+            analyze("What changed?", Profile.demo(), metric_override="conversion_rate")
+
+    def test_one_observation_cannot_produce_a_signal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            notes = root / "notes"
+            notes.mkdir()
+            csv_path.write_text(
+                "date,metric,value\n2026-01-05,retention_rate,0.66\n",
+                encoding="utf-8",
+            )
+            (notes / "decision.md").write_text("Retention needs review.", encoding="utf-8")
+
+            with self.assertRaisesRegex(InputValidationError, "at least two"):
+                analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+    def test_too_many_local_documents_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            notes = root / "notes"
+            notes.mkdir()
+            csv_path.write_text(
+                "date,metric,value\n2026-01-05,retention_rate,0.66\n2026-01-06,retention_rate,0.55\n",
+                encoding="utf-8",
+            )
+            for index in range(201):
+                (notes / f"note-{index}.md").write_text("Retention review.", encoding="utf-8")
+
+            with self.assertRaisesRegex(InputValidationError, "too many"):
+                analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+    def test_too_large_csv_is_rejected_before_parsing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            notes = root / "notes"
+            notes.mkdir()
+            csv_path.write_bytes(b"\0" * (MAX_CSV_BYTES + 1))
+            (notes / "decision.md").write_text("Retention review.", encoding="utf-8")
+
+            with self.assertRaisesRegex(InputValidationError, "CSV is too large"):
+                analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+    def test_too_large_document_has_a_specific_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            notes = root / "notes"
+            notes.mkdir()
+            csv_path.write_text(
+                "date,metric,value\n2026-01-05,retention_rate,0.66\n2026-01-06,retention_rate,0.55\n",
+                encoding="utf-8",
+            )
+            (notes / "decision.md").write_bytes(b"x" * (MAX_DOCUMENT_BYTES + 1))
+
+            with self.assertRaisesRegex(InputValidationError, "document is too large"):
+                analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+
+if __name__ == "__main__":
+    unittest.main()

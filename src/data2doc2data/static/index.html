@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Data2Doc2Data｜数据-文本循环分析</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="app.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="Data2Doc2Data 首页">Data2Doc2Data</a>
+      <p class="topbar-copy">本地证据工作台</p>
+    </header>
+
+    <main class="app-shell">
+      <aside class="context-panel" aria-label="工作区说明">
+        <p class="eyebrow">数据-文本循环</p>
+        <h1>先理解指标，再采取行动。</h1>
+        <p class="context-copy">将指标变化与决策背景交叉分析；数据始终保留在本机。</p>
+        <dl class="context-list">
+          <div>
+            <dt>数据</dt>
+            <dd>包含 date、metric、value 的 CSV</dd>
+          </div>
+          <div>
+            <dt>文本语境</dt>
+            <dd>本地 Markdown 或文本决策文档</dd>
+          </div>
+          <div>
+            <dt>输出</dt>
+            <dd>数据信号、文档语境、验证结论与证据</dd>
+          </div>
+        </dl>
+      </aside>
+
+      <section class="workspace" aria-label="证据工作区">
+        <section class="panel source-panel" aria-labelledby="sources-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">工作区数据源</p>
+              <h2 id="sources-heading">选择要分析的内容</h2>
+            </div>
+            <output id="profile-state" class="state-label" aria-live="polite">正在加载工作区</output>
+          </div>
+
+          <form id="profile-form" class="source-form">
+            <label class="field" for="data-mode">
+              <span>数据源类型</span>
+              <select id="data-mode" name="mode">
+                <option value="demo">内置演示</option>
+                <option value="local">本地文件</option>
+              </select>
+            </label>
+
+            <div id="local-source-fields" class="local-fields" hidden>
+              <label class="field" for="data-path">
+                <span>CSV 数据路径</span>
+                <input id="data-path" name="data_path" type="text" autocomplete="off" placeholder="/Users/name/metrics.csv">
+              </label>
+              <label class="field" for="knowledge-path">
+                <span>文档目录</span>
+                <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
+              </label>
+              <p class="field-hint">保存前会在本机校验路径。CSV 需要 date、metric、value 三列。</p>
+            </div>
+
+            <div class="form-footer">
+              <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
+              <button type="submit">保存工作区</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel analysis-panel" aria-labelledby="analysis-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">交叉验证</p>
+              <h2 id="analysis-heading">提出业务问题</h2>
+            </div>
+          </div>
+
+          <form id="analysis-form" class="analysis-form">
+            <label class="field" for="analysis-question">
+              <span>你的问题</span>
+              <textarea id="analysis-question" name="question" rows="3" required>留存为什么下降？</textarea>
+            </label>
+            <label class="field" for="metric-override">
+              <span>指定指标（可选）</span>
+              <input id="metric-override" name="metric_override" type="text" autocomplete="off" placeholder="retention_rate">
+              <span class="field-hint">当问题无法唯一指向一个指标时，请在这里明确填写。</span>
+            </label>
+            <div class="form-footer">
+              <p id="analysis-message" class="form-message" role="status" aria-live="polite"></p>
+              <button type="submit">开始分析</button>
+            </div>
+          </form>
+
+          <div id="analysis-empty" class="empty-state">
+            <p>开始一次分析，查看数据信号、最相关的文档语境与验证结论。</p>
+          </div>
+
+          <article id="analysis-result" class="analysis-result" hidden aria-live="polite">
+            <section class="result-block">
+              <p class="eyebrow">数据信号</p>
+              <h3 id="result-signal-title"></h3>
+              <p id="result-signal-copy"></p>
+            </section>
+            <section class="result-block">
+              <p class="eyebrow">文档语境</p>
+              <blockquote id="result-context-copy"></blockquote>
+              <p id="result-context-source" class="source-path"></p>
+            </section>
+            <section class="result-block verification-block">
+              <p class="eyebrow">数据验证</p>
+              <h3 id="result-verification-title"></h3>
+              <p id="result-verification-copy"></p>
+            </section>
+            <section class="result-block validation-block">
+              <p class="eyebrow">验证结论</p>
+              <h3 id="result-validation-status"></h3>
+              <p id="result-validation-copy"></p>
+            </section>
+            <section class="result-block evidence-block">
+              <p class="eyebrow">证据来源</p>
+              <ul id="result-evidence"></ul>
+              <p id="result-limitation" class="limitation"></p>
+            </section>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
