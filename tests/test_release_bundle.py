@@ -127,6 +127,49 @@ class ReleaseBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "private marker"):
                 BUNDLE_BUILDER.build_bundle(Path(directory) / "bundle.zip", root=root)
 
+    def test_bundle_rejects_email_addresses_in_public_resources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "skill"
+            (root / "src" / "data2doc2data").mkdir(parents=True)
+            for name in ("README.md", "pyproject.toml", "LICENSE"):
+                (root / name).write_text(name, encoding="utf-8")
+            (root / "SKILL.md").write_text(
+                "---\nname: test-skill\ndescription: Test skill.\n---\n",
+                encoding="utf-8",
+            )
+            email_address = "employee" + "@" + "private.example"
+            (root / "src" / "data2doc2data" / "analysis.py").write_text(
+                f'support = "{email_address}"\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "sensitive data"):
+                BUNDLE_BUILDER.build_bundle(Path(directory) / "bundle.zip", root=root)
+
+    def test_bundle_omits_unlisted_csv_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "skill"
+            runtime = root / "src" / "data2doc2data"
+            runtime.mkdir(parents=True)
+            for name in ("README.md", "pyproject.toml", "LICENSE"):
+                (root / name).write_text(name, encoding="utf-8")
+            (root / "SKILL.md").write_text(
+                "---\nname: test-skill\ndescription: Test skill.\n---\n",
+                encoding="utf-8",
+            )
+            (runtime / "analysis.py").write_text("pass\n", encoding="utf-8")
+            (runtime / "customer_export.csv").write_text(
+                "date,metric,value\n2026-01-01,revenue,999\n",
+                encoding="utf-8",
+            )
+            output = Path(directory) / "bundle.zip"
+
+            BUNDLE_BUILDER.build_bundle(output, root=root)
+
+            with zipfile.ZipFile(output) as archive:
+                names = set(archive.namelist())
+            self.assertNotIn("src/data2doc2data/customer_export.csv", names)
+
 
 if __name__ == "__main__":
     unittest.main()

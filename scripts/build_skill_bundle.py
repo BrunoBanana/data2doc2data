@@ -4,14 +4,27 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = ("README.md", "SKILL.md", "pyproject.toml")
-RESOURCE_DIRECTORIES = ("agents", "references", "src/data2doc2data")
-EXCLUDED_PARTS = {"__pycache__"}
-PUBLIC_RESOURCE_SUFFIXES = {".css", ".csv", ".html", ".js", ".md", ".py", ".svg", ".txt", ".yaml"}
+PUBLIC_RESOURCE_FILES = (
+    "agents/openai.yaml",
+    "references/connector-guide.md",
+    "src/data2doc2data/__init__.py",
+    "src/data2doc2data/analysis.py",
+    "src/data2doc2data/cli.py",
+    "src/data2doc2data/config.py",
+    "src/data2doc2data/server.py",
+    "src/data2doc2data/sample/metrics.csv",
+    "src/data2doc2data/sample/strategy.md",
+    "src/data2doc2data/static/app.css",
+    "src/data2doc2data/static/app.js",
+    "src/data2doc2data/static/favicon.svg",
+    "src/data2doc2data/static/index.html",
+)
 SKILLHUB_METADATA = (
     ("slug", "data2doc2data"),
     ("version", "2.9.0"),
@@ -26,6 +39,15 @@ FORBIDDEN_PRIVATE_MARKERS = (
     "internal" + "-org",
     "internal" + "-agent-platform",
 )
+SENSITIVE_PUBLIC_PATTERNS = (
+    re.compile(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", re.IGNORECASE),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\b(?:gh[pousr]_[a-z0-9_]{20,}|github_pat_[a-z0-9_]{20,})\b", re.IGNORECASE),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b"),
+)
 
 
 def bundle_files(root: Path = ROOT) -> list[Path]:
@@ -33,33 +55,21 @@ def bundle_files(root: Path = ROOT) -> list[Path]:
     files = [root / name for name in ROOT_FILES]
     if (root / "LICENSE").is_file():
         files.append(root / "LICENSE")
-    for directory in RESOURCE_DIRECTORIES:
-        files.extend(
-            path
-            for path in (root / directory).rglob("*")
-            if _is_public_resource(path, root)
-        )
+    files.extend(root / relative_path for relative_path in PUBLIC_RESOURCE_FILES if (root / relative_path).is_file())
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
-
-
-def _is_public_resource(path: Path, root: Path) -> bool:
-    relative_path = path.relative_to(root)
-    return (
-        path.is_file()
-        and not path.is_symlink()
-        and path.suffix.lower() in PUBLIC_RESOURCE_SUFFIXES
-        and not EXCLUDED_PARTS.intersection(relative_path.parts)
-        and not any(part.startswith(".") for part in relative_path.parts)
-    )
 
 
 def _validate_public_contents(files: list[Path], root: Path) -> None:
     for path in files:
-        content = path.read_text(encoding="utf-8").lower()
+        content = path.read_text(encoding="utf-8")
+        normalized_content = content.lower()
         for marker in FORBIDDEN_PRIVATE_MARKERS:
-            if marker in content:
+            if marker in normalized_content:
                 relative_path = path.relative_to(root).as_posix()
                 raise ValueError(f"public bundle contains a private marker in {relative_path}")
+        if any(pattern.search(content) for pattern in SENSITIVE_PUBLIC_PATTERNS):
+            relative_path = path.relative_to(root).as_posix()
+            raise ValueError(f"public bundle contains sensitive data in {relative_path}")
 
 
 def _render_skillhub_contract(skill_md: Path) -> bytes:

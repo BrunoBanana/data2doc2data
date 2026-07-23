@@ -1,4 +1,4 @@
-# Data2Doc2Data — Data + Text Loop Reasoning for Real Business Scenarios
+# Data2Doc2Data-面向真实业务的数据+文本循环推理架构
 
 **[中文](#中文) | [English](#english)**
 
@@ -75,7 +75,7 @@ This project is licensed under [MIT](LICENSE). Generate a public upload bundle f
 python scripts/build_skill_bundle.py dist/data2doc2data-v2.9.0.zip
 ```
 
-Upload the ZIP to your target SkillHub. It includes `SKILL.md`, the local helper UI, runtime code, the connector guide, and `LICENSE.md` (MIT). It excludes tests, build caches, hidden files, and symlinks. The builder scans every included text resource and rejects builds containing prohibited private markers. `--draft` is for local experimentation only — never publish.
+Upload the ZIP to your target SkillHub. It includes only the explicit public-resource allowlist: `SKILL.md`, the local helper UI, runtime code, the connector guide, and `LICENSE.md` (MIT). It excludes tests, build caches, hidden files, symlinks, and unlisted files such as accidental business exports. The builder rejects included resources containing prohibited private markers, email addresses, or common credential patterns. `--draft` is for local experimentation only — never publish.
 
 ---
 
@@ -150,4 +150,4 @@ data2doc2data analyze --question "发生了什么变化？" --metric retention_r
 python scripts/build_skill_bundle.py dist/data2doc2data-v2.9.0.zip
 ```
 
-将该 ZIP 上传至目标 SkillHub。它包含 `SKILL.md`、本地辅助界面、运行时代码、数据连接器指南和 `LICENSE.md` 形式的 MIT 许可证；不包含测试、生成缓存、隐藏文件或符号链接。构建器还会扫描每个纳入的文本资源，并在发现禁止的私有标记时拒绝构建。`--draft` 仅用于无许可证的本地实验，绝不能发布。
+将该 ZIP 上传至目标 SkillHub。它仅包含明确列入公开资源白名单的 `SKILL.md`、本地辅助界面、运行时代码、数据连接器指南和 `LICENSE.md` 形式的 MIT 许可证；不包含测试、生成缓存、隐藏文件、符号链接或未列入白名单的意外业务导出文件。构建器还会扫描每个纳入的文本资源，并在发现禁止的私有标记、邮箱地址或常见凭据模式时拒绝构建。`--draft` 仅用于无许可证的本地实验，绝不能发布。
