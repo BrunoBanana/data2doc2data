@@ -7,7 +7,7 @@
 | 5 | Add indexed retrieval and provenance | completed | 84 tests; BM25, Chinese n-grams, private cache, hashes, rows/lines and stable IDs covered |
 | 6 | Define provider-neutral agent gateway | completed | 91 tests; detection, typed errors, sessions, streaming, approvals, interrupt and cleanup covered |
 | 7 | Add permission broker and audit store | completed | 101 tests; roots, one-time/trusted grants, expiry, redaction and 0600 stores covered |
-| 8 | Implement Codex adapter | pending | |
+| 8 | Implement Codex adapter | completed | 105 tests; initialize/thread/turn, streaming, approval, crash, timeout and cleanup covered |
 | 9 | Implement WorkBuddy adapter | pending | |
 | 10 | Expose secure session and SSE APIs | pending | |
 | 11 | Build web conversation and approvals | pending | |

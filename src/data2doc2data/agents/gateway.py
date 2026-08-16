@@ -54,6 +54,7 @@ EVENT_FIELDS = {
     "turn.completed": ({"turn_id", "usage", "reason"}, set()),
     "turn.cancelled": ({"turn_id", "reason"}, set()),
     "turn.error": ({"turn_id", "message", "code"}, {"message"}),
+    "provider.error": ({"message", "code"}, {"message"}),
 }
 STRING_FIELDS = {
     "session_id",
