@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 import webbrowser
 
+from .agents.codex import CodexProvider
+from .agents.gateway import AgentGateway
+from .agents.workbuddy import WorkBuddyProvider
 from .analysis import InputValidationError, analyze
 from .config import Profile, ProfileError, ProfileStore, default_store
 from .server import create_server
@@ -57,7 +60,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_setup(store: ProfileStore, port: int, no_browser: bool, output) -> int:
-    server = create_server(store, port=port)
+    workspace = Path.cwd().resolve()
+    gateway = AgentGateway(
+        {
+            "codex": CodexProvider(workspace),
+            "workbuddy": WorkBuddyProvider(workspace),
+        }
+    )
+    server = create_server(store, port=port, gateway=gateway, agent_workspace=workspace)
     url = f"http://127.0.0.1:{server.server_port}"
     print(f"Data2Doc2Data setup is available at {url}", file=output)
     if not no_browser:

@@ -85,6 +85,10 @@ class AgentGateway:
         self._connected: set[str] = set()
         self._sessions: dict[str, AgentSession] = {}
 
+    @property
+    def provider_names(self) -> tuple[str, ...]:
+        return tuple(sorted(self._providers))
+
     def detect(self, provider_name: str) -> ProviderStatus:
         provider = self._provider(provider_name)
         try:
