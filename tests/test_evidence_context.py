@@ -3,8 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from data2doc2data.analysis import analyze
 from data2doc2data.config import Profile
-from data2doc2data.evidence_context import build_source_profile
+from data2doc2data.evidence_context import EvidenceContextBuilder, build_source_profile
 
 
 class SourceProfileTests(unittest.TestCase):
@@ -66,6 +67,66 @@ class SourceProfileTests(unittest.TestCase):
         self.assertEqual(first.document_count, 1)
         self.assertEqual(second.record_count, 3)
         self.assertNotEqual(first.fingerprint, second.fingerprint)
+
+
+class EvidenceSnapshotTests(unittest.TestCase):
+    def test_data_size_question_gets_compact_local_facts_without_raw_csv_rows(self):
+        snapshot = EvidenceContextBuilder().build("数据有多少？", Profile.demo())
+
+        self.assertEqual(snapshot.summary.record_count, 12)
+        self.assertEqual(snapshot.summary.metric_count, 2)
+        self.assertEqual(snapshot.summary.date_count, 6)
+        self.assertEqual(snapshot.summary.document_count, 1)
+        self.assertFalse(snapshot.summary.compressed)
+        self.assertIn("记录数: 12", snapshot.envelope)
+        self.assertIn("指标数: 2", snapshot.envelope)
+        self.assertIn("日期数: 6", snapshot.envelope)
+        self.assertNotIn("2026-01-05,retention_rate,0.66", snapshot.envelope)
+        self.assertNotIn("2026-01-05,activation_rate,0.42", snapshot.envelope)
+        prompt = snapshot.render_prompt("数据有多少？")
+        self.assertIn("USER MESSAGE\n数据有多少？", prompt)
+
+    def test_matching_analysis_is_included_but_a_stale_analysis_is_not(self):
+        profile = Profile.demo()
+        result = analyze("留存为什么下降？", profile)
+        fingerprint = build_source_profile(profile).fingerprint
+        builder = EvidenceContextBuilder()
+
+        current = builder.build(
+            "解释当前结论",
+            profile,
+            analysis=result,
+            analysis_source_fingerprint=fingerprint,
+        )
+        stale = builder.build(
+            "解释当前结论",
+            profile,
+            analysis=result,
+            analysis_source_fingerprint="0" * 64,
+        )
+
+        self.assertIn("DETERMINISTIC FINDINGS", current.envelope)
+        self.assertIn(result.provenance.analysis_id, current.envelope)
+        self.assertNotIn("DETERMINISTIC FINDINGS", stale.envelope)
+
+    def test_small_budget_drops_excerpts_and_marks_visible_compression(self):
+        snapshot = EvidenceContextBuilder(max_context_bytes=800).build(
+            "留存为什么下降？",
+            Profile.demo(),
+        )
+
+        self.assertTrue(snapshot.summary.compressed)
+        self.assertEqual(snapshot.summary.excerpt_count, 0)
+        self.assertIn("记录数: 12", snapshot.envelope)
+        self.assertLessEqual(len(snapshot.envelope.encode("utf-8")), 800)
+
+    def test_snapshot_id_is_stable_for_the_same_source_and_question(self):
+        builder = EvidenceContextBuilder()
+
+        first = builder.build("数据有多少？", Profile.demo())
+        second = builder.build("数据有多少？", Profile.demo())
+
+        self.assertEqual(first.summary.snapshot_id, second.summary.snapshot_id)
 
 
 if __name__ == "__main__":

@@ -18,8 +18,8 @@
 | 16 | Update bundle, docs, and release evidence | completed | 18 release tests; 3.0.0 metadata aligned, 35-file ZIP includes complete runtime/scenarios, excludes private state, and rejects allowlisted symlinks |
 | 17 | Run final regression and security verification | completed | JS/Ruff clean; 150 tests passed twice; 82% coverage; 58 security tests; deterministic 35-file ZIP SHA-256 115d1878...; boundary and branch audits clean |
 | 18 | Build the local source profile | completed | 2 context tests; default demo reports 12 records, 2 metrics, 6 dates, 1 document; local fingerprints change with content |
-| 19 | Build bounded query-specific evidence snapshots | in_progress | TDD in progress |
-| 20 | Bind deterministic analysis and context to agent turns | pending | — |
+| 19 | Build bounded query-specific evidence snapshots | completed | 6 context tests; stable IDs, stale-analysis rejection, query retrieval, deterministic compression, no raw CSV rows |
+| 20 | Bind deterministic analysis and context to agent turns | in_progress | TDD in progress |
 | 21 | Rebuild the page as a three-column evidence workbench | pending | — |
 | 22 | Document grounded context and update release boundaries | pending | — |
 | 23 | Run three use-test and optimization rounds | pending | — |
