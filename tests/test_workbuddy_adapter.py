@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 
-from data2doc2data.agents.gateway import AgentGateway, ProviderUnavailable
+from data2doc2data.agents.gateway import AgentGateway, NotAuthenticated, ProviderUnavailable
 from data2doc2data.agents.workbuddy import WorkBuddyProvider
 
 
@@ -15,12 +15,20 @@ FIXTURE = Path(__file__).parent / "fixtures" / "workbuddy" / "acp-stream.txt"
 
 
 class FakeWorkBuddy:
-    def __init__(self, health_status=HTTPStatus.OK, health_body=None):
+    def __init__(
+        self,
+        health_status=HTTPStatus.OK,
+        health_body=None,
+        streamable_posts=False,
+        session_new_error=None,
+    ):
         self.events = Queue()
         self.requests = []
         self.permission_response = None
         self.health_status = health_status
         self.health_body = health_body or {"data": {"status": "ok", "version": "2.106.7"}}
+        self.streamable_posts = streamable_posts
+        self.session_new_error = session_new_error
         state = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -58,6 +66,16 @@ class FakeWorkBuddy:
                 if method == "initialize":
                     result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": True}}
                 elif method == "session/new":
+                    if state.session_new_error is not None:
+                        response = {
+                            "data": {
+                                "jsonrpc": "2.0",
+                                "id": payload.get("id"),
+                                "error": state.session_new_error,
+                            }
+                        }
+                        self._json(200, response)
+                        return
                     result = {"sessionId": "workbuddy-session"}
                 elif method == "session/prompt":
                     stream = FIXTURE.read_text(encoding="utf-8").replace("SESSION", "workbuddy-session")
@@ -72,7 +90,15 @@ class FakeWorkBuddy:
                     result = {}
                 else:
                     result = {}
-                self._json(200, {"data": {"jsonrpc": "2.0", "id": payload.get("id"), "result": result}})
+                response = {"data": {"jsonrpc": "2.0", "id": payload.get("id"), "result": result}}
+                if state.streamable_posts:
+                    accepted = self.headers.get("Accept", "")
+                    if "application/json" not in accepted or "text/event-stream" not in accepted:
+                        self._json(406, {"error": {"message": "both response types are required"}})
+                        return
+                    self._sse(response)
+                    return
+                self._json(200, response)
 
             def do_DELETE(self):
                 state.requests.append(("DELETE", self.path, dict(self.headers)))
@@ -83,6 +109,14 @@ class FakeWorkBuddy:
                 encoded = json.dumps(payload).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def _sse(self, payload):
+                encoded = f"event: message\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
@@ -146,6 +180,42 @@ class WorkBuddyAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "loopback"):
                 WorkBuddyProvider(Path(directory), endpoint="http://example.com:8080")
+
+    def test_streamable_http_post_responses_are_supported(self):
+        fake = FakeWorkBuddy(streamable_posts=True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(workspace, endpoint=fake.endpoint, request_timeout=2)
+
+                provider.connect()
+                session_id = provider.create_session(workspace)
+
+                self.assertEqual(session_id, "workbuddy-session")
+                provider.close()
+        finally:
+            fake.close()
+
+    def test_authentication_rpc_error_is_classified_for_the_web_ui(self):
+        fake = FakeWorkBuddy(
+            session_new_error={
+                "code": -32000,
+                "message": "Authentication required",
+                "data": {"category": "auth"},
+            }
+        )
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(workspace, endpoint=fake.endpoint, request_timeout=2)
+                provider.connect()
+
+                with self.assertRaises(NotAuthenticated):
+                    provider.create_session(workspace)
+
+                provider.close()
+        finally:
+            fake.close()
 
     def test_http_error_does_not_leak_response_body(self):
         fake = FakeWorkBuddy(

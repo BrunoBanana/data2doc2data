@@ -97,6 +97,28 @@ class CodexAdapterTests(unittest.TestCase):
             self.assertNotIn("danger-full-access", " ".join(provider.start_command))
             self.assertNotIn("bypass", " ".join(provider.start_command))
 
+    def test_failed_turn_surfaces_the_provider_reason_and_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider = CodexProvider(Path(directory))
+
+            events = provider._notification_events(
+                "turn/completed",
+                {
+                    "turn": {
+                        "id": "turn-usage-limit",
+                        "status": "failed",
+                        "error": {
+                            "message": "You've hit your usage limit.",
+                            "codexErrorInfo": "usageLimitExceeded",
+                        },
+                    }
+                },
+            )
+
+            self.assertEqual(events[0].kind, "turn.error")
+            self.assertEqual(events[0].payload["message"], "You've hit your usage limit.")
+            self.assertEqual(events[0].payload["code"], "usageLimitExceeded")
+
 
 if __name__ == "__main__":
     unittest.main()

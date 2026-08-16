@@ -372,7 +372,20 @@ class CodexProvider:
             turn_id = _required_text(turn, "id")
             status = turn.get("status")
             if status == "failed":
-                return [AgentEvent("turn.error", {"turn_id": turn_id, "message": "Codex turn failed"})]
+                payload: dict[str, object] = {
+                    "turn_id": turn_id,
+                    "message": "Codex turn failed",
+                    "code": "turnFailed",
+                }
+                error = turn.get("error")
+                if isinstance(error, Mapping):
+                    message = error.get("message")
+                    code = error.get("codexErrorInfo")
+                    if isinstance(message, str) and message.strip():
+                        payload["message"] = message.strip()[:1000]
+                    if isinstance(code, str) and code.strip():
+                        payload["code"] = code.strip()[:100]
+                return [AgentEvent("turn.error", payload)]
             if status == "interrupted":
                 return [AgentEvent("turn.cancelled", {"turn_id": turn_id})]
             return [AgentEvent("turn.completed", {"turn_id": turn_id})]

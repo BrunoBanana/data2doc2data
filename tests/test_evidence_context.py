@@ -107,6 +107,8 @@ class EvidenceSnapshotTests(unittest.TestCase):
 
         self.assertIn("DETERMINISTIC FINDINGS", current.envelope)
         self.assertIn(result.provenance.analysis_id, current.envelope)
+        self.assertIn(result.context.excerpt, current.envelope)
+        self.assertIn(str(result.context.start_line), current.envelope)
         self.assertNotIn("DETERMINISTIC FINDINGS", stale.envelope)
 
     def test_small_budget_drops_excerpts_and_marks_visible_compression(self):
@@ -127,6 +129,33 @@ class EvidenceSnapshotTests(unittest.TestCase):
         second = builder.build("数据有多少？", Profile.demo())
 
         self.assertEqual(first.summary.snapshot_id, second.summary.snapshot_id)
+
+    def test_matching_analysis_with_a_large_document_stays_inside_the_context_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            csv_path = root / "metrics.csv"
+            docs = root / "docs"
+            docs.mkdir()
+            csv_path.write_text(
+                "date,metric,value\n"
+                "2026-01-01,retention_rate,0.6\n"
+                "2026-01-08,retention_rate,0.5\n",
+                encoding="utf-8",
+            )
+            (docs / "decision.md").write_text("留存策略" * 20_000, encoding="utf-8")
+            profile = Profile("local", str(csv_path), str(docs))
+            result = analyze("留存为什么下降？", profile)
+            fingerprint = build_source_profile(profile).fingerprint
+
+            snapshot = EvidenceContextBuilder().build(
+                "解释当前结论",
+                profile,
+                analysis=result,
+                analysis_source_fingerprint=fingerprint,
+            )
+
+        self.assertLessEqual(len(snapshot.envelope.encode("utf-8")), 24_000)
+        self.assertIn("DETERMINISTIC FINDINGS", snapshot.envelope)
 
 
 if __name__ == "__main__":

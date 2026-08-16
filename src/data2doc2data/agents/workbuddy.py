@@ -19,7 +19,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
 from .base import AgentEvent, AgentSession, ProviderStatus
-from .gateway import InvalidProviderPayload, ProviderUnavailable
+from .gateway import InvalidProviderPayload, NotAuthenticated, ProviderUnavailable
 
 
 MAX_HTTP_BYTES = 1_000_000
@@ -315,14 +315,22 @@ class WorkBuddyProvider:
         response = _unwrap_data(payload)
         if not isinstance(response, Mapping):
             raise InvalidProviderPayload(self.name, "WorkBuddy JSON-RPC response is invalid")
-        if "error" in response:
+        error = response.get("error")
+        if isinstance(error, Mapping) and _is_authentication_error(error):
+            raise NotAuthenticated(self.name, "WorkBuddy authentication is required")
+        if error is not None:
             raise ProviderUnavailable(self.name, f"WorkBuddy request failed: {method}")
         if response.get("id") != request_id or "result" not in response:
             raise InvalidProviderPayload(self.name, "WorkBuddy JSON-RPC response does not match the request")
         return response["result"]
 
     def _post_rpc_message(self, payload: dict[str, object]) -> object:
-        return self._json_request("POST", "/api/v1/acp", payload)
+        return self._json_request(
+            "POST",
+            "/api/v1/acp",
+            payload,
+            accept="application/json, text/event-stream",
+        )
 
     def _sse_loop(self) -> None:
         try:
@@ -505,6 +513,7 @@ class WorkBuddyProvider:
         method: str,
         path: str,
         payload: object | None = None,
+        accept: str = "application/json",
     ) -> object:
         if self.endpoint is None or not path.startswith("/api/v1/"):
             raise ProviderUnavailable(self.name, "WorkBuddy public endpoint is unavailable")
@@ -513,11 +522,12 @@ class WorkBuddyProvider:
             f"{self.endpoint}{path}",
             data=encoded,
             method=method,
-            headers=self._headers(accept="application/json", content_type=encoded is not None),
+            headers=self._headers(accept=accept, content_type=encoded is not None),
         )
         try:
             with self._opener.open(request, timeout=self.request_timeout) as response:
                 body = response.read(MAX_HTTP_BYTES + 1)
+                content_type = response.headers.get_content_type()
         except HTTPError as error:
             error.close()
             raise ProviderUnavailable(self.name, f"WorkBuddy HTTP request failed with status {error.code}") from error
@@ -526,8 +536,11 @@ class WorkBuddyProvider:
         if len(body) > MAX_HTTP_BYTES:
             raise InvalidProviderPayload(self.name, "WorkBuddy HTTP response is too large")
         try:
-            return json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            text = body.decode("utf-8")
+            if content_type == "text/event-stream":
+                return _decode_sse_response(text)
+            return json.loads(text)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             raise InvalidProviderPayload(self.name, "WorkBuddy HTTP response is invalid") from error
 
     def _headers(self, accept: str, content_type: bool = False) -> dict[str, str]:
@@ -596,6 +609,31 @@ def _unwrap_data(payload: object) -> object:
     if isinstance(payload, Mapping) and "data" in payload and "jsonrpc" not in payload:
         return payload["data"]
     return payload
+
+
+def _decode_sse_response(body: str) -> object:
+    data_lines: list[str] = []
+    messages: list[object] = []
+    for line in (*body.splitlines(), ""):
+        if not line:
+            if data_lines:
+                messages.append(json.loads("\n".join(data_lines)))
+                data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+    if not messages:
+        raise ValueError("WorkBuddy SSE response contains no data event")
+    return messages[-1]
+
+
+def _is_authentication_error(error: Mapping[str, object]) -> bool:
+    data = error.get("data")
+    category = data.get("category") if isinstance(data, Mapping) else None
+    message = error.get("message")
+    return category == "auth" or (
+        isinstance(message, str) and "authentication required" in message.lower()
+    )
 
 
 def _required_text(value: Mapping[str, object], key: str) -> str:

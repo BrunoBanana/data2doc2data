@@ -220,6 +220,7 @@ def _authoritative_context(
             "analysis_id": payload["provenance"]["analysis_id"],
             "question": payload["question"],
             "signal": payload["signal"],
+            "context": payload["context"],
             "validation": payload["validation"],
             "verification": payload["verification"],
             "limitation": payload["limitation"],
