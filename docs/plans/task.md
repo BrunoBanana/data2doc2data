@@ -2,7 +2,7 @@
 |---:|---|---|---|
 | 1 | Add CI and development quality gates | completed | 55 tests; Ruff passed; production coverage 84% |
 | 2 | Lock in known correctness regressions | completed | 59 tests; zero baseline, finite values, and bilingual direction pairs covered |
-| 3 | Introduce MetricSpec and signal engine | pending | |
+| 3 | Introduce MetricSpec and signal engine | completed | 67 tests; 5 aggregations, windows, duplicates, metadata, JSON covered |
 | 4 | Add structured hypothesis verification | pending | |
 | 5 | Add indexed retrieval and provenance | pending | |
 | 6 | Define provider-neutral agent gateway | pending | |

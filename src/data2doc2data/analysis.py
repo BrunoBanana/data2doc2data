@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 
 from .config import Profile
+from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
 
 
 METRIC_ALIASES = {
@@ -23,27 +24,6 @@ METRIC_DISPLAY_NAMES = {
 MAX_CSV_BYTES = 5_000_000
 MAX_DOCUMENT_BYTES = 1_000_000
 MAX_DOCUMENTS = 200
-
-
-class InputValidationError(ValueError):
-    """Raised when local user-owned source files do not meet package requirements."""
-
-
-@dataclass(frozen=True)
-class MetricRow:
-    date: date
-    metric: str
-    value: float
-
-
-@dataclass(frozen=True)
-class Signal:
-    metric: str
-    baseline: float
-    current: float
-    change_percent: float | None
-    direction: str
-    summary: str
 
 
 @dataclass(frozen=True)
@@ -77,7 +57,17 @@ class InsightResult:
     limitation: str
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        return _serialize(asdict(self))
+
+
+def _serialize(value):
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _serialize(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_serialize(item) for item in value]
+    return value
 
 
 def analyze(
@@ -208,23 +198,12 @@ def _select_metric(
 
 
 def _build_signal(metric: str, rows: list[MetricRow]) -> Signal:
-    ordered_rows = sorted(rows, key=lambda row: row.date)
-    if len(ordered_rows) < 2:
-        raise InputValidationError(f"Metric '{metric}' needs at least two dated observations.")
-    midpoint = max(1, len(ordered_rows) // 2)
-    baseline = sum(row.value for row in ordered_rows[:midpoint]) / midpoint
-    current_rows = ordered_rows[midpoint:]
-    current = sum(row.value for row in current_rows) / len(current_rows)
-    change_percent = None if baseline == 0 else ((current - baseline) / abs(baseline)) * 100
-    if change_percent is None:
-        direction = "up" if current > baseline else "down" if current < baseline else "flat"
-    else:
-        direction = "up" if change_percent > 1 else "down" if change_percent < -1 else "flat"
-    display_name = METRIC_DISPLAY_NAMES.get(metric, metric)
-    direction_label = {"up": "上升", "down": "下降", "flat": "基本持平"}[direction]
-    change_summary = "相对变化不适用" if change_percent is None else f"{change_percent:+.1f}%"
-    summary = f"{display_name}从 {baseline:.2f} 变为 {current:.2f}（{change_summary}），呈{direction_label}趋势。"
-    return Signal(metric, baseline, current, change_percent, direction, summary)
+    spec = MetricSpec(
+        name=metric,
+        aliases=METRIC_ALIASES.get(metric, ()),
+        display_name=METRIC_DISPLAY_NAMES.get(metric),
+    )
+    return SignalEngine().build(spec, rows)
 
 
 def _best_context(question: str, document_paths: list[Path]) -> DocumentContext:

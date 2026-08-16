@@ -42,6 +42,12 @@ class AnalysisTests(unittest.TestCase):
         self.assertTrue(result.evidence[0].startswith("指标来源："))
         self.assertIn("本地分析", result.limitation)
 
+    def test_analysis_result_serializes_metric_ranges_as_iso_dates(self):
+        payload = analyze("retention", Profile.demo()).to_dict()
+
+        self.assertEqual(payload["signal"]["baseline_range"]["start"], "2026-01-05")
+        self.assertEqual(payload["signal"]["current_range"]["end"], "2026-02-09")
+
     def test_local_analysis_rejects_a_csv_missing_required_columns(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
