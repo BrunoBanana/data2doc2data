@@ -14,6 +14,6 @@
 | 12 | Add validated synthetic demo scenario catalog | completed | 9 tests; strict schema, stable order/default, immutable metadata, fixed paths, missing files and symlink containment covered |
 | 13 | Add synthetic scenario data and golden outcomes | completed | 37 focused tests; all fixtures are labeled synthetic, duplicate-free and locked to exact statuses, rows, line ranges and hashes |
 | 14 | Persist and expose demo scenario selection | completed | 51 focused tests; old profiles default safely, selection round-trips, API metadata has no paths, and saved scenarios drive analysis |
-| 15 | Build the web demo scenario experience | pending | |
+| 15 | Build the web demo scenario experience | completed | 31 focused tests plus live browser verification; accessible safe selector, explicit-only analysis, persistence, conflict styling and 390px no-overflow layout covered |
 | 16 | Update bundle, docs, and release evidence | pending | |
 | 17 | Run final regression and security verification | pending | |

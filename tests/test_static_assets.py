@@ -52,7 +52,13 @@ class StaticAssetTests(unittest.TestCase):
     def test_script_calls_only_loopback_api_routes(self):
         script = read_static("app.js")
 
-        for route in ("/api/profile", "/api/analyze", "/api/agents", "/api/agent-sessions"):
+        for route in (
+            "/api/profile",
+            "/api/demo-scenarios",
+            "/api/analyze",
+            "/api/agents",
+            "/api/agent-sessions",
+        ):
             self.assertIn(route, script)
         self.assertIn("metric_override", script)
         self.assertNotIn("https://", script)

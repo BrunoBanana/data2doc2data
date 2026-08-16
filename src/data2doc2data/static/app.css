@@ -92,7 +92,7 @@ button:disabled { cursor: wait; opacity: .65; }
   padding: clamp(36px, 7vw, 82px) 0 64px;
 }
 
-.context-panel { align-self: start; padding-top: 10px; }
+.context-panel { align-self: start; min-width: 0; padding-top: 10px; }
 .context-panel h1,
 .panel h2,
 .result-block h3 { margin: 0; letter-spacing: -.045em; line-height: 1.05; }
@@ -109,7 +109,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .context-list dt { color: var(--muted); font-size: 13px; }
 .context-list dd { margin: 0; font-size: 14px; font-weight: 620; }
 
-.workspace { display: grid; gap: 20px; }
+.workspace { display: grid; gap: 20px; min-width: 0; }
 
 .panel {
   padding: clamp(22px, 4vw, 36px);
@@ -143,6 +143,21 @@ button:disabled { cursor: wait; opacity: .65; }
 .source-form,
 .analysis-form { display: grid; gap: 20px; }
 .local-fields { display: grid; gap: 16px; }
+
+.scenario-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-surface) 42%, transparent);
+}
+
+.scenario-notes { display: grid; gap: 7px; padding-top: 2px; }
+.scenario-notes p { margin: 0; color: var(--muted); font-size: 13px; }
+.scenario-notes p:first-child { color: var(--ink); font-weight: 680; }
 
 .agent-panel { overflow: hidden; }
 
@@ -355,6 +370,7 @@ blockquote {
 .source-path { color: var(--muted); overflow-wrap: anywhere; }
 .validation-block h3 { text-transform: capitalize; }
 .validation-block h3[data-status="supported"] { color: var(--accent-ink); }
+.validation-block h3[data-status="contradicted"] { color: var(--danger); }
 .validation-block h3[data-status="mixed"] { color: var(--mixed); }
 .validation-block h3[data-status="insufficient"] { color: var(--muted); }
 
@@ -374,6 +390,7 @@ blockquote {
   .app-shell { width: min(100% - 32px, 680px); }
   .app-shell { grid-template-columns: 1fr; gap: 38px; padding-top: 36px; }
   .context-panel h1 { max-width: 14ch; }
+  .scenario-fields,
   .agent-controls,
   .agent-grid { grid-template-columns: 1fr; }
 }

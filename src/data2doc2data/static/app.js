@@ -1,6 +1,10 @@
 const profileForm = document.querySelector("#profile-form");
 const analysisForm = document.querySelector("#analysis-form");
 const dataMode = document.querySelector("#data-mode");
+const demoScenarioFields = document.querySelector("#demo-scenario-fields");
+const demoScenario = document.querySelector("#demo-scenario");
+const demoScenarioSummary = document.querySelector("#demo-scenario-summary");
+const demoScenarioObjective = document.querySelector("#demo-scenario-objective");
 const localFields = document.querySelector("#local-source-fields");
 const dataPath = document.querySelector("#data-path");
 const knowledgePath = document.querySelector("#knowledge-path");
@@ -9,6 +13,7 @@ const profileMessage = document.querySelector("#profile-message");
 const analysisMessage = document.querySelector("#analysis-message");
 const analysisEmpty = document.querySelector("#analysis-empty");
 const analysisResult = document.querySelector("#analysis-result");
+const analysisQuestion = document.querySelector("#analysis-question");
 const metricOverride = document.querySelector("#metric-override");
 const agentConnectForm = document.querySelector("#agent-connect-form");
 const agentProvider = document.querySelector("#agent-provider");
@@ -31,6 +36,10 @@ const agentState = {
   activeAssistant: null,
   turnActive: false,
 };
+const demoState = {
+  scenarios: [],
+  defaultId: "",
+};
 const METRIC_LABELS = {
   retention_rate: "留存率",
   activation_rate: "激活率",
@@ -43,6 +52,7 @@ const VERIFICATION_STATUS_LABELS = {
 };
 const VALIDATION_STATUS_LABELS = {
   supported: "获得数据支持",
+  contradicted: "与策略矛盾",
   mixed: "证据有限",
   insufficient: "证据不足",
 };
@@ -54,9 +64,29 @@ function setMessage(element, message = "", state = "") {
 
 function syncSourceMode() {
   const isLocal = dataMode.value === "local";
+  demoScenarioFields.hidden = isLocal;
   localFields.hidden = !isLocal;
+  demoScenario.required = !isLocal;
   dataPath.required = isLocal;
   knowledgePath.required = isLocal;
+}
+
+function selectedScenario() {
+  return demoState.scenarios.find((scenario) => scenario.id === demoScenario.value) || null;
+}
+
+function renderScenarioDetails(updateQuestion = false) {
+  const scenario = selectedScenario();
+  if (!scenario) {
+    demoScenarioSummary.textContent = "演示场景暂不可用。";
+    demoScenarioObjective.textContent = "";
+    return;
+  }
+  demoScenarioSummary.textContent = scenario.summary;
+  demoScenarioObjective.textContent = `学习目标：${scenario.learning_objective}`;
+  if (updateQuestion) {
+    analysisQuestion.value = scenario.suggested_question;
+  }
 }
 
 async function request(path, options = {}) {
@@ -97,12 +127,46 @@ async function loadProfile() {
       dataMode.value = profile.mode;
       dataPath.value = profile.data_path;
       knowledgePath.value = profile.knowledge_path;
+      if (demoState.scenarios.some((scenario) => scenario.id === profile.demo_scenario)) {
+        demoScenario.value = profile.demo_scenario;
+      }
     }
+    renderScenarioDetails();
     syncSourceMode();
   } catch (error) {
     profileState.textContent = "工作区暂不可用";
     setMessage(profileMessage, error.message, "error");
   }
+}
+
+async function loadDemoScenarios() {
+  try {
+    const payload = await request("/api/demo-scenarios");
+    demoState.scenarios = Array.isArray(payload.scenarios) ? payload.scenarios : [];
+    demoState.defaultId = payload.default || "";
+    demoScenario.replaceChildren();
+    demoState.scenarios.forEach((scenario) => {
+      const option = document.createElement("option");
+      option.value = scenario.id;
+      option.textContent = scenario.label;
+      demoScenario.appendChild(option);
+    });
+    if (demoState.scenarios.some((scenario) => scenario.id === demoState.defaultId)) {
+      demoScenario.value = demoState.defaultId;
+    }
+    demoScenario.disabled = demoState.scenarios.length === 0;
+    renderScenarioDetails();
+  } catch (error) {
+    demoScenario.disabled = true;
+    demoScenario.replaceChildren();
+    renderScenarioDetails();
+    setMessage(profileMessage, error.message, "error");
+  }
+}
+
+async function initializeWorkspace() {
+  await loadDemoScenarios();
+  await loadProfile();
 }
 
 profileForm.addEventListener("submit", async (event) => {
@@ -117,6 +181,7 @@ profileForm.addEventListener("submit", async (event) => {
         mode: dataMode.value,
         data_path: dataPath.value.trim(),
         knowledge_path: knowledgePath.value.trim(),
+        demo_scenario: demoScenario.value,
       }),
     });
     profileState.textContent = profile.profile.mode === "demo" ? "已保存内置演示" : "工作区已配置";
@@ -131,7 +196,7 @@ profileForm.addEventListener("submit", async (event) => {
 analysisForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = analysisForm.querySelector("button");
-  const question = document.querySelector("#analysis-question").value.trim();
+  const question = analysisQuestion.value.trim();
   const override = metricOverride.value.trim();
   button.disabled = true;
   setMessage(analysisMessage, "正在读取本地证据");
@@ -495,5 +560,8 @@ function formatObject(value) {
 }
 
 dataMode.addEventListener("change", syncSourceMode);
-loadProfile();
+demoScenario.addEventListener("change", () => {
+  renderScenarioDetails(true);
+});
+initializeWorkspace();
 loadAgents();

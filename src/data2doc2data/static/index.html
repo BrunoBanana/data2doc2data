@@ -54,6 +54,24 @@
               </select>
             </label>
 
+            <div id="demo-scenario-fields" class="scenario-fields">
+              <label class="field" for="demo-scenario">
+                <span>演示场景</span>
+                <select
+                  id="demo-scenario"
+                  name="demo_scenario"
+                  aria-describedby="demo-scenario-summary demo-scenario-objective"
+                  disabled
+                >
+                  <option value="">正在加载演示场景</option>
+                </select>
+              </label>
+              <div class="scenario-notes">
+                <p id="demo-scenario-summary" aria-live="polite">所有演示资料均为虚构合成数据。</p>
+                <p id="demo-scenario-objective" aria-live="polite"></p>
+              </div>
+            </div>
+
             <div id="local-source-fields" class="local-fields" hidden>
               <label class="field" for="data-path">
                 <span>CSV 数据路径</span>
