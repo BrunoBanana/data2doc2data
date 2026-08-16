@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict, dataclass
 from datetime import date
+import math
 from pathlib import Path
 import re
 
@@ -40,7 +41,7 @@ class Signal:
     metric: str
     baseline: float
     current: float
-    change_percent: float
+    change_percent: float | None
     direction: str
     summary: str
 
@@ -148,14 +149,18 @@ def _read_metrics(csv_path: Path) -> list[MetricRow]:
             required = {"date", "metric", "value"}
             if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
                 raise InputValidationError("CSV must include date, metric, value columns")
-            rows = [
-                MetricRow(
-                    date=date.fromisoformat(record["date"].strip()),
-                    metric=record["metric"].strip().lower(),
-                    value=float(record["value"]),
+            rows = []
+            for record in reader:
+                value = float(record["value"])
+                if not math.isfinite(value):
+                    raise InputValidationError("CSV metric values must be finite numbers")
+                rows.append(
+                    MetricRow(
+                        date=date.fromisoformat(record["date"].strip()),
+                        metric=record["metric"].strip().lower(),
+                        value=value,
+                    )
                 )
-                for record in reader
-            ]
     except (OSError, ValueError, csv.Error) as error:
         if isinstance(error, InputValidationError):
             raise
@@ -210,11 +215,15 @@ def _build_signal(metric: str, rows: list[MetricRow]) -> Signal:
     baseline = sum(row.value for row in ordered_rows[:midpoint]) / midpoint
     current_rows = ordered_rows[midpoint:]
     current = sum(row.value for row in current_rows) / len(current_rows)
-    change_percent = 0.0 if baseline == 0 else ((current - baseline) / abs(baseline)) * 100
-    direction = "up" if change_percent > 1 else "down" if change_percent < -1 else "flat"
+    change_percent = None if baseline == 0 else ((current - baseline) / abs(baseline)) * 100
+    if change_percent is None:
+        direction = "up" if current > baseline else "down" if current < baseline else "flat"
+    else:
+        direction = "up" if change_percent > 1 else "down" if change_percent < -1 else "flat"
     display_name = METRIC_DISPLAY_NAMES.get(metric, metric)
     direction_label = {"up": "上升", "down": "下降", "flat": "基本持平"}[direction]
-    summary = f"{display_name}从 {baseline:.2f} 变为 {current:.2f}（{change_percent:+.1f}%），呈{direction_label}趋势。"
+    change_summary = "相对变化不适用" if change_percent is None else f"{change_percent:+.1f}%"
+    summary = f"{display_name}从 {baseline:.2f} 变为 {current:.2f}（{change_summary}），呈{direction_label}趋势。"
     return Signal(metric, baseline, current, change_percent, direction, summary)
 
 
@@ -265,16 +274,10 @@ def _verify_document_condition(
     rows: list[MetricRow],
     context: DocumentContext,
 ) -> Verification:
-    context_tokens = set(_tokens(context.excerpt))
-    expected_terms = {"activation", "rises", "retention", "falls"}
-    chinese_expected_terms = set("激活上升留存下降")
     if (
         primary_signal.metric != "retention_rate"
         or primary_signal.direction != "down"
-        or not (
-            expected_terms.issubset(context_tokens)
-            or chinese_expected_terms.issubset(context_tokens)
-        )
+        or not _mentions_activation_up_and_retention_down(context.excerpt)
     ):
         return Verification("not_applicable", None, "文档语境中未发现可验证的跨指标条件。")
 
@@ -293,6 +296,21 @@ def _verify_document_condition(
         "activation_rate",
         f"激活率呈{ {'up': '上升', 'down': '下降', 'flat': '基本持平'}[activation_signal.direction] }趋势，与文档中的上升条件不一致。",
     )
+
+
+def _mentions_activation_up_and_retention_down(excerpt: str) -> bool:
+    normalized = " ".join(excerpt.lower().split())
+    activation_up = re.search(
+        r"\bactivation(?: rate)?\b(?:\W+\w+){0,3}?\W+"
+        r"(?:rises?|increases?|improves?|grew|grows?|went up|trends? up)\b",
+        normalized,
+    ) or re.search(r"激活率?.{0,8}?(?:上升|提高|增长)", normalized)
+    retention_down = re.search(
+        r"\bretention(?: rate)?\b(?:\W+\w+){0,3}?\W+"
+        r"(?:falls?|decreases?|declines?|dropped?|went down|trends? down)\b",
+        normalized,
+    ) or re.search(r"留存率?.{0,8}?(?:下降|降低|下滑)", normalized)
+    return bool(activation_up and retention_down)
 
 
 def _tokens(value: str) -> list[str]:

@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,8 +8,11 @@ from data2doc2data.analysis import (
     MAX_DOCUMENT_BYTES,
     DocumentContext,
     InputValidationError,
+    MetricRow,
     Signal,
+    _build_signal,
     _validate,
+    _verify_document_condition,
     analyze,
 )
 from data2doc2data.config import Profile
@@ -146,6 +150,61 @@ class AnalysisTests(unittest.TestCase):
 
             with self.assertRaisesRegex(InputValidationError, "document is too large"):
                 analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+    def test_zero_baseline_reports_an_undefined_relative_change_and_upward_direction(self):
+        rows = [
+            MetricRow(date(2026, 1, 1), "activation_rate", 0.0),
+            MetricRow(date(2026, 1, 2), "activation_rate", 10.0),
+        ]
+
+        signal = _build_signal("activation_rate", rows)
+
+        self.assertIsNone(signal.change_percent)
+        self.assertEqual(signal.direction, "up")
+        self.assertIn("相对变化不适用", signal.summary)
+
+    def test_non_finite_metric_values_are_rejected(self):
+        for invalid_value in ("nan", "inf", "-inf"):
+            with self.subTest(invalid_value=invalid_value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                csv_path = root / "metrics.csv"
+                notes = root / "notes"
+                notes.mkdir()
+                csv_path.write_text(
+                    "date,metric,value\n"
+                    "2026-01-05,retention_rate,0.66\n"
+                    f"2026-01-06,retention_rate,{invalid_value}\n",
+                    encoding="utf-8",
+                )
+                (notes / "decision.md").write_text("Retention review.", encoding="utf-8")
+
+                with self.assertRaisesRegex(InputValidationError, "finite"):
+                    analyze("retention", Profile("local", str(csv_path), str(notes)))
+
+    def test_reversed_english_metric_directions_do_not_confirm_the_condition(self):
+        verification = _verify_document_condition(
+            Signal("retention_rate", 0.66, 0.55, -16.7, "down", "Retention fell."),
+            self._activation_rows(),
+            DocumentContext("decision.md", "Retention rises while activation falls.", 4),
+        )
+
+        self.assertNotEqual(verification.status, "confirmed")
+
+    def test_reversed_chinese_metric_directions_do_not_confirm_the_condition(self):
+        verification = _verify_document_condition(
+            Signal("retention_rate", 0.66, 0.55, -16.7, "down", "留存下降。"),
+            self._activation_rows(),
+            DocumentContext("decision.md", "激活下降、留存上升。", 4),
+        )
+
+        self.assertNotEqual(verification.status, "confirmed")
+
+    @staticmethod
+    def _activation_rows():
+        return [
+            MetricRow(date(2026, 1, 1), "activation_rate", 0.40),
+            MetricRow(date(2026, 1, 2), "activation_rate", 0.50),
+        ]
 
 
 if __name__ == "__main__":
