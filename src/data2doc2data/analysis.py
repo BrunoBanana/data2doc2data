@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 
 from .config import Profile
+from .hypotheses import ClauseVerification, parse_controlled_hypothesis, verify_hypothesis
 from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
 
 
@@ -44,6 +45,7 @@ class Verification:
     status: str
     metric: str | None
     summary: str
+    clauses: tuple[ClauseVerification, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -253,43 +255,26 @@ def _verify_document_condition(
     rows: list[MetricRow],
     context: DocumentContext,
 ) -> Verification:
-    if (
-        primary_signal.metric != "retention_rate"
-        or primary_signal.direction != "down"
-        or not _mentions_activation_up_and_retention_down(context.excerpt)
-    ):
+    hypothesis = parse_controlled_hypothesis(context.excerpt, METRIC_ALIASES)
+    if hypothesis is None or len(hypothesis.clauses) < 2:
         return Verification("not_applicable", None, "文档语境中未发现可验证的跨指标条件。")
-
-    activation_rows = [row for row in rows if row.metric == "activation_rate"]
-    if len(activation_rows) < 2:
-        return Verification("unavailable", "activation_rate", "文档条件所需的激活率数据不可用。")
-    activation_signal = _build_signal("activation_rate", activation_rows)
-    if activation_signal.direction == "up":
-        return Verification(
-            "confirmed",
-            "activation_rate",
-            f"激活率从 {activation_signal.baseline:.2f} 上升至 {activation_signal.current:.2f}。",
+    specs = {
+        clause.metric: MetricSpec(
+            name=clause.metric,
+            aliases=METRIC_ALIASES.get(clause.metric, ()),
+            display_name=METRIC_DISPLAY_NAMES.get(clause.metric),
         )
-    return Verification(
-        "not_confirmed",
-        "activation_rate",
-        f"激活率呈{ {'up': '上升', 'down': '下降', 'flat': '基本持平'}[activation_signal.direction] }趋势，与文档中的上升条件不一致。",
+        for clause in hypothesis.clauses
+    }
+    result = verify_hypothesis(hypothesis, rows, specs)
+    secondary_clause = next(
+        (clause for clause in result.clauses if clause.metric != primary_signal.metric),
+        result.clauses[0],
     )
-
-
-def _mentions_activation_up_and_retention_down(excerpt: str) -> bool:
-    normalized = " ".join(excerpt.lower().split())
-    activation_up = re.search(
-        r"\bactivation(?: rate)?\b(?:\W+\w+){0,3}?\W+"
-        r"(?:rises?|increases?|improves?|grew|grows?|went up|trends? up)\b",
-        normalized,
-    ) or re.search(r"激活率?.{0,8}?(?:上升|提高|增长)", normalized)
-    retention_down = re.search(
-        r"\bretention(?: rate)?\b(?:\W+\w+){0,3}?\W+"
-        r"(?:falls?|decreases?|declines?|dropped?|went down|trends? down)\b",
-        normalized,
-    ) or re.search(r"留存率?.{0,8}?(?:下降|降低|下滑)", normalized)
-    return bool(activation_up and retention_down)
+    status = "not_confirmed" if result.status == "contradicted" else result.status
+    display_name = METRIC_DISPLAY_NAMES.get(secondary_clause.metric, secondary_clause.metric)
+    summary = f"{display_name}：{result.summary}"
+    return Verification(status, secondary_clause.metric, summary, result.clauses)
 
 
 def _tokens(value: str) -> list[str]:

@@ -205,6 +205,15 @@ class AnalysisTests(unittest.TestCase):
 
         self.assertNotEqual(verification.status, "confirmed")
 
+    def test_negated_metric_condition_is_not_treated_as_evidence(self):
+        verification = _verify_document_condition(
+            Signal("retention_rate", 0.66, 0.55, -16.7, "down", "留存下降。"),
+            self._activation_rows(),
+            DocumentContext("decision.md", "不能说明激活率上升导致留存率下降。", 4),
+        )
+
+        self.assertEqual(verification.status, "not_applicable")
+
     @staticmethod
     def _activation_rows():
         return [
