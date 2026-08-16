@@ -309,6 +309,38 @@ class AgentServerTests(unittest.TestCase):
         self.assertIn("数据源: 策略与数据冲突", prompt)
         self.assertNotIn("DETERMINISTIC FINDINGS", prompt)
 
+    def test_event_stream_can_resume_after_the_previous_terminal_event(self):
+        cookie, csrf, session = self.create_session()
+        path = f"/api/agent-sessions/{session['id']}"
+        self.request(
+            "POST",
+            f"{path}/messages",
+            {"message": "first"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        _, first_events, _ = self.request("GET", f"{path}/events", cookie=cookie, raw=True)
+        self.assertEqual(first_events[-1]["kind"], "turn.completed")
+        self.request(
+            "POST",
+            f"{path}/messages",
+            {"message": "second"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+
+        _, second_events, _ = self.request(
+            "GET",
+            f"{path}/events?after=4",
+            cookie=cookie,
+            raw=True,
+        )
+
+        self.assertEqual(
+            [event["kind"] for event in second_events],
+            ["context.attached", "message.delta", "approval.request", "turn.completed"],
+        )
+
     def test_read_only_session_cannot_approve_a_command(self):
         cookie, csrf, session = self.create_session(mode="read_only")
         session_id = session["id"]

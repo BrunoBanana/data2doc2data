@@ -28,6 +28,22 @@ const agentMessageStatus = document.querySelector("#agent-message-status");
 const conversationLog = document.querySelector("#conversation-log");
 const conversationEmpty = document.querySelector("#conversation-empty");
 const operationQueue = document.querySelector("#operation-queue");
+const workbenchShell = document.querySelector("#workbench-shell");
+const workspaceTabs = Array.from(document.querySelectorAll("[data-workspace-tab]"));
+const activeSourceStatus = document.querySelector("#active-source-status");
+const analysisStatusTop = document.querySelector("#analysis-status-top");
+const agentStatusTop = document.querySelector("#agent-status-top");
+const sourceRecordCount = document.querySelector("#source-record-count");
+const sourceMetricCount = document.querySelector("#source-metric-count");
+const sourceDateRange = document.querySelector("#source-date-range");
+const sourceDocumentCount = document.querySelector("#source-document-count");
+const sourceProfileLabel = document.querySelector("#source-profile-label");
+const sourceKind = document.querySelector("#source-kind");
+const agentContextStatus = document.querySelector("#agent-context-status");
+const contextSnapshotId = document.querySelector("#context-snapshot-id");
+const contextRecordCount = document.querySelector("#context-record-count");
+const contextExcerptCount = document.querySelector("#context-excerpt-count");
+const contextCompressionState = document.querySelector("#context-compression-state");
 const agentState = {
   csrfToken: "",
   agents: [],
@@ -35,7 +51,9 @@ const agentState = {
   eventSource: null,
   activeAssistant: null,
   turnActive: false,
+  lastEventId: 0,
 };
+const analysisState = { result: null };
 const demoState = {
   scenarios: [],
   defaultId: "",
@@ -139,6 +157,32 @@ async function loadProfile() {
   }
 }
 
+async function loadSourceProfile() {
+  try {
+    const profile = await request("/api/source-profile");
+    renderSourceProfile(profile);
+  } catch (error) {
+    activeSourceStatus.textContent = "数据源不可用";
+    sourceProfileLabel.textContent = error.message;
+    sourceRecordCount.textContent = "—";
+    sourceMetricCount.textContent = "—";
+    sourceDateRange.textContent = "—";
+    sourceDocumentCount.textContent = "—";
+  }
+}
+
+function renderSourceProfile(profile) {
+  const dates = Array.isArray(profile.observation_dates) ? profile.observation_dates : [];
+  const metrics = Array.isArray(profile.metrics) ? profile.metrics : [];
+  sourceRecordCount.textContent = String(profile.record_count ?? "—");
+  sourceMetricCount.textContent = String(metrics.length);
+  sourceDateRange.textContent = dates.length > 0 ? `${dates[0]} → ${dates[dates.length - 1]}` : "—";
+  sourceDocumentCount.textContent = String(profile.document_count ?? "—");
+  sourceProfileLabel.textContent = profile.label || "当前数据集";
+  sourceKind.textContent = profile.synthetic ? "合成演示" : "本地数据";
+  activeSourceStatus.textContent = `${profile.label || "当前数据"} · ${profile.record_count || 0} 条`;
+}
+
 async function loadDemoScenarios() {
   try {
     const payload = await request("/api/demo-scenarios");
@@ -167,6 +211,7 @@ async function loadDemoScenarios() {
 async function initializeWorkspace() {
   await loadDemoScenarios();
   await loadProfile();
+  await loadSourceProfile();
 }
 
 profileForm.addEventListener("submit", async (event) => {
@@ -186,6 +231,9 @@ profileForm.addEventListener("submit", async (event) => {
     });
     profileState.textContent = profile.profile.mode === "demo" ? "已保存内置演示" : "工作区已配置";
     setMessage(profileMessage, "工作区已保存至本机。", "success");
+    invalidateAnalysisPresentation();
+    resetContextSummary("数据源已更新");
+    await loadSourceProfile();
   } catch (error) {
     setMessage(profileMessage, error.message, "error");
   } finally {
@@ -200,15 +248,19 @@ analysisForm.addEventListener("submit", async (event) => {
   const override = metricOverride.value.trim();
   button.disabled = true;
   setMessage(analysisMessage, "正在读取本地证据");
+  analysisStatusTop.textContent = "分析中";
   try {
     const result = await request("/api/analyze", {
       method: "POST",
       body: JSON.stringify({ question, metric_override: override || null }),
     });
     renderResult(result);
+    analysisState.result = result;
     setMessage(analysisMessage, "分析完成。", "success");
+    analysisStatusTop.textContent = formatStatus(result.validation.status, VALIDATION_STATUS_LABELS);
   } catch (error) {
     setMessage(analysisMessage, error.message, "error");
+    analysisStatusTop.textContent = "分析失败";
   } finally {
     button.disabled = false;
   }
@@ -241,6 +293,13 @@ function renderResult(result) {
   });
 }
 
+function invalidateAnalysisPresentation() {
+  analysisState.result = null;
+  analysisResult.hidden = true;
+  analysisEmpty.hidden = false;
+  analysisStatusTop.textContent = "等待分析";
+}
+
 function formatMetric(metric) {
   return METRIC_LABELS[metric] || metric.replaceAll("_", " ");
 }
@@ -257,6 +316,7 @@ async function loadAgents() {
     renderAgentOptions();
   } catch (error) {
     agentStatus.textContent = "助手检测失败";
+    agentStatusTop.textContent = "助手检测失败";
     setMessage(agentMessageStatus, error.message, "error");
   }
 }
@@ -284,11 +344,13 @@ function renderAgentOptions() {
     agentProvider.disabled = false;
     agentConnect.disabled = false;
     agentStatus.textContent = `已发现 ${selectable.length} 个可用助手`;
+    agentStatusTop.textContent = `${selectable.length} 个助手可用`;
     return;
   }
   agentProvider.disabled = true;
   agentConnect.disabled = true;
   agentStatus.textContent = "未发现可用助手";
+  agentStatusTop.textContent = "无可用助手";
   setMessage(agentMessageStatus, "确定性证据分析仍可正常使用。", "");
 }
 
@@ -321,6 +383,7 @@ agentConnectForm.addEventListener("submit", async (event) => {
       }),
     });
     agentState.session = payload.session;
+    agentState.lastEventId = 0;
     conversationLog.replaceChildren();
     operationQueue.replaceChildren();
     agentMessage.disabled = false;
@@ -328,6 +391,7 @@ agentConnectForm.addEventListener("submit", async (event) => {
     permissionMode.disabled = true;
     agentProvider.disabled = true;
     agentStatus.textContent = `${agentLabel(payload.session.provider)} 已连接`;
+    agentStatusTop.textContent = `${agentLabel(payload.session.provider)} 已连接`;
     setMessage(agentMessageStatus, `工作目录：${payload.session.workspace}`, "success");
     startEventStream();
     agentMessage.focus();
@@ -379,10 +443,13 @@ agentInterrupt.addEventListener("click", async () => {
 function startEventStream() {
   if (!agentState.session || agentState.eventSource) return;
   const sessionId = encodeURIComponent(agentState.session.id);
-  const eventSource = new EventSource(`/api/agent-sessions/${sessionId}/events`);
+  const eventsRoute = `/api/agent-sessions/${sessionId}/events`;
+  const eventSource = new EventSource(`${eventsRoute}?after=${agentState.lastEventId}`);
   agentState.eventSource = eventSource;
   eventSource.onmessage = (event) => {
     try {
+      const eventId = Number.parseInt(event.lastEventId, 10);
+      if (Number.isFinite(eventId)) agentState.lastEventId = Math.max(agentState.lastEventId, eventId);
       handleAgentEvent(JSON.parse(event.data));
     } catch (_error) {
       finishTurn("助手返回了无法读取的事件。", "error");
@@ -407,6 +474,9 @@ function closeEventStream() {
 function handleAgentEvent(event) {
   const payload = event && typeof event.payload === "object" ? event.payload : {};
   switch (event.kind) {
+    case "context.attached":
+      renderContextSummary(payload);
+      break;
     case "message.delta":
       appendAssistantDelta(payload.text || "");
       break;
@@ -441,6 +511,23 @@ function handleAgentEvent(event) {
     default:
       break;
   }
+}
+
+function renderContextSummary(payload) {
+  contextRecordCount.textContent = String(payload.record_count ?? "—");
+  contextExcerptCount.textContent = String(payload.excerpt_count ?? "—");
+  contextCompressionState.textContent = payload.compressed ? "已压缩" : "完整证据包";
+  const snapshotId = typeof payload.snapshot_id === "string" ? payload.snapshot_id : "";
+  contextSnapshotId.textContent = snapshotId ? snapshotId.slice(0, 12) : "—";
+  agentContextStatus.textContent = "已附带";
+}
+
+function resetContextSummary(status = "等待提问") {
+  agentContextStatus.textContent = status;
+  contextRecordCount.textContent = "—";
+  contextExcerptCount.textContent = "—";
+  contextCompressionState.textContent = "未建立";
+  contextSnapshotId.textContent = "—";
 }
 
 function appendMessage(author, text, kind) {
@@ -559,9 +646,52 @@ function formatObject(value) {
   }
 }
 
-dataMode.addEventListener("change", syncSourceMode);
+function setupWorkspaceTabs() {
+  if (!workbenchShell || workspaceTabs.length === 0) return;
+  const activate = (selected) => {
+    workspaceTabs.forEach((tab) => {
+      const active = tab === selected;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
+    workbenchShell.dataset.activeWorkspace = selected.dataset.workspaceTab;
+  };
+  workspaceTabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => activate(tab));
+    tab.addEventListener("keydown", (event) => {
+      let targetIndex = index;
+      if (event.key === "ArrowRight") targetIndex = (index + 1) % workspaceTabs.length;
+      if (event.key === "ArrowLeft") targetIndex = (index - 1 + workspaceTabs.length) % workspaceTabs.length;
+      if (event.key === "Home") targetIndex = 0;
+      if (event.key === "End") targetIndex = workspaceTabs.length - 1;
+      if (targetIndex === index) return;
+      event.preventDefault();
+      activate(workspaceTabs[targetIndex]);
+      workspaceTabs[targetIndex].focus();
+    });
+  });
+}
+
+function markSourceDirty() {
+  profileState.textContent = "有未保存更改";
+  activeSourceStatus.textContent = "保存后更新数据";
+}
+
+dataMode.addEventListener("change", () => {
+  syncSourceMode();
+  markSourceDirty();
+});
 demoScenario.addEventListener("change", () => {
   renderScenarioDetails(true);
+  markSourceDirty();
 });
-initializeWorkspace();
-loadAgents();
+dataPath.addEventListener("input", markSourceDirty);
+knowledgePath.addEventListener("input", markSourceDirty);
+
+async function initializeApplication() {
+  setupWorkspaceTabs();
+  await loadAgents();
+  await initializeWorkspace();
+}
+
+initializeApplication();

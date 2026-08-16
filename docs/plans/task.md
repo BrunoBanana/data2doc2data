@@ -20,6 +20,6 @@
 | 18 | Build the local source profile | completed | 2 context tests; default demo reports 12 records, 2 metrics, 6 dates, 1 document; local fingerprints change with content |
 | 19 | Build bounded query-specific evidence snapshots | completed | 6 context tests; stable IDs, stale-analysis rejection, query retrieval, deterministic compression, no raw CSV rows |
 | 20 | Bind deterministic analysis and context to agent turns | completed | 31 focused tests; browser-owned analysis, isolation, invalidation, safe source-profile API and context SSE covered |
-| 21 | Rebuild the page as a three-column evidence workbench | in_progress | TDD in progress |
-| 22 | Document grounded context and update release boundaries | pending | — |
+| 21 | Rebuild the page as a three-column evidence workbench | completed | 20 frontend contracts, Node syntax, Ruff, 19 agent/context tests; desktop rails, mobile tabs, source/context status and SSE resume covered |
+| 22 | Document grounded context and update release boundaries | in_progress | TDD in progress |
 | 23 | Run three use-test and optimization rounds | pending | — |

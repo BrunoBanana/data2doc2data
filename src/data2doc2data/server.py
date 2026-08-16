@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import re
 from typing import Type
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .agent_api import AgentApiError, AgentWebService, BROWSER_SESSION_SECONDS, TERMINAL_EVENTS
 from .agents.gateway import AgentGateway
@@ -96,7 +96,12 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 try:
                     owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
                     event_buffer = self._agents().event_buffer(owner_id, events_match.group(1))
-                    self._send_events(event_buffer)
+                    query = parse_qs(urlparse(self.path).query)
+                    try:
+                        after_event_id = max(0, int(query.get("after", ["0"])[0]))
+                    except (TypeError, ValueError):
+                        after_event_id = 0
+                    self._send_events(event_buffer, after_event_id)
                 except AgentApiError as error:
                     self._send_json(error.status, {"error": str(error)})
                 return
@@ -317,9 +322,12 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_events(self, event_buffer) -> None:
+        def _send_events(self, event_buffer, after_event_id: int = 0) -> None:
             try:
-                last_event_id = int(self.headers.get("Last-Event-ID", "0"))
+                last_event_id = max(
+                    after_event_id,
+                    int(self.headers.get("Last-Event-ID", "0")),
+                )
             except ValueError:
                 last_event_id = 0
             if last_event_id < 0:
