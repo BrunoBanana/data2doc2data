@@ -15,6 +15,10 @@ import time
 
 from .agents.base import AgentEvent, AgentSession, ProviderStatus
 from .agents.gateway import AgentGateway, AgentGatewayError
+from .analysis import InsightResult
+from .config import Profile, ProfileError, ProfileStore
+from .evidence_context import EvidenceContextBuilder, build_source_profile
+from .metrics import InputValidationError
 from .permissions import OperationRequest, PermissionBroker, PermissionMode
 from .sessions import AuditEntry, AuditStore, SessionRecord, SessionStore
 
@@ -119,6 +123,8 @@ class AgentWebService:
         workspace: Path,
         session_store: SessionStore,
         audit_store: AuditStore,
+        profile_store: ProfileStore,
+        context_builder: EvidenceContextBuilder | None = None,
     ) -> None:
         self.gateway = gateway
         self.workspace = workspace.expanduser().resolve()
@@ -126,8 +132,11 @@ class AgentWebService:
             raise ValueError("agent workspace must be an existing directory")
         self.session_store = session_store
         self.audit_store = audit_store
+        self.profile_store = profile_store
+        self.context_builder = context_builder or EvidenceContextBuilder()
         self.browser_sessions = BrowserSessions()
         self._sessions: dict[str, WebAgentSession] = {}
+        self._analyses: dict[str, tuple[str, InsightResult]] = {}
         self._lock = threading.Lock()
 
     def list_agents(self) -> list[dict[str, object]]:
@@ -187,16 +196,49 @@ class AgentWebService:
         message = payload["message"].strip()
         if not message:
             raise AgentApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "agent message is required")
+        try:
+            profile = self.profile_store.load() or Profile.demo()
+            with self._lock:
+                analysis_fingerprint, analysis = self._analyses.get(owner_id, (None, None))
+            snapshot = self.context_builder.build(
+                message,
+                profile,
+                analysis=analysis,
+                analysis_source_fingerprint=analysis_fingerprint,
+                cache_path=self.profile_store.index_cache_path,
+            )
+        except (InputValidationError, ProfileError) as error:
+            raise AgentApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(error)) from error
         with web_session.lock:
             if web_session.busy:
                 raise AgentApiError(HTTPStatus.CONFLICT, "agent session already has an active turn")
             web_session.busy = True
+        web_session.events.append(AgentEvent("context.attached", snapshot.summary.to_dict()))
+        self._audit(
+            web_session,
+            "context",
+            (
+                f"snapshot {snapshot.summary.snapshot_id}; records={snapshot.summary.record_count}; "
+                f"metrics={snapshot.summary.metric_count}; excerpts={snapshot.summary.excerpt_count}; "
+                f"compressed={snapshot.summary.compressed}"
+            ),
+            "allowed",
+        )
         threading.Thread(
             target=self._run_turn,
-            args=(web_session, message),
+            args=(web_session, snapshot.render_prompt(message)),
             name=f"agent-turn-{session_id[:8]}",
             daemon=True,
         ).start()
+
+    def record_analysis(self, owner_id: str, result: InsightResult, profile: Profile) -> None:
+        source_fingerprint = build_source_profile(profile).fingerprint
+        with self._lock:
+            self._analyses[owner_id] = (source_fingerprint, result)
+
+    def invalidate_analysis(self) -> None:
+        with self._lock:
+            self._analyses.clear()
 
     def event_buffer(self, owner_id: str, session_id: str) -> EventBuffer:
         return self._session(owner_id, session_id).events

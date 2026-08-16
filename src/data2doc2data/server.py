@@ -15,6 +15,7 @@ from .agents.gateway import AgentGateway
 from .analysis import InputValidationError, analyze, validate_profile
 from .config import Profile, ProfileError, ProfileStore
 from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
+from .evidence_context import build_source_profile
 from .sessions import AuditStore, SessionStore
 
 
@@ -61,6 +62,7 @@ def create_server(
         workspace,
         session_store or SessionStore(state_directory / "agent-sessions.json"),
         audit_store or AuditStore(state_directory / "agent-audit.jsonl"),
+        store,
     )
     server = CompanionHTTPServer((host, port), _handler_class())
     server.profile_store = store
@@ -109,6 +111,15 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                     {"configured": profile is not None, "profile": profile.to_dict() if profile else None},
                 )
                 return
+            if path == "/api/source-profile":
+                try:
+                    profile = self._store().load() or Profile.demo()
+                    source_profile = build_source_profile(profile)
+                except (InputValidationError, ProfileError) as error:
+                    self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+                    return
+                self._send_json(HTTPStatus.OK, source_profile.to_dict())
+                return
             if path == "/api/demo-scenarios":
                 try:
                     catalog = DemoScenarioCatalog.load()
@@ -138,6 +149,7 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 profile = Profile.from_dict(self._read_json())
                 validate_profile(profile)
                 self._store().save(profile)
+                self._agents().invalidate_analysis()
             except (InputValidationError, ProfileError, ValueError) as error:
                 self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
                 return
@@ -171,6 +183,9 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 metric_override = payload.get("metric_override") if isinstance(payload, dict) else None
                 profile = self._store().load() or Profile.demo()
                 result = analyze(question, profile, metric_override, self._store().index_cache_path)
+                owner_id = self._optional_agent_owner()
+                if owner_id is not None:
+                    self._agents().record_analysis(owner_id, result, profile)
                 self._send_json(HTTPStatus.OK, result.to_dict())
             except (InputValidationError, ProfileError, ValueError) as error:
                 self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
@@ -237,6 +252,12 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 self.headers.get("Cookie"),
                 self.headers.get("X-CSRF-Token"),
             )
+
+        def _optional_agent_owner(self) -> str | None:
+            try:
+                return self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            except AgentApiError:
+                return None
 
         def _allow_local_origin(self) -> bool:
             expected_host = f"127.0.0.1:{self.server.server_port}"

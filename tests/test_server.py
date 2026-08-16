@@ -46,6 +46,19 @@ class LocalServerTests(unittest.TestCase):
         self.assertNotIn("strategy.md", encoded)
         self.assertNotIn(str(Path(__file__).resolve().parent), encoded)
 
+    def test_source_profile_api_returns_safe_default_demo_counts(self):
+        status, payload = request_json(self.base_url, "GET", "/api/source-profile")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["record_count"], 12)
+        self.assertEqual(payload["metrics"], ["activation_rate", "retention_rate"])
+        self.assertEqual(len(payload["observation_dates"]), 6)
+        self.assertEqual(payload["document_count"], 1)
+        encoded = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("metrics.csv", encoded)
+        self.assertNotIn("strategy.md", encoded)
+        self.assertNotIn("0.66", encoded)
+
     def test_profile_api_reports_a_corrupt_local_profile(self):
         self.store.path.write_text("not JSON", encoding="utf-8")
 

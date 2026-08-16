@@ -24,6 +24,7 @@ class FakeWebProvider:
         self.approval = None
         self.interrupted = None
         self.approval_expires_at = None
+        self.messages = []
 
     def detect(self):
         return ProviderStatus(self.available, self.connected, version="1.2.3", detail=self.detail)
@@ -35,6 +36,7 @@ class FakeWebProvider:
         return resume_id or "provider-session"
 
     def stream_turn(self, session, message):
+        self.messages.append(message)
         yield AgentEvent("message.delta", {"text": f"reply: {message}"})
         approval_payload = {
             "request_id": "approval-1",
@@ -90,8 +92,8 @@ class AgentServerTests(unittest.TestCase):
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         return cookie, payload["csrf_token"], payload
 
-    def create_session(self, mode="collaborative"):
-        cookie, csrf, _ = self.authenticate()
+    def create_session(self, mode="collaborative", browser=None):
+        cookie, csrf = browser or self.authenticate()[:2]
         status, payload, _ = self.request(
             "POST",
             "/api/agent-sessions",
@@ -154,9 +156,14 @@ class AgentServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             [event["kind"] for event in events],
-            ["message.delta", "approval.request", "turn.completed"],
+            ["context.attached", "message.delta", "approval.request", "turn.completed"],
         )
-        approval = events[1]["payload"]
+        context = events[0]["payload"]
+        self.assertEqual(context["record_count"], 12)
+        self.assertEqual(context["metric_count"], 2)
+        self.assertEqual(context["date_count"], 6)
+        self.assertEqual(context["document_count"], 1)
+        approval = events[2]["payload"]
         self.assertEqual(approval["command"], "python -m unittest")
         self.assertEqual(approval["working_directory"], str(self.workspace.resolve()))
 
@@ -179,6 +186,128 @@ class AgentServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 202)
         self.assertEqual(self.provider.interrupted, session_id)
+
+    def test_agent_turn_receives_server_owned_source_profile_without_raw_rows(self):
+        cookie, csrf, session = self.create_session()
+
+        status, payload, _ = self.request(
+            "POST",
+            f"/api/agent-sessions/{session['id']}/messages",
+            {"message": "数据有多少？"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.assertEqual(status, 202, payload)
+        self.request(
+            "GET",
+            f"/api/agent-sessions/{session['id']}/events",
+            cookie=cookie,
+            raw=True,
+        )
+
+        prompt = self.provider.messages[-1]
+        self.assertIn("记录数: 12", prompt)
+        self.assertIn("指标数: 2", prompt)
+        self.assertIn("日期数: 6", prompt)
+        self.assertNotIn("2026-01-05,retention_rate,0.66", prompt)
+
+    def test_browser_owned_analysis_is_attached_to_its_agent_turn(self):
+        cookie, csrf, _ = self.authenticate()
+        status, analysis, _ = self.request(
+            "POST",
+            "/api/analyze",
+            {"question": "留存为什么下降？"},
+            cookie=cookie,
+        )
+        self.assertEqual(status, 200, analysis)
+        session = self.create_session(browser=(cookie, csrf))[2]
+
+        self.request(
+            "POST",
+            f"/api/agent-sessions/{session['id']}/messages",
+            {"message": "解释当前结论"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.request(
+            "GET",
+            f"/api/agent-sessions/{session['id']}/events",
+            cookie=cookie,
+            raw=True,
+        )
+
+        prompt = self.provider.messages[-1]
+        self.assertIn("DETERMINISTIC FINDINGS", prompt)
+        self.assertIn(analysis["provenance"]["analysis_id"], prompt)
+
+    def test_analysis_context_is_not_shared_with_another_browser(self):
+        first_cookie, _, _ = self.authenticate()
+        status, analysis, _ = self.request(
+            "POST",
+            "/api/analyze",
+            {"question": "留存为什么下降？"},
+            cookie=first_cookie,
+        )
+        self.assertEqual(status, 200, analysis)
+        other_cookie, other_csrf, _ = self.authenticate()
+        other_session = self.create_session(browser=(other_cookie, other_csrf))[2]
+
+        self.request(
+            "POST",
+            f"/api/agent-sessions/{other_session['id']}/messages",
+            {"message": "解释当前结论"},
+            cookie=other_cookie,
+            csrf=other_csrf,
+        )
+        self.request(
+            "GET",
+            f"/api/agent-sessions/{other_session['id']}/events",
+            cookie=other_cookie,
+            raw=True,
+        )
+
+        self.assertNotIn("DETERMINISTIC FINDINGS", self.provider.messages[-1])
+
+    def test_saving_a_different_source_invalidates_the_latest_analysis(self):
+        cookie, csrf, _ = self.authenticate()
+        status, analysis, _ = self.request(
+            "POST",
+            "/api/analyze",
+            {"question": "留存为什么下降？"},
+            cookie=cookie,
+        )
+        self.assertEqual(status, 200, analysis)
+        session = self.create_session(browser=(cookie, csrf))[2]
+        status, profile, _ = self.request(
+            "PUT",
+            "/api/profile",
+            {
+                "mode": "demo",
+                "data_path": "",
+                "knowledge_path": "",
+                "demo_scenario": "strategy-data-conflict",
+            },
+            cookie=cookie,
+        )
+        self.assertEqual(status, 200, profile)
+
+        self.request(
+            "POST",
+            f"/api/agent-sessions/{session['id']}/messages",
+            {"message": "解释当前结论"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.request(
+            "GET",
+            f"/api/agent-sessions/{session['id']}/events",
+            cookie=cookie,
+            raw=True,
+        )
+
+        prompt = self.provider.messages[-1]
+        self.assertIn("数据源: 策略与数据冲突", prompt)
+        self.assertNotIn("DETERMINISTIC FINDINGS", prompt)
 
     def test_read_only_session_cannot_approve_a_command(self):
         cookie, csrf, session = self.create_session(mode="read_only")
