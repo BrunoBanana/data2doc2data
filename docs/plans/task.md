@@ -1,6 +1,6 @@
 | # | Task | Status | Evidence |
 |---:|---|---|---|
-| 1 | Add CI and development quality gates | pending | |
+| 1 | Add CI and development quality gates | completed | 55 tests; Ruff passed; production coverage 84% |
 | 2 | Lock in known correctness regressions | pending | |
 | 3 | Introduce MetricSpec and signal engine | pending | |
 | 4 | Add structured hypothesis verification | pending | |

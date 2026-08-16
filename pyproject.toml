@@ -15,6 +15,12 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "coverage>=7.6",
+  "ruff>=0.9",
+]
+
 [project.urls]
 Homepage = "https://github.com/BrunoBanana/data2doc2data"
 Issues = "https://github.com/BrunoBanana/data2doc2data/issues"
@@ -30,3 +36,17 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 data2doc2data = ["sample/*.csv", "sample/*.md", "static/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.coverage.run]
+source = ["src/data2doc2data", "scripts"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
