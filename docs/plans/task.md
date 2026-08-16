@@ -22,4 +22,4 @@
 | 20 | Bind deterministic analysis and context to agent turns | completed | 31 focused tests; browser-owned analysis, isolation, invalidation, safe source-profile API and context SSE covered |
 | 21 | Rebuild the page as a three-column evidence workbench | completed | 20 frontend contracts, Node syntax, Ruff, 19 agent/context tests; desktop rails, mobile tabs, source/context status and SSE resume covered |
 | 22 | Document grounded context and update release boundaries | completed | 19 release/metadata tests; deterministic 36-file ZIP includes evidence context runtime and documents local/raw/provider boundaries |
-| 23 | Run three use-test and optimization rounds | in_progress | Round 1 starting |
+| 23 | Run three use-test and optimization rounds | completed | Round 1: default 12/2/6/1 grounding and precise Codex quota error; Round 2: contradiction flow, WorkBuddy 2.115 Streamable HTTP compatibility and explicit auth state; Round 3: insufficient flow, 1280px/390px, keyboard tabs, zero overflow/console errors. JS/Ruff clean; 171 tests; 84% coverage; deterministic 36-file ZIP SHA-256 539faaa9... |
