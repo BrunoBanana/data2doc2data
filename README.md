@@ -19,13 +19,13 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 - Three built-in fictional synthetic scenarios: supported evidence, strategy conflict, and insufficient evidence
 - User-supplied local CSV data
 - User-supplied local Markdown / text decision documents
-- Local web UI for configuration and analysis (Chinese)
+- Three-column evidence workbench for data, deterministic analysis, and assistant collaboration (Chinese)
 - Direct web conversations with a locally installed Codex or Tencent WorkBuddy/CodeBuddy
 - Read-only, per-operation approval, and trusted-session permission modes
 - CLI for configuration, analysis, and status check
 - Explicit metric specification when a question cannot uniquely identify one
 
-Deterministic evidence analysis reads source files locally and does not upload them. When you explicitly connect an agent, prompts and agent operations are handled by that locally installed provider under its own account and data policy; the web UI does not silently attach your CSV or documents.
+Deterministic evidence analysis reads and computes over source files locally. Raw CSV rows are never placed in the agent prompt. When you explicitly send an agent message, Data2Doc2Data attaches a bounded evidence snapshot containing source counts, local metric summaries, the matching deterministic result, and only document excerpts relevant to that question. The selected Codex or WorkBuddy provider handles that snapshot under its own account and data policy; the workbench shows the snapshot ID, excerpt count, and compression state for every turn.
 
 ## Installation
 
@@ -64,6 +64,10 @@ After evidence analysis, connect Codex or Tencent WorkBuddy from the same page. 
 All sessions are restricted to the directory from which `data2doc2data setup` was launched. Browser ownership, CSRF checks, approval expiry, path containment, redacted audit records, interruption, and child-process cleanup are enforced locally. Agent explanations and actions never replace the deterministic analysis result.
 
 The first Codex turn can take up to roughly two minutes while its local app server and tools cold-start; later turns are usually faster. If an agent is shown as unavailable, check the command above, sign-in state, CLI compatibility, and restart `data2doc2data setup`. WorkBuddy requires the `codebuddy` executable; it is not bundled with this project.
+
+### Grounded context and long conversations
+
+Each message creates a new server-owned evidence snapshot from the active source profile. Local computation produces record, metric, date, and document counts plus per-metric first/last/change summaries; matching deterministic findings and query-relevant document excerpts are then added. Raw CSV rows remain local. If the configured byte budget is exceeded, lower-ranked excerpts are dropped automatically and the snapshot is marked compressed. This supports repeated turns without treating the entire dataset or full conversation as model context. Saving a different data source invalidates the previous deterministic result before the next turn.
 
 ## Local Data Format
 
@@ -125,13 +129,13 @@ Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档
 - 三套内置虚构合成数据：证据支持、策略冲突、证据不足
 - 使用者自有的本地 CSV 数据
 - 使用者自有的本地 Markdown 与文本决策文档
-- 中文本地配置与分析页面
+- 数据、确定性分析、助手协作一体化的三栏工作台
 - 在网页中直接连接本机 Codex 或腾讯 WorkBuddy/CodeBuddy
 - 只读、逐次审批和会话级受限信任三种权限模式
 - 命令行配置、分析与状态检查
 - 当问题不能唯一定位指标时，支持显式指定指标
 
-确定性分析只在本机读取证据文件，不会上传源数据。只有使用者明确连接智能助手后，提示词和助手操作才会由已安装的提供方依据其账户与数据策略处理；网页不会静默附加 CSV 或文档内容。
+确定性分析只在本机读取并计算证据文件，原始 CSV 始终留在本机，不会写入助手提示词。只有使用者明确发送助手消息时，系统才会建立有界证据快照：其中包含数据源计数、本地计算的统计摘要、与当前数据源匹配的确定性结论，以及针对问题检索出的相关文档片段。所选 Codex 或 WorkBuddy 会依据其账户与数据策略处理这份快照；工作台会逐轮展示快照编号、片段数量和压缩状态。
 
 ## 安装
 
@@ -170,6 +174,10 @@ data2doc2data setup
 所有会话都限制在启动 `data2doc2data setup` 时所在的目录。浏览器会话归属、CSRF、批准过期、路径边界、审计脱敏、任务中断和子进程清理都在本机执行。助手可以解释和执行，但不能覆盖确定性分析生成的证据结论。
 
 Codex 第一次对话可能因本地 app server 与工具冷启动而耗时约两分钟，后续通常更快。若页面显示助手不可用，请检查对应命令、登录状态和 CLI 兼容性，再重启 `data2doc2data setup`。腾讯 WorkBuddy 必须先安装 `codebuddy`，本项目不会捆绑该程序。
+
+### 证据上下文与多轮对话
+
+每次发送消息，服务端都会基于当前数据源重新创建一份证据快照。本地计算先生成记录数、指标数、日期范围、文档数和各指标的首值、末值与变化统计，再加入与当前数据源匹配的确定性分析结果和按本轮问题检索的相关文档片段。原始 CSV 始终留在本机。超过上下文字节预算时，系统会自动压缩，按相关度移除排名靠后的片段并在页面明确标记，不会把完整数据集或整段历史对话塞入模型上下文。切换数据源后，旧的确定性分析会立即失效，避免跨数据集引用旧结论。
 
 ## 本地数据格式
 

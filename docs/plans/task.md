@@ -21,5 +21,5 @@
 | 19 | Build bounded query-specific evidence snapshots | completed | 6 context tests; stable IDs, stale-analysis rejection, query retrieval, deterministic compression, no raw CSV rows |
 | 20 | Bind deterministic analysis and context to agent turns | completed | 31 focused tests; browser-owned analysis, isolation, invalidation, safe source-profile API and context SSE covered |
 | 21 | Rebuild the page as a three-column evidence workbench | completed | 20 frontend contracts, Node syntax, Ruff, 19 agent/context tests; desktop rails, mobile tabs, source/context status and SSE resume covered |
-| 22 | Document grounded context and update release boundaries | in_progress | TDD in progress |
-| 23 | Run three use-test and optimization rounds | pending | — |
+| 22 | Document grounded context and update release boundaries | completed | 19 release/metadata tests; deterministic 36-file ZIP includes evidence context runtime and documents local/raw/provider boundaries |
+| 23 | Run three use-test and optimization rounds | in_progress | Round 1 starting |

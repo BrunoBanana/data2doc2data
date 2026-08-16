@@ -77,6 +77,22 @@ class PublicMetadataTests(unittest.TestCase):
         self.assertIn("三套", skill)
         self.assertIn("本地智能助手不是数据连接器", connector_guide)
 
+    def test_operator_docs_explain_grounded_context_and_local_compute_boundary(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+        for term in (
+            "三栏工作台",
+            "原始 CSV 始终留在本机",
+            "统计摘要",
+            "相关文档片段",
+            "自动压缩",
+            "证据快照",
+        ):
+            self.assertIn(term, readme)
+        self.assertIn("证据上下文", changelog)
+        self.assertNotIn("网页不会静默附加 CSV 或文档内容", readme)
+
     def test_public_release_text_has_no_stale_v0_1_label(self):
         for relative_path in (
             "README.md",

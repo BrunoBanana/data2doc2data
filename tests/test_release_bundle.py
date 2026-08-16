@@ -27,6 +27,7 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/cli.py",
         "src/data2doc2data/config.py",
         "src/data2doc2data/demo_scenarios.py",
+        "src/data2doc2data/evidence_context.py",
         "src/data2doc2data/hypotheses.py",
         "src/data2doc2data/metrics.py",
         "src/data2doc2data/permissions.py",
