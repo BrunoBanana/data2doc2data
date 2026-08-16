@@ -25,7 +25,12 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
             print(json.dumps({"configured": profile is not None, "mode": profile.mode if profile else None}), file=output)
             return 0
         if args.command == "analyze":
-            result = analyze(args.question, store.load() or Profile.demo(), args.metric_override)
+            result = analyze(
+                args.question,
+                store.load() or Profile.demo(),
+                args.metric_override,
+                store.index_cache_path,
+            )
             print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), file=output)
             return 0
         return _run_setup(store, args.port, args.no_browser, output)

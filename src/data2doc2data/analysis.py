@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict, dataclass
 from datetime import date
+import hashlib
+import io
 import math
 from pathlib import Path
 import re
@@ -12,6 +14,8 @@ import re
 from .config import Profile
 from .hypotheses import ClauseVerification, parse_controlled_hypothesis, verify_hypothesis
 from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
+from .provenance import AnalysisProvenance, SourceRef, build_provenance
+from .retrieval import index_documents, search_chunks
 
 
 METRIC_ALIASES = {
@@ -31,7 +35,10 @@ MAX_DOCUMENTS = 200
 class DocumentContext:
     source: str
     excerpt: str
-    relevance: int
+    relevance: float
+    sha256: str = ""
+    start_line: int | None = None
+    end_line: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,7 @@ class InsightResult:
     validation: Validation
     verification: Verification
     evidence: tuple[str, ...]
+    provenance: AnalysisProvenance
     limitation: str
 
     def to_dict(self) -> dict[str, object]:
@@ -76,6 +84,7 @@ def analyze(
     question: str,
     profile: Profile,
     metric_override: str | None = None,
+    cache_path: Path | None = None,
 ) -> InsightResult:
     normalized_question = question.strip()
     if not normalized_question:
@@ -84,11 +93,11 @@ def analyze(
         raise InputValidationError("metric override must be text")
 
     csv_path, document_paths = _resolve_sources(profile)
-    rows = _read_metrics(csv_path)
+    rows, csv_sha256 = _read_metrics_source(csv_path)
     metric = _select_metric(normalized_question, rows, metric_override)
     signal = _build_signal(metric, [row for row in rows if row.metric == metric])
     context_query = f"{normalized_question} {metric} {' '.join(METRIC_ALIASES.get(metric, ()))}"
-    context = _best_context(context_query, document_paths)
+    context = _best_context(context_query, document_paths, cache_path)
     verification = _verify_document_condition(signal, rows, context)
     validation = _validate(signal, context, verification)
     evidence = [
@@ -101,7 +110,38 @@ def analyze(
         "本地分析将 CSV 趋势与关键词匹配的文本进行对照。"
         "因果结论仍需补充数据并经人工复核。"
     )
-    return InsightResult(normalized_question, signal, context, validation, verification, tuple(evidence), limitation)
+    sources = (
+        SourceRef(
+            path=str(csv_path.resolve()),
+            sha256=csv_sha256,
+            rows=tuple(row.source_row for row in rows if row.source_row is not None),
+        ),
+        SourceRef(
+            path=context.source,
+            sha256=context.sha256,
+            start_line=context.start_line,
+            end_line=context.end_line,
+        ),
+    )
+    provenance = build_provenance(
+        sources,
+        {
+            "question": normalized_question,
+            "metric": metric,
+            "metric_override": metric_override,
+            "signal_spec": asdict(signal.spec) if signal.spec else None,
+        },
+    )
+    return InsightResult(
+        question=normalized_question,
+        signal=signal,
+        context=context,
+        validation=validation,
+        verification=verification,
+        evidence=tuple(evidence),
+        provenance=provenance,
+        limitation=limitation,
+    )
 
 
 def validate_profile(profile: Profile) -> None:
@@ -133,16 +173,25 @@ def _resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
 
 
 def _read_metrics(csv_path: Path) -> list[MetricRow]:
+    rows, _ = _read_metrics_source(csv_path)
+    return rows
+
+
+def _read_metrics_source(csv_path: Path) -> tuple[list[MetricRow], str]:
     try:
         if csv_path.stat().st_size > MAX_CSV_BYTES:
             raise InputValidationError(f"CSV is too large; limit is {MAX_CSV_BYTES} bytes")
-        with csv_path.open(newline="", encoding="utf-8") as handle:
+        content = csv_path.read_bytes()
+        if len(content) > MAX_CSV_BYTES:
+            raise InputValidationError(f"CSV is too large; limit is {MAX_CSV_BYTES} bytes")
+        digest = hashlib.sha256(content).hexdigest()
+        with io.StringIO(content.decode("utf-8"), newline="") as handle:
             reader = csv.DictReader(handle)
             required = {"date", "metric", "value"}
             if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
                 raise InputValidationError("CSV must include date, metric, value columns")
             rows = []
-            for record in reader:
+            for source_row, record in enumerate(reader, start=2):
                 value = float(record["value"])
                 if not math.isfinite(value):
                     raise InputValidationError("CSV metric values must be finite numbers")
@@ -151,6 +200,7 @@ def _read_metrics(csv_path: Path) -> list[MetricRow]:
                         date=date.fromisoformat(record["date"].strip()),
                         metric=record["metric"].strip().lower(),
                         value=value,
+                        source_row=source_row,
                     )
                 )
     except (OSError, ValueError, csv.Error) as error:
@@ -159,7 +209,7 @@ def _read_metrics(csv_path: Path) -> list[MetricRow]:
         raise InputValidationError(f"cannot read CSV: {error}") from error
     if not rows:
         raise InputValidationError("CSV has no metric rows")
-    return rows
+    return rows, digest
 
 
 def _select_metric(
@@ -208,29 +258,24 @@ def _build_signal(metric: str, rows: list[MetricRow]) -> Signal:
     return SignalEngine().build(spec, rows)
 
 
-def _best_context(question: str, document_paths: list[Path]) -> DocumentContext:
-    question_tokens = set(_tokens(question))
-    best: tuple[int, Path, str] | None = None
-    for path in document_paths:
-        try:
-            size = path.stat().st_size
-        except OSError as error:
-            raise InputValidationError(f"cannot read document: {path}") from error
-        if size > MAX_DOCUMENT_BYTES:
-            raise InputValidationError(f"document is too large: {path.name}")
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as error:
-            raise InputValidationError(f"cannot read document: {path}") from error
-        for excerpt in _paragraphs(text):
-            relevance = len(question_tokens.intersection(_tokens(excerpt)))
-            candidate = (relevance, path, excerpt)
-            if best is None or candidate[0] > best[0]:
-                best = candidate
-    if best is None:
+def _best_context(
+    question: str,
+    document_paths: list[Path],
+    cache_path: Path | None = None,
+) -> DocumentContext:
+    chunks = index_documents(document_paths, cache_path, MAX_DOCUMENT_BYTES)
+    if not chunks:
         raise InputValidationError("documents contain no readable text")
-    relevance, path, excerpt = best
-    return DocumentContext(str(path), excerpt[:600], relevance)
+    ranked = search_chunks(question, chunks, limit=1)
+    best = ranked[0] if ranked else chunks[0]
+    return DocumentContext(
+        str(best.path),
+        best.text[:600],
+        best.score,
+        best.sha256,
+        best.start_line,
+        best.end_line,
+    )
 
 
 def _validate(
@@ -284,8 +329,3 @@ def _tokens(value: str) -> list[str]:
 
 def _normalize_metric(value: str) -> str:
     return re.sub(r"[\W_]+", "", value.lower(), flags=re.UNICODE)
-
-
-def _paragraphs(text: str) -> list[str]:
-    paragraphs = [" ".join(part.split()) for part in re.split(r"\n\s*\n", text) if part.strip()]
-    return paragraphs or [" ".join(text.split())]

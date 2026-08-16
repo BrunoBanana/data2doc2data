@@ -27,6 +27,7 @@ class MetricRow:
     date: date
     metric: str
     value: float
+    source_row: int | None = None
 
 
 @dataclass(frozen=True)

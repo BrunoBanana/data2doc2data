@@ -48,6 +48,21 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(payload["signal"]["baseline_range"]["start"], "2026-01-05")
         self.assertEqual(payload["signal"]["current_range"]["end"], "2026-02-09")
 
+    def test_analysis_records_exact_rows_lines_hashes_and_engine_version(self):
+        result = analyze("retention", Profile.demo())
+
+        csv_source, document_source = result.provenance.sources
+        self.assertEqual(csv_source.rows, tuple(range(2, 14)))
+        self.assertRegex(csv_source.sha256, r"^[0-9a-f]{64}$")
+        self.assertGreaterEqual(document_source.start_line, 1)
+        self.assertGreaterEqual(document_source.end_line, document_source.start_line)
+        self.assertEqual(document_source.sha256, result.context.sha256)
+        self.assertTrue(result.provenance.engine_version)
+        self.assertEqual(
+            result.provenance.analysis_id,
+            analyze("retention", Profile.demo()).provenance.analysis_id,
+        )
+
     def test_local_analysis_rejects_a_csv_missing_required_columns(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

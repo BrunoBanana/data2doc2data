@@ -55,6 +55,10 @@ class ProfileStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
 
+    @property
+    def index_cache_path(self) -> Path:
+        return self.path.parent / "document-index.json"
+
     def load(self) -> Profile | None:
         if not self.path.is_file():
             return None

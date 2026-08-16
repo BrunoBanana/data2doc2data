@@ -73,7 +73,8 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 question = payload.get("question", "") if isinstance(payload, dict) else ""
                 metric_override = payload.get("metric_override") if isinstance(payload, dict) else None
                 profile = self._store().load() or Profile.demo()
-                self._send_json(HTTPStatus.OK, analyze(question, profile, metric_override).to_dict())
+                result = analyze(question, profile, metric_override, self._store().index_cache_path)
+                self._send_json(HTTPStatus.OK, result.to_dict())
             except (InputValidationError, ProfileError, ValueError) as error:
                 self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
 

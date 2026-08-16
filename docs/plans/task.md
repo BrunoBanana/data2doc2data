@@ -4,7 +4,7 @@
 | 2 | Lock in known correctness regressions | completed | 59 tests; zero baseline, finite values, and bilingual direction pairs covered |
 | 3 | Introduce MetricSpec and signal engine | completed | 67 tests; 5 aggregations, windows, duplicates, metadata, JSON covered |
 | 4 | Add structured hypothesis verification | completed | 76 tests; bilingual parsing, negation, ambiguity, schema and clause results covered |
-| 5 | Add indexed retrieval and provenance | pending | |
+| 5 | Add indexed retrieval and provenance | completed | 84 tests; BM25, Chinese n-grams, private cache, hashes, rows/lines and stable IDs covered |
 | 6 | Define provider-neutral agent gateway | pending | |
 | 7 | Add permission broker and audit store | pending | |
 | 8 | Implement Codex adapter | pending | |
