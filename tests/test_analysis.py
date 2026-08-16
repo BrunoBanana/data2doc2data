@@ -16,9 +16,65 @@ from data2doc2data.analysis import (
     analyze,
 )
 from data2doc2data.config import Profile
+from data2doc2data.demo_scenarios import DemoScenarioCatalog
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_demo_scenarios_match_golden_validation_and_provenance(self):
+        catalog = DemoScenarioCatalog.load()
+        expected = {
+            "growth-quality-alert": {
+                "verification": "confirmed",
+                "rows": tuple(range(2, 14)),
+                "lines": (7, 7),
+                "csv_sha256": "4a1c362ea2aeac65947c37647b396fa2439e4f7f8672a9443b0b58e9d0153f91",
+                "document_sha256": "ad1b88cb0698bdbe221c10b1fc87fee414253e84db2b6da909f83593d4d3b18c",
+            },
+            "strategy-data-conflict": {
+                "verification": "not_confirmed",
+                "rows": tuple(range(2, 14)),
+                "lines": (5, 6),
+                "csv_sha256": "ca32924c575267a45adc7adb3f5e129ba92d69b9758b700710e750d561af10bc",
+                "document_sha256": "90c7513c20a071e5f0ec3f5eec4618780d4f6607d62a5e82c439202d7c7bcf09",
+            },
+            "insufficient-evidence": {
+                "verification": "unavailable",
+                "rows": tuple(range(2, 8)),
+                "lines": (7, 7),
+                "csv_sha256": "804dcd9390e16b201320fb17be47636b6e9234ad76b58f0eddf93c4b18a84766",
+                "document_sha256": "45016d683f3d070fcf9922ee15cd51e381ee664934cddb826bc0c41519bdf63d",
+            },
+        }
+
+        for scenario in catalog.list():
+            with self.subTest(scenario=scenario.id):
+                metrics_path, document_path = catalog.sources(scenario.id)
+                profile = Profile("local", str(metrics_path), str(document_path.parent))
+                result = analyze(scenario.suggested_question, profile)
+                csv_source, document_source = result.provenance.sources
+                golden = expected[scenario.id]
+
+                self.assertEqual(result.validation.status, scenario.expected_validation)
+                self.assertEqual(result.verification.status, golden["verification"])
+                self.assertEqual(csv_source.path, str(metrics_path.resolve()))
+                self.assertEqual(document_source.path, str(document_path.resolve()))
+                self.assertEqual(csv_source.sha256, golden["csv_sha256"])
+                self.assertEqual(document_source.sha256, golden["document_sha256"])
+                self.assertEqual(csv_source.rows, golden["rows"])
+                self.assertEqual(
+                    (document_source.start_line, document_source.end_line),
+                    golden["lines"],
+                )
+
+    def test_demo_profile_uses_the_catalog_default_sources(self):
+        metrics_path, document_path = DemoScenarioCatalog.load().sources("growth-quality-alert")
+
+        result = analyze("留存为什么下降？", Profile.demo())
+        csv_source, document_source = result.provenance.sources
+
+        self.assertEqual(csv_source.path, str(metrics_path.resolve()))
+        self.assertEqual(document_source.path, str(document_path.resolve()))
+
     def test_analysis_returns_signal_context_and_evidence_for_demo(self):
         result = analyze("Why did retention fall?", Profile.demo())
 
@@ -235,7 +291,6 @@ class AnalysisTests(unittest.TestCase):
             MetricRow(date(2026, 1, 1), "activation_rate", 0.40),
             MetricRow(date(2026, 1, 2), "activation_rate", 0.50),
         ]
-
 
 if __name__ == "__main__":
     unittest.main()

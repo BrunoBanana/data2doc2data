@@ -12,7 +12,7 @@
 | 10 | Expose secure session and SSE APIs | completed | 117 tests; strict cookie/CSRF, ownership, bounded SSE, approvals, limits and fallback covered |
 | 11 | Build web conversation and approvals | completed | 122 tests; accessible UI, safe text rendering, SSE lifecycle, responsive layout and live Codex turn verified |
 | 12 | Add validated synthetic demo scenario catalog | completed | 9 tests; strict schema, stable order/default, immutable metadata, fixed paths, missing files and symlink containment covered |
-| 13 | Add synthetic scenario data and golden outcomes | pending | |
+| 13 | Add synthetic scenario data and golden outcomes | completed | 37 focused tests; all fixtures are labeled synthetic, duplicate-free and locked to exact statuses, rows, line ranges and hashes |
 | 14 | Persist and expose demo scenario selection | pending | |
 | 15 | Build the web demo scenario experience | pending | |
 | 16 | Update bundle, docs, and release evidence | pending | |

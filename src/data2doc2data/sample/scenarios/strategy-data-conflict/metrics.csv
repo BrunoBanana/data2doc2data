@@ -1,0 +1,13 @@
+date,metric,value
+2026-03-02,retention_rate,0.68
+2026-03-09,retention_rate,0.67
+2026-03-16,retention_rate,0.66
+2026-03-23,retention_rate,0.60
+2026-03-30,retention_rate,0.58
+2026-04-06,retention_rate,0.57
+2026-03-02,activation_rate,0.41
+2026-03-09,activation_rate,0.42
+2026-03-16,activation_rate,0.43
+2026-03-23,activation_rate,0.48
+2026-03-30,activation_rate,0.50
+2026-04-06,activation_rate,0.52

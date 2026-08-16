@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+import csv
 import json
 from pathlib import Path
 import tempfile
@@ -49,6 +50,19 @@ class DemoScenarioCatalogTests(unittest.TestCase):
             [scenario.id for scenario in catalog.list()],
             ["growth-quality-alert", "strategy-data-conflict", "insufficient-evidence"],
         )
+
+    def test_package_scenarios_have_complete_synthetic_duplicate_free_sources(self):
+        catalog = DemoScenarioCatalog.load()
+
+        for scenario in catalog.list():
+            with self.subTest(scenario=scenario.id):
+                metrics_path, document_path = catalog.sources(scenario.id)
+                self.assertIn("虚构合成数据", document_path.read_text(encoding="utf-8"))
+                with metrics_path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                identities = [(row["date"], row["metric"]) for row in rows]
+                self.assertTrue(rows)
+                self.assertEqual(len(identities), len(set(identities)))
 
     def test_metadata_is_immutable_and_public_payload_contains_no_paths(self):
         catalog = self.make_catalog()

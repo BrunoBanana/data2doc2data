@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 
 from .config import Profile
+from .demo_scenarios import DEFAULT_DEMO_SCENARIO, DemoScenarioCatalog, DemoScenarioError
 from .hypotheses import ClauseVerification, parse_controlled_hypothesis, verify_hypothesis
 from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
 from .provenance import AnalysisProvenance, SourceRef, build_provenance
@@ -153,8 +154,12 @@ def validate_profile(profile: Profile) -> None:
 
 def _resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
     if profile.mode == "demo":
-        root = Path(__file__).resolve().parent / "sample"
-        return root / "metrics.csv", [root / "strategy.md"]
+        scenario_id = getattr(profile, "demo_scenario", DEFAULT_DEMO_SCENARIO)
+        try:
+            metrics_path, document_path = DemoScenarioCatalog.load().sources(scenario_id)
+        except DemoScenarioError as error:
+            raise InputValidationError(f"cannot load demo scenario: {error}") from error
+        return metrics_path, [document_path]
 
     csv_path = Path(profile.data_path).expanduser()
     document_root = Path(profile.knowledge_path).expanduser()
@@ -287,6 +292,10 @@ def _validate(
         return Validation("insufficient", "所选文档与已确定指标没有相关交集。")
     if verification and verification.status == "confirmed":
         return Validation("supported", "文档中的条件同时符合两项本地指标变化，获得数据支持。")
+    if verification and verification.status == "not_confirmed":
+        return Validation("contradicted", "本地指标方向与文档中的策略假设相矛盾。")
+    if verification and verification.status == "unavailable":
+        return Validation("insufficient", "文档中的跨指标假设缺少可验证的本地指标。")
     context_tokens = set(_tokens(context.excerpt))
     metric_tokens = set(_tokens(signal.metric))
     has_metric_context = bool(metric_tokens.intersection(context_tokens))
