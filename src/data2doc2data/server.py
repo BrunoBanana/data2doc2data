@@ -14,6 +14,7 @@ from .agent_api import AgentApiError, AgentWebService, BROWSER_SESSION_SECONDS, 
 from .agents.gateway import AgentGateway
 from .analysis import InputValidationError, analyze, validate_profile
 from .config import Profile, ProfileError, ProfileStore
+from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
 from .sessions import AuditStore, SessionStore
 
 
@@ -106,6 +107,23 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 self._send_json(
                     HTTPStatus.OK,
                     {"configured": profile is not None, "profile": profile.to_dict() if profile else None},
+                )
+                return
+            if path == "/api/demo-scenarios":
+                try:
+                    catalog = DemoScenarioCatalog.load()
+                except DemoScenarioError:
+                    self._send_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {"error": "demo scenario catalog is unavailable"},
+                    )
+                    return
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "default": catalog.default.id,
+                        "scenarios": [scenario.to_dict() for scenario in catalog.list()],
+                    },
                 )
                 return
             self._serve_static(path)

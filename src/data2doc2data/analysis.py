@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 
 from .config import Profile
-from .demo_scenarios import DEFAULT_DEMO_SCENARIO, DemoScenarioCatalog, DemoScenarioError
+from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
 from .hypotheses import ClauseVerification, parse_controlled_hypothesis, verify_hypothesis
 from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
 from .provenance import AnalysisProvenance, SourceRef, build_provenance
@@ -154,9 +154,8 @@ def validate_profile(profile: Profile) -> None:
 
 def _resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
     if profile.mode == "demo":
-        scenario_id = getattr(profile, "demo_scenario", DEFAULT_DEMO_SCENARIO)
         try:
-            metrics_path, document_path = DemoScenarioCatalog.load().sources(scenario_id)
+            metrics_path, document_path = DemoScenarioCatalog.load().sources(profile.demo_scenario)
         except DemoScenarioError as error:
             raise InputValidationError(f"cannot load demo scenario: {error}") from error
         return metrics_path, [document_path]

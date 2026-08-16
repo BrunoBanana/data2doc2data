@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from .demo_scenarios import DEFAULT_DEMO_SCENARIO, DemoScenarioCatalog, DemoScenarioError
+
 
 ProfileMode = Literal["demo", "local"]
 
@@ -21,16 +23,24 @@ class Profile:
     mode: ProfileMode
     data_path: str
     knowledge_path: str
+    demo_scenario: str = DEFAULT_DEMO_SCENARIO
 
     def __post_init__(self) -> None:
         if self.mode not in {"demo", "local"}:
             raise ProfileError("mode must be 'demo' or 'local'")
         if not isinstance(self.data_path, str) or not isinstance(self.knowledge_path, str):
             raise ProfileError("source paths must be text")
+        if not isinstance(self.demo_scenario, str):
+            raise ProfileError("demo scenario must be text")
+        if self.mode == "demo":
+            try:
+                DemoScenarioCatalog.load().get(self.demo_scenario)
+            except DemoScenarioError as error:
+                raise ProfileError(str(error)) from error
 
     @classmethod
-    def demo(cls) -> "Profile":
-        return cls(mode="demo", data_path="", knowledge_path="")
+    def demo(cls, scenario_id: str = DEFAULT_DEMO_SCENARIO) -> "Profile":
+        return cls(mode="demo", data_path="", knowledge_path="", demo_scenario=scenario_id)
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -44,6 +54,7 @@ class Profile:
                 mode=value["mode"],
                 data_path=value.get("data_path", ""),
                 knowledge_path=value.get("knowledge_path", ""),
+                demo_scenario=value.get("demo_scenario", DEFAULT_DEMO_SCENARIO),
             )
         except (KeyError, TypeError) as error:
             raise ProfileError("profile is missing required fields") from error

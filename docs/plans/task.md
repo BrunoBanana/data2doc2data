@@ -13,7 +13,7 @@
 | 11 | Build web conversation and approvals | completed | 122 tests; accessible UI, safe text rendering, SSE lifecycle, responsive layout and live Codex turn verified |
 | 12 | Add validated synthetic demo scenario catalog | completed | 9 tests; strict schema, stable order/default, immutable metadata, fixed paths, missing files and symlink containment covered |
 | 13 | Add synthetic scenario data and golden outcomes | completed | 37 focused tests; all fixtures are labeled synthetic, duplicate-free and locked to exact statuses, rows, line ranges and hashes |
-| 14 | Persist and expose demo scenario selection | pending | |
+| 14 | Persist and expose demo scenario selection | completed | 51 focused tests; old profiles default safely, selection round-trips, API metadata has no paths, and saved scenarios drive analysis |
 | 15 | Build the web demo scenario experience | pending | |
 | 16 | Update bundle, docs, and release evidence | pending | |
 | 17 | Run final regression and security verification | pending | |

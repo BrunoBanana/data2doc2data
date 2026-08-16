@@ -32,6 +32,20 @@ class LocalServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"configured": False, "profile": None})
 
+    def test_demo_scenario_api_returns_ordered_metadata_without_paths(self):
+        status, payload = request_json(self.base_url, "GET", "/api/demo-scenarios")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["default"], "growth-quality-alert")
+        self.assertEqual(
+            [scenario["id"] for scenario in payload["scenarios"]],
+            ["growth-quality-alert", "strategy-data-conflict", "insufficient-evidence"],
+        )
+        encoded = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("metrics.csv", encoded)
+        self.assertNotIn("strategy.md", encoded)
+        self.assertNotIn(str(Path(__file__).resolve().parent), encoded)
+
     def test_profile_api_reports_a_corrupt_local_profile(self):
         self.store.path.write_text("not JSON", encoding="utf-8")
 
@@ -107,6 +121,36 @@ class LocalServerTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["signal"]["metric"], "retention_rate")
+
+    def test_saved_demo_scenario_controls_subsequent_analysis(self):
+        save_status, saved = request_json(
+            self.base_url,
+            "PUT",
+            "/api/profile",
+            {"mode": "demo", "demo_scenario": "strategy-data-conflict"},
+        )
+        analysis_status, result = request_json(
+            self.base_url,
+            "POST",
+            "/api/analyze",
+            {"question": "留存变化符合策略预期吗？"},
+        )
+
+        self.assertEqual(save_status, 200)
+        self.assertEqual(saved["profile"]["demo_scenario"], "strategy-data-conflict")
+        self.assertEqual(analysis_status, 200)
+        self.assertEqual(result["validation"]["status"], "contradicted")
+
+    def test_profile_api_rejects_an_invalid_demo_scenario(self):
+        status, payload = request_json(
+            self.base_url,
+            "PUT",
+            "/api/profile",
+            {"mode": "demo", "demo_scenario": "../../private"},
+        )
+
+        self.assertEqual(status, 422)
+        self.assertIn("scenario", payload["error"])
 
 
 def request_json(base_url, method, path, payload=None):
