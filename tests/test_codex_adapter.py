@@ -14,13 +14,14 @@ FAKE_SERVER = FIXTURE_ROOT / "fake_app_server.py"
 
 
 class CodexAdapterTests(unittest.TestCase):
-    def make_provider(self, workspace, *server_args, timeout=2.0):
+    def make_provider(self, workspace, *server_args, timeout=2.0, event_timeout=None):
         return CodexProvider(
             workspace=workspace,
             executable=sys.executable,
             version_command=(sys.executable, str(FAKE_SERVER), "--version"),
             app_server_command=(sys.executable, "-u", str(FAKE_SERVER), *server_args),
             request_timeout=timeout,
+            event_timeout=event_timeout,
         )
 
     def test_fake_app_server_turn_is_normalized(self):
@@ -69,6 +70,24 @@ class CodexAdapterTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 provider.connect()
             provider.close()
+
+    def test_turn_event_timeout_is_separate_from_rpc_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            provider = self.make_provider(
+                workspace,
+                "--delay-turn-events",
+                timeout=0.05,
+                event_timeout=0.5,
+            )
+            gateway = AgentGateway({"codex": provider})
+            gateway.connect("codex")
+            session = gateway.create_session("codex", workspace)
+
+            events = list(gateway.send("codex", session, "hello"))
+
+            self.assertEqual(events[-1].kind, "turn.completed")
+            gateway.close()
 
     def test_default_start_command_contains_no_bypass_flags(self):
         with tempfile.TemporaryDirectory() as directory:

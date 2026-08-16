@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import sys
+import time
 
 
 if "--version" in sys.argv:
@@ -10,6 +11,7 @@ if "--version" in sys.argv:
 fixture = Path(__file__).with_name("turn.jsonl")
 crash_on_turn = "--crash-on-turn" in sys.argv
 hang_on_initialize = "--hang-on-initialize" in sys.argv
+delay_turn_events = "--delay-turn-events" in sys.argv
 
 for line in sys.stdin:
     request = json.loads(line)
@@ -20,9 +22,21 @@ for line in sys.stdin:
             continue
         response = {"id": request_id, "result": {"userAgent": "fake-codex"}}
     elif method in {"thread/start", "thread/resume"}:
-        response = {"id": request_id, "result": {"thread": {"id": "thread-1"}}}
+        if "runtimeWorkspaceRoots" in request.get("params", {}):
+            response = {
+                "id": request_id,
+                "error": {"code": -32600, "message": "runtimeWorkspaceRoots requires experimentalApi capability"},
+            }
+        else:
+            response = {"id": request_id, "result": {"thread": {"id": "thread-1"}}}
     elif method == "turn/start":
-        response = {"id": request_id, "result": {"turn": {"id": "turn-1"}}}
+        if "runtimeWorkspaceRoots" in request.get("params", {}):
+            response = {
+                "id": request_id,
+                "error": {"code": -32600, "message": "runtimeWorkspaceRoots requires experimentalApi capability"},
+            }
+        else:
+            response = {"id": request_id, "result": {"turn": {"id": "turn-1"}}}
     elif method == "turn/interrupt":
         response = {"id": request_id, "result": {}}
     elif request_id == 900:
@@ -33,6 +47,8 @@ for line in sys.stdin:
     if method == "turn/start":
         if crash_on_turn:
             raise SystemExit(7)
+        if delay_turn_events:
+            time.sleep(0.1)
         workspace = request["params"]["cwd"]
         for event_line in fixture.read_text(encoding="utf-8").splitlines():
             event = json.loads(event_line.replace("WORKSPACE", workspace))

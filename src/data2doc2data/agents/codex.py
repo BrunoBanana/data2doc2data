@@ -32,16 +32,20 @@ class CodexProvider:
         version_command: tuple[str, ...] | None = None,
         app_server_command: tuple[str, ...] | None = None,
         request_timeout: float = 10.0,
+        event_timeout: float | None = None,
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
         if not self.workspace.is_dir():
             raise ValueError("Codex workspace must be an existing directory")
         if request_timeout <= 0:
             raise ValueError("Codex request timeout must be positive")
+        if event_timeout is not None and event_timeout <= 0:
+            raise ValueError("Codex event timeout must be positive")
         self.executable = executable
         self.version_command = version_command or (executable, "--version")
         self.start_command = app_server_command or (executable, "app-server", "--stdio")
         self.request_timeout = request_timeout
+        self.event_timeout = event_timeout if event_timeout is not None else 120.0
         self._process: subprocess.Popen[str] | None = None
         self._reader_thread: threading.Thread | None = None
         self._write_lock = threading.Lock()
@@ -135,7 +139,6 @@ class CodexProvider:
             "approvalPolicy": "on-request",
             "approvalsReviewer": "user",
             "sandbox": "read-only",
-            "runtimeWorkspaceRoots": [str(self.workspace)],
         }
         if resume_id is None:
             result = self._request("thread/start", {**common_params, "ephemeral": False})
@@ -157,7 +160,6 @@ class CodexProvider:
                 "cwd": str(self.workspace),
                 "approvalPolicy": "on-request",
                 "sandboxPolicy": {"type": "readOnly", "networkAccess": False},
-                "runtimeWorkspaceRoots": [str(self.workspace)],
             },
         )
         turn_id = _nested_text(result, "turn", "id")
@@ -167,7 +169,7 @@ class CodexProvider:
         event_queue = self._event_queues[session.provider_session_id]
         while True:
             try:
-                event = event_queue.get(timeout=self.request_timeout)
+                event = event_queue.get(timeout=self.event_timeout)
             except Empty as error:
                 raise TimeoutError("Codex event stream timed out") from error
             yield event
