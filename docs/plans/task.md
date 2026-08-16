@@ -11,7 +11,7 @@
 | 9 | Implement WorkBuddy adapter | completed | 109 tests; public ACP/HTTP, loopback binding, SSE, approval, redaction and cleanup covered |
 | 10 | Expose secure session and SSE APIs | completed | 117 tests; strict cookie/CSRF, ownership, bounded SSE, approvals, limits and fallback covered |
 | 11 | Build web conversation and approvals | completed | 122 tests; accessible UI, safe text rendering, SSE lifecycle, responsive layout and live Codex turn verified |
-| 12 | Add validated synthetic demo scenario catalog | pending | |
+| 12 | Add validated synthetic demo scenario catalog | completed | 9 tests; strict schema, stable order/default, immutable metadata, fixed paths, missing files and symlink containment covered |
 | 13 | Add synthetic scenario data and golden outcomes | pending | |
 | 14 | Persist and expose demo scenario selection | pending | |
 | 15 | Build the web demo scenario experience | pending | |
