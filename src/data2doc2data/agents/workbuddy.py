@@ -144,7 +144,7 @@ class WorkBuddyProvider:
                     "clientInfo": {
                         "name": "data2doc2data",
                         "title": "Data2Doc2Data",
-                        "version": "2.9.0",
+                        "version": "3.0.0",
                     },
                     "clientCapabilities": {},
                 },

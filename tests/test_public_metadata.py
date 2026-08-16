@@ -46,9 +46,36 @@ class PublicMetadataTests(unittest.TestCase):
             self.assertIn(title, text, relative_path)
 
     def test_public_samples_use_generic_business_context(self):
-        sample_dir = ROOT / "src" / "data2doc2data" / "sample"
-        self.assertTrue((sample_dir / "metrics.csv").is_file())
-        self.assertTrue((sample_dir / "strategy.md").is_file())
+        scenario_dir = ROOT / "src" / "data2doc2data" / "sample" / "scenarios"
+        self.assertTrue((scenario_dir / "catalog.json").is_file())
+        for scenario in (
+            "growth-quality-alert",
+            "strategy-data-conflict",
+            "insufficient-evidence",
+        ):
+            self.assertTrue((scenario_dir / scenario / "metrics.csv").is_file())
+            document = (scenario_dir / scenario / "strategy.md").read_text(encoding="utf-8")
+            self.assertIn("虚构合成数据", document)
+
+    def test_operator_docs_cover_local_agents_permissions_and_demo_boundaries(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        connector_guide = (ROOT / "references" / "connector-guide.md").read_text(encoding="utf-8")
+
+        for term in (
+            "Codex",
+            "腾讯 WorkBuddy",
+            "codebuddy",
+            "只读模式",
+            "协作模式",
+            "信任本次会话",
+            "冷启动",
+            "确定性分析",
+            "虚构合成数据",
+        ):
+            self.assertIn(term, readme)
+        self.assertIn("三套", skill)
+        self.assertIn("本地智能助手不是数据连接器", connector_guide)
 
     def test_public_release_text_has_no_stale_v0_1_label(self):
         for relative_path in (

@@ -7,7 +7,7 @@ import hashlib
 import json
 
 
-ENGINE_VERSION = "2.9.0"
+ENGINE_VERSION = "3.0.0"
 
 
 @dataclass(frozen=True)

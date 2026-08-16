@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data2doc2data"
-version = "2.9.0"
+version = "3.0.0"
 description = "面向真实业务的数据与文本循环推理架构。"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,12 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-data2doc2data = ["sample/*.csv", "sample/*.md", "static/*"]
+data2doc2data = [
+  "sample/scenarios/*.json",
+  "sample/scenarios/*/*.csv",
+  "sample/scenarios/*/*.md",
+  "static/*",
+]
 
 [tool.ruff]
 target-version = "py310"

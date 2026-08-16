@@ -14,12 +14,30 @@ PUBLIC_RESOURCE_FILES = (
     "agents/openai.yaml",
     "references/connector-guide.md",
     "src/data2doc2data/__init__.py",
+    "src/data2doc2data/agent_api.py",
+    "src/data2doc2data/agents/__init__.py",
+    "src/data2doc2data/agents/base.py",
+    "src/data2doc2data/agents/codex.py",
+    "src/data2doc2data/agents/gateway.py",
+    "src/data2doc2data/agents/workbuddy.py",
     "src/data2doc2data/analysis.py",
     "src/data2doc2data/cli.py",
     "src/data2doc2data/config.py",
+    "src/data2doc2data/demo_scenarios.py",
+    "src/data2doc2data/hypotheses.py",
+    "src/data2doc2data/metrics.py",
+    "src/data2doc2data/permissions.py",
+    "src/data2doc2data/provenance.py",
+    "src/data2doc2data/retrieval.py",
     "src/data2doc2data/server.py",
-    "src/data2doc2data/sample/metrics.csv",
-    "src/data2doc2data/sample/strategy.md",
+    "src/data2doc2data/sessions.py",
+    "src/data2doc2data/sample/scenarios/catalog.json",
+    "src/data2doc2data/sample/scenarios/growth-quality-alert/metrics.csv",
+    "src/data2doc2data/sample/scenarios/growth-quality-alert/strategy.md",
+    "src/data2doc2data/sample/scenarios/strategy-data-conflict/metrics.csv",
+    "src/data2doc2data/sample/scenarios/strategy-data-conflict/strategy.md",
+    "src/data2doc2data/sample/scenarios/insufficient-evidence/metrics.csv",
+    "src/data2doc2data/sample/scenarios/insufficient-evidence/strategy.md",
     "src/data2doc2data/static/app.css",
     "src/data2doc2data/static/app.js",
     "src/data2doc2data/static/favicon.svg",
@@ -27,7 +45,7 @@ PUBLIC_RESOURCE_FILES = (
 )
 SKILLHUB_METADATA = (
     ("slug", "data2doc2data"),
-    ("version", "2.9.0"),
+    ("version", "3.0.0"),
     ("displayName", "Data2Doc2Data-面向真实业务的数据+文本循环推理架构"),
     ("summary", "面向真实业务场景，让数据指标与策略、决策文档形成可验证的循环推理。"),
     ("tags", "[analytics, local-first, evidence]"),
@@ -52,11 +70,28 @@ SENSITIVE_PUBLIC_PATTERNS = (
 
 def bundle_files(root: Path = ROOT) -> list[Path]:
     """Return the public Skill files in a stable order."""
-    files = [root / name for name in ROOT_FILES]
-    if (root / "LICENSE").is_file():
-        files.append(root / "LICENSE")
-    files.extend(root / relative_path for relative_path in PUBLIC_RESOURCE_FILES if (root / relative_path).is_file())
+    files = []
+    for name in ROOT_FILES:
+        path = root / name
+        if path.is_symlink():
+            raise ValueError(f"public bundle refuses a symbolic link at {name}")
+        files.append(path)
+    license_path = root / "LICENSE"
+    if _is_public_regular_file(license_path, root):
+        files.append(license_path)
+    files.extend(
+        root / relative_path
+        for relative_path in PUBLIC_RESOURCE_FILES
+        if _is_public_regular_file(root / relative_path, root)
+    )
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
+
+
+def _is_public_regular_file(path: Path, root: Path) -> bool:
+    if path.is_symlink():
+        relative_path = path.relative_to(root).as_posix()
+        raise ValueError(f"public bundle refuses a symbolic link at {relative_path}")
+    return path.is_file()
 
 
 def _validate_public_contents(files: list[Path], root: Path) -> None:

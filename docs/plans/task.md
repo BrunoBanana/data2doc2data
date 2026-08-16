@@ -15,5 +15,5 @@
 | 13 | Add synthetic scenario data and golden outcomes | completed | 37 focused tests; all fixtures are labeled synthetic, duplicate-free and locked to exact statuses, rows, line ranges and hashes |
 | 14 | Persist and expose demo scenario selection | completed | 51 focused tests; old profiles default safely, selection round-trips, API metadata has no paths, and saved scenarios drive analysis |
 | 15 | Build the web demo scenario experience | completed | 31 focused tests plus live browser verification; accessible safe selector, explicit-only analysis, persistence, conflict styling and 390px no-overflow layout covered |
-| 16 | Update bundle, docs, and release evidence | pending | |
+| 16 | Update bundle, docs, and release evidence | completed | 18 release tests; 3.0.0 metadata aligned, 35-file ZIP includes complete runtime/scenarios, excludes private state, and rejects allowlisted symlinks |
 | 17 | Run final regression and security verification | pending | |
