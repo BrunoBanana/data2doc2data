@@ -73,7 +73,7 @@
           </form>
         </section>
 
-        <section class="panel analysis-panel" aria-labelledby="analysis-heading">
+        <section id="evidence-panel" class="panel analysis-panel" aria-labelledby="analysis-heading">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">交叉验证</p>
@@ -128,6 +128,68 @@
               <p id="result-limitation" class="limitation"></p>
             </section>
           </article>
+        </section>
+
+        <section id="agent-workspace" class="panel agent-panel" aria-labelledby="agent-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">本地智能助手</p>
+              <h2 id="agent-heading">继续分析与执行</h2>
+            </div>
+            <output id="agent-status" class="state-label" aria-live="polite">正在检测本地助手</output>
+          </div>
+
+          <p class="agent-boundary">助手可以解释证据并请求操作；确定性分析结论不会被助手覆盖。</p>
+
+          <form id="agent-connect-form" class="agent-controls">
+            <label class="field" for="agent-provider">
+              <span>本地助手</span>
+              <select id="agent-provider" name="provider" aria-describedby="agent-provider-hint" disabled>
+                <option value="">正在检测</option>
+              </select>
+              <span id="agent-provider-hint" class="field-hint">支持本机 Codex 与腾讯 WorkBuddy/CodeBuddy。</span>
+            </label>
+            <label class="field" for="permission-mode">
+              <span>权限模式</span>
+              <select id="permission-mode" name="permission_mode">
+                <option value="collaborative">协作模式 · 每次变更需批准</option>
+                <option value="read_only">只读模式 · 禁止变更</option>
+                <option value="trusted_session">信任本次会话 · 同类操作可复用批准</option>
+              </select>
+            </label>
+            <button id="agent-connect" type="submit" disabled>连接助手</button>
+          </form>
+
+          <div class="agent-grid">
+            <section class="conversation-panel" aria-labelledby="conversation-heading">
+              <div class="subpanel-heading">
+                <h3 id="conversation-heading">对话</h3>
+                <button id="agent-interrupt" class="button-secondary" type="button" disabled>停止当前任务</button>
+              </div>
+              <div id="conversation-log" class="conversation-log" role="log" aria-live="polite" aria-relevant="additions text">
+                <p id="conversation-empty" class="quiet-copy">连接本地助手后，可以让它解释证据、检查文件或提出下一步。</p>
+              </div>
+              <form id="agent-message-form" class="agent-message-form">
+                <label class="field" for="agent-message">
+                  <span>发送给助手</span>
+                  <textarea id="agent-message" name="message" rows="3" required disabled placeholder="例如：根据上面的证据，检查相关实现并提出修改建议。"></textarea>
+                </label>
+                <div class="form-footer">
+                  <p id="agent-message-status" class="form-message" role="status" aria-live="polite"></p>
+                  <button id="agent-send" type="submit" disabled>发送</button>
+                </div>
+              </form>
+            </section>
+
+            <aside class="operations-panel" aria-labelledby="operations-heading">
+              <div class="subpanel-heading">
+                <h3 id="operations-heading">操作与审批</h3>
+              </div>
+              <div id="operation-queue" class="operation-queue" aria-live="polite">
+                <p class="quiet-copy">工具调用、命令输出、文件差异和待审批操作会显示在这里。</p>
+              </div>
+            </aside>
+          </div>
         </section>
       </section>
     </main>

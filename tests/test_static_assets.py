@@ -28,6 +28,7 @@ class StaticAssetTests(unittest.TestCase):
     def test_styles_include_focus_and_reduced_motion_support(self):
         css = read_static("app.css")
 
+        self.assertIn("[hidden]", css)
         self.assertIn(":focus-visible", css)
         self.assertIn("prefers-reduced-motion", css)
         self.assertIn("transform: scale(.97)", css)
@@ -51,7 +52,7 @@ class StaticAssetTests(unittest.TestCase):
     def test_script_calls_only_loopback_api_routes(self):
         script = read_static("app.js")
 
-        for route in ("/api/profile", "/api/analyze"):
+        for route in ("/api/profile", "/api/analyze", "/api/agents", "/api/agent-sessions"):
             self.assertIn(route, script)
         self.assertIn("metric_override", script)
         self.assertNotIn("https://", script)

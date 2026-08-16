@@ -10,6 +10,6 @@
 | 8 | Implement Codex adapter | completed | 105 tests; initialize/thread/turn, streaming, approval, crash, timeout and cleanup covered |
 | 9 | Implement WorkBuddy adapter | completed | 109 tests; public ACP/HTTP, loopback binding, SSE, approval, redaction and cleanup covered |
 | 10 | Expose secure session and SSE APIs | completed | 117 tests; strict cookie/CSRF, ownership, bounded SSE, approvals, limits and fallback covered |
-| 11 | Build web conversation and approvals | pending | |
+| 11 | Build web conversation and approvals | completed | 122 tests; accessible UI, safe text rendering, SSE lifecycle, responsive layout and live Codex turn verified |
 | 12 | Update bundle, docs, and release evidence | pending | |
 | 13 | Run final regression and security verification | pending | |
