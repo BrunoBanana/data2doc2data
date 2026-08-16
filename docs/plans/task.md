@@ -8,7 +8,7 @@
 | 6 | Define provider-neutral agent gateway | completed | 91 tests; detection, typed errors, sessions, streaming, approvals, interrupt and cleanup covered |
 | 7 | Add permission broker and audit store | completed | 101 tests; roots, one-time/trusted grants, expiry, redaction and 0600 stores covered |
 | 8 | Implement Codex adapter | completed | 105 tests; initialize/thread/turn, streaming, approval, crash, timeout and cleanup covered |
-| 9 | Implement WorkBuddy adapter | pending | |
+| 9 | Implement WorkBuddy adapter | completed | 109 tests; public ACP/HTTP, loopback binding, SSE, approval, redaction and cleanup covered |
 | 10 | Expose secure session and SSE APIs | pending | |
 | 11 | Build web conversation and approvals | pending | |
 | 12 | Update bundle, docs, and release evidence | pending | |

@@ -1,0 +1,8 @@
+data: {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"SESSION","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello from workbuddy"}}}}
+
+data: {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"SESSION","update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"Run tests","kind":"execute","status":"pending","rawInput":{"command":"python -m unittest"}}}}
+
+data: {"jsonrpc":"2.0","id":"permission-1","method":"session/request_permission","params":{"sessionId":"SESSION","toolCall":{"toolCallId":"tool-1","title":"Run tests","kind":"execute","status":"pending","rawInput":{"command":"python -m unittest"}},"options":[{"optionId":"allow-once","name":"Allow once","kind":"allow_once"},{"optionId":"reject-once","name":"Reject","kind":"reject_once"}]}}
+
+data: {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"SESSION","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed","rawOutput":{"exitCode":0}}}}
+
