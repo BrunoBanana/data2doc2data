@@ -152,6 +152,16 @@ def validate_profile(profile: Profile) -> None:
     _best_context("evidence", document_paths)
 
 
+def resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
+    """Resolve and validate the fixed evidence sources for a saved profile."""
+    return _resolve_sources(profile)
+
+
+def read_metrics_source(csv_path: Path) -> tuple[list[MetricRow], str]:
+    """Read a bounded metrics source and return parsed rows plus its digest."""
+    return _read_metrics_source(csv_path)
+
+
 def _resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
     if profile.mode == "demo":
         try:
