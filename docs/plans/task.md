@@ -5,7 +5,7 @@
 | 3 | Introduce MetricSpec and signal engine | completed | 67 tests; 5 aggregations, windows, duplicates, metadata, JSON covered |
 | 4 | Add structured hypothesis verification | completed | 76 tests; bilingual parsing, negation, ambiguity, schema and clause results covered |
 | 5 | Add indexed retrieval and provenance | completed | 84 tests; BM25, Chinese n-grams, private cache, hashes, rows/lines and stable IDs covered |
-| 6 | Define provider-neutral agent gateway | pending | |
+| 6 | Define provider-neutral agent gateway | completed | 91 tests; detection, typed errors, sessions, streaming, approvals, interrupt and cleanup covered |
 | 7 | Add permission broker and audit store | pending | |
 | 8 | Implement Codex adapter | pending | |
 | 9 | Implement WorkBuddy adapter | pending | |
