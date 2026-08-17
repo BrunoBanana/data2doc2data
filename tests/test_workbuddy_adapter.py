@@ -8,7 +8,12 @@ import threading
 import unittest
 
 from data2doc2data.agents.gateway import AgentGateway, NotAuthenticated, ProviderUnavailable
-from data2doc2data.agents.workbuddy import WorkBuddyProvider
+from data2doc2data.agents.workbuddy import (
+    WorkBuddyProvider,
+    _decode_sse_response,
+    _is_authentication_error,
+    _unwrap_data,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "workbuddy" / "acp-stream.txt"
@@ -241,6 +246,62 @@ class WorkBuddyAdapterTests(unittest.TestCase):
             self.assertEqual(preview, "codebuddy --serve --port 8765 --session-id session-id")
             self.assertNotIn("yolo", preview)
             self.assertNotIn("dangerously", preview)
+
+
+class WorkBuddyProtocolHelpersTests(unittest.TestCase):
+    def test_unwrap_data_strips_the_envelope_only_when_plain(self):
+        self.assertEqual(_unwrap_data({"data": {"ok": True}}), {"ok": True})
+        rpc = {"data": {"id": 1}, "jsonrpc": "2.0"}
+        self.assertEqual(_unwrap_data(rpc), rpc)
+        self.assertEqual(_unwrap_data("literal"), "literal")
+
+    def test_decode_sse_response_returns_the_last_data_event(self):
+        body = 'data: {"first": 1}\n\ndata: {"second": 2}\n\n'
+
+        self.assertEqual(_decode_sse_response(body), {"second": 2})
+
+    def test_decode_sse_response_rejects_empty_stream(self):
+        with self.assertRaises(ValueError):
+            _decode_sse_response("no data here")
+
+    def test_authentication_error_is_detected_by_category_and_message(self):
+        self.assertTrue(_is_authentication_error({"data": {"category": "auth"}}))
+        self.assertTrue(_is_authentication_error({"message": "Authentication required"}))
+        self.assertFalse(_is_authentication_error({"message": "other"}))
+
+    def test_normalize_update_maps_tool_calls_and_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider = WorkBuddyProvider(Path(directory))
+
+            call = provider._normalize_update(
+                {"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Bash", "rawInput": {"cmd": "ls"}}
+            )
+            self.assertEqual(call.kind, "tool.call")
+            self.assertEqual(call.payload["call_id"], "call-1")
+            self.assertEqual(call.payload["name"], "Bash")
+
+            result = provider._normalize_update(
+                {"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "rawOutput": "ok", "status": "completed"}
+            )
+            self.assertEqual(result.kind, "tool.result")
+            self.assertFalse(result.payload["error"])
+
+    def test_normalize_update_maps_plan_and_ignores_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider = WorkBuddyProvider(Path(directory))
+
+            plan = provider._normalize_update({"sessionUpdate": "agent_thought_chunk", "content": {"text": "thinking"}})
+            self.assertEqual(plan.kind, "plan.delta")
+            self.assertEqual(plan.payload["text"], "thinking")
+
+            self.assertIsNone(provider._normalize_update({"sessionUpdate": "unknown_kind"}))
+
+    def test_normalize_update_rejects_malformed_message_chunk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider = WorkBuddyProvider(Path(directory))
+
+            with self.assertRaises(Exception):
+                provider._normalize_update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text"}})
 
 
 if __name__ == "__main__":

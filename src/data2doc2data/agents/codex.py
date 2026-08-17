@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from queue import Empty, Full, Queue
 import shutil
@@ -13,6 +12,7 @@ from typing import Mapping
 
 from .base import AgentEvent, AgentSession, ProviderStatus
 from .gateway import InvalidProviderPayload, ProviderUnavailable
+from ._shared import emit_provider_error, minimal_environment, required_text, validate_session
 
 
 class _ReaderFailure:
@@ -68,7 +68,7 @@ class CodexProvider:
                 completed = subprocess.run(
                     self.version_command,
                     cwd=self.workspace,
-                    env=_minimal_environment(),
+                    env=minimal_environment("CODEX_HOME"),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
@@ -101,7 +101,7 @@ class CodexProvider:
             self._process = subprocess.Popen(
                 self.start_command,
                 cwd=self.workspace,
-                env=_minimal_environment(),
+                env=minimal_environment("CODEX_HOME"),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -342,11 +342,11 @@ class CodexProvider:
 
     def _notification_events(self, method: str, params: dict[str, object]) -> list[AgentEvent]:
         if method == "item/agentMessage/delta":
-            return [AgentEvent("message.delta", {"text": _required_text(params, "delta")})]
+            return [AgentEvent("message.delta", {"text": required_text(self.name, params, "delta")})]
         if method == "item/plan/delta":
-            return [AgentEvent("plan.delta", {"text": _required_text(params, "delta")})]
+            return [AgentEvent("plan.delta", {"text": required_text(self.name, params, "delta")})]
         if method in {"item/commandExecution/outputDelta", "item/fileChange/outputDelta"}:
-            return [AgentEvent("command.output", {"text": _required_text(params, "delta")})]
+            return [AgentEvent("command.output", {"text": required_text(self.name, params, "delta")})]
         if method == "item/fileChange/patchUpdated":
             events = []
             changes = params.get("changes")
@@ -359,8 +359,8 @@ class CodexProvider:
                     AgentEvent(
                         "file.diff",
                         {
-                            "path": _required_text(change, "path"),
-                            "diff": _required_text(change, "diff"),
+                            "path": required_text(self.name, change, "path"),
+                            "diff": required_text(self.name, change, "diff"),
                         },
                     )
                 )
@@ -369,7 +369,7 @@ class CodexProvider:
             turn = params.get("turn")
             if not isinstance(turn, dict):
                 raise InvalidProviderPayload(self.name, "Codex completed turn is invalid")
-            turn_id = _required_text(turn, "id")
+            turn_id = required_text(self.name, turn, "id")
             status = turn.get("status")
             if status == "failed":
                 payload: dict[str, object] = {
@@ -397,9 +397,7 @@ class CodexProvider:
         self._event_queues[thread_id].put(event)
 
     def _emit_provider_error(self, message: str, code: str) -> None:
-        event = AgentEvent("provider.error", {"message": message, "code": code})
-        for event_queue in tuple(self._event_queues.values()):
-            event_queue.put(event)
+        emit_provider_error(self._event_queues, message, code)
 
     def _reader_ended(self) -> None:
         with self._state_lock:
@@ -419,15 +417,7 @@ class CodexProvider:
 
     def _validate_session(self, session: AgentSession) -> None:
         self._require_connected()
-        if session.provider != self.name or session.workspace.resolve() != self.workspace:
-            raise ValueError("Codex session does not match this provider workspace")
-        if session.provider_session_id not in self._event_queues:
-            raise ValueError("Codex session is not active")
-
-
-def _minimal_environment() -> dict[str, str]:
-    allowed = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "SHELL", "CODEX_HOME")
-    return {key: os.environ[key] for key in allowed if key in os.environ}
+        validate_session(self.name, session, self.workspace, self._event_queues)
 
 
 def _nested_text(value: object, *keys: str) -> str | None:
@@ -437,10 +427,3 @@ def _nested_text(value: object, *keys: str) -> str | None:
             return None
         current = current.get(key)
     return current if isinstance(current, str) and current else None
-
-
-def _required_text(value: Mapping[str, object], key: str) -> str:
-    result = value.get(key)
-    if not isinstance(result, str):
-        raise InvalidProviderPayload("codex", f"Codex field '{key}' must be text")
-    return result

@@ -5,7 +5,11 @@ import unittest
 
 from data2doc2data.analysis import analyze
 from data2doc2data.config import Profile
-from data2doc2data.evidence_context import EvidenceContextBuilder, build_source_profile
+from data2doc2data.evidence_context import (
+    CONTRACT_VERSION,
+    EvidenceContextBuilder,
+    build_source_profile,
+)
 
 
 class SourceProfileTests(unittest.TestCase):
@@ -129,6 +133,13 @@ class EvidenceSnapshotTests(unittest.TestCase):
         second = builder.build("数据有多少？", Profile.demo())
 
         self.assertEqual(first.summary.snapshot_id, second.summary.snapshot_id)
+
+    def test_snapshot_stamps_the_contract_version(self):
+        snapshot = EvidenceContextBuilder().build("数据有多少？", Profile.demo())
+
+        self.assertEqual(snapshot.summary.contract_version, CONTRACT_VERSION)
+        self.assertIn(f"EVIDENCE CONTRACT v{CONTRACT_VERSION}", snapshot.envelope)
+        self.assertIn("contract_version", snapshot.summary.to_dict())
 
     def test_matching_analysis_with_a_large_document_stays_inside_the_context_budget(self):
         with tempfile.TemporaryDirectory() as directory:

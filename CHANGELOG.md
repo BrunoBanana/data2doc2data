@@ -1,16 +1,18 @@
 # 更新日志
 
-## [3.1.0] - 2026-08-17
+## [Unreleased]
 
 ### 新增
 
 - 声明式验证规则 DSL（`data2doc2data/rules.py`）：使用者可用本地 JSON 文件声明指标（别名、显示名、聚合、比较窗口、方向阈值、最小观测数、重复策略）与命名多指标规则，引擎据此裁决并标注命中的 `rule_id`/`rule_name`，不再局限于内置的两个指标。
 - 分析流程改为由规则集驱动：别名解析、显示名、指标定义和文档条件验证均取自规则集；未声明规则时回退到与历史行为等价的内置默认规则集。
 - CLI 新增 `analyze --rules <path>` 与 `check-rules --rules <path>`；工作区配置（Profile）新增可选 `rules_path`，保存配置时即校验规则文件。
+- 证据契约版本化：每份证据快照与信封都会标注 `EVIDENCE CONTRACT v1`，`ContextSummary` 新增 `contract_version` 字段，供跨 harness 消费方（WorkBuddy/DeepSeek harness/Codex 插件）检测契约漂移。
 
 ### 变更
 
 - 规则文件为受信任的数据契约，加载时严格校验（版本、指标名、规则 id、方向、聚合、阈值、重复指标集等），超过 256 KB 或格式错误返回明确本地错误。
+- 助手适配器共享逻辑下沉到 `agents/_shared.py`（`emit_provider_error`、`validate_session`、`minimal_environment`、`required_text`），消除 Codex 与 WorkBuddy 之间的重复实现，并补充适配器协议测试（总覆盖率 84% → 86%，gateway 75% → 87%，codex 77% → 81%）。
 
 ## [3.0.0] - 2026-08-17
 

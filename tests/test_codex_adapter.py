@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 
-from data2doc2data.agents.codex import CodexProvider
+from data2doc2data.agents.codex import CodexProvider, _nested_text
 from data2doc2data.agents.gateway import AgentGateway
 from data2doc2data.analysis import analyze
 from data2doc2data.config import Profile
@@ -118,6 +118,50 @@ class CodexAdapterTests(unittest.TestCase):
             self.assertEqual(events[0].kind, "turn.error")
             self.assertEqual(events[0].payload["message"], "You've hit your usage limit.")
             self.assertEqual(events[0].payload["code"], "usageLimitExceeded")
+
+
+class CodexProtocolHelpersTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.provider = CodexProvider(Path(self._tmp.name))
+
+    def test_nested_text_walks_mapping_paths(self):
+        self.assertEqual(_nested_text({"thread": {"id": "t-1"}}, "thread", "id"), "t-1")
+        self.assertIsNone(_nested_text({"thread": {}}, "thread", "id"))
+        self.assertIsNone(_nested_text({"thread": "not-a-map"}, "thread", "id"))
+        self.assertIsNone(_nested_text(None, "thread", "id"))
+
+    def test_file_patch_delta_maps_to_file_diff_events(self):
+        events = self.provider._notification_events(
+            "item/fileChange/patchUpdated",
+            {"changes": [{"path": "a.txt", "diff": "-x\n+y"}]},
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].kind, "file.diff")
+        self.assertEqual(events[0].payload["path"], "a.txt")
+        self.assertEqual(events[0].payload["diff"], "-x\n+y")
+
+    def test_interrupted_turn_maps_to_cancelled(self):
+        events = self.provider._notification_events(
+            "turn/completed",
+            {"turn": {"id": "turn-1", "status": "interrupted"}},
+        )
+
+        self.assertEqual(events[0].kind, "turn.cancelled")
+        self.assertEqual(events[0].payload["turn_id"], "turn-1")
+
+    def test_completed_turn_maps_to_completed(self):
+        events = self.provider._notification_events("turn/completed", {"turn": {"id": "turn-1", "status": "completed"}})
+
+        self.assertEqual(events[0].kind, "turn.completed")
+
+    def test_malformed_file_changes_are_rejected(self):
+        from data2doc2data.agents.gateway import InvalidProviderPayload
+
+        with self.assertRaises(InvalidProviderPayload):
+            self.provider._notification_events("item/fileChange/patchUpdated", {"changes": "nope"})
 
 
 if __name__ == "__main__":

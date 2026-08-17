@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 import ipaddress
 import json
-import os
 from pathlib import Path
 from queue import Empty, Queue
 import shutil
@@ -20,6 +19,7 @@ import uuid
 
 from .base import AgentEvent, AgentSession, ProviderStatus
 from .gateway import InvalidProviderPayload, NotAuthenticated, ProviderUnavailable
+from ._shared import emit_provider_error, minimal_environment, required_text, validate_session
 
 
 MAX_HTTP_BYTES = 1_000_000
@@ -405,7 +405,7 @@ class WorkBuddyProvider:
             return AgentEvent(
                 "tool.call",
                 {
-                    "call_id": _required_text(update, "toolCallId"),
+                    "call_id": required_text(self.name, update, "toolCallId", nonempty=True),
                     "name": str(update.get("title") or update.get("kind") or "tool"),
                     "arguments": update.get("rawInput", {}),
                 },
@@ -414,7 +414,7 @@ class WorkBuddyProvider:
             return AgentEvent(
                 "tool.result",
                 {
-                    "call_id": _required_text(update, "toolCallId"),
+                    "call_id": required_text(self.name, update, "toolCallId", nonempty=True),
                     "result": update.get("rawOutput", update.get("content")),
                     "error": update.get("status") == "failed",
                 },
@@ -555,9 +555,7 @@ class WorkBuddyProvider:
         return headers
 
     def _emit_provider_error(self, message: str, code: str) -> None:
-        event = AgentEvent("provider.error", {"message": message, "code": code})
-        for event_queue in tuple(self._event_queues.values()):
-            event_queue.put(event)
+        emit_provider_error(self._event_queues, message, code)
 
     def _require_connected(self) -> None:
         if self._connection_id is None:
@@ -565,10 +563,7 @@ class WorkBuddyProvider:
 
     def _validate_session(self, session: AgentSession) -> None:
         self._require_connected()
-        if session.provider != self.name or session.workspace.resolve() != self.workspace:
-            raise ValueError("WorkBuddy session does not match this provider workspace")
-        if session.provider_session_id not in self._event_queues:
-            raise ValueError("WorkBuddy session is not active")
+        validate_session(self.name, session, self.workspace, self._event_queues)
 
 
 def _validate_endpoint(endpoint: str) -> str:
@@ -599,8 +594,7 @@ def _free_loopback_port() -> int:
 
 
 def _minimal_environment() -> dict[str, str]:
-    allowed = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "SHELL", "CODEBUDDY_HOME")
-    environment = {key: os.environ[key] for key in allowed if key in os.environ}
+    environment = minimal_environment("CODEBUDDY_HOME")
     environment["SERVER__HOST"] = "127.0.0.1"
     return environment
 
@@ -634,10 +628,3 @@ def _is_authentication_error(error: Mapping[str, object]) -> bool:
     return category == "auth" or (
         isinstance(message, str) and "authentication required" in message.lower()
     )
-
-
-def _required_text(value: Mapping[str, object], key: str) -> str:
-    result = value.get(key)
-    if not isinstance(result, str) or not result:
-        raise InvalidProviderPayload("workbuddy", f"WorkBuddy field '{key}' must be text")
-    return result

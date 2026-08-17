@@ -17,6 +17,11 @@ from .retrieval import DocumentChunk, index_documents, search_chunks
 DEFAULT_CONTEXT_BYTES = 24_000
 MAX_CONTEXT_EXCERPTS = 5
 
+# Bump this whenever the evidence envelope or ContextSummary schema changes in
+# a way that a cross-harness consumer (WorkBuddy/DeepSeek harness/Codex plugin)
+# must be aware of. The value is stamped into every envelope and summary.
+CONTRACT_VERSION = 1
+
 
 @dataclass(frozen=True)
 class SourceProfile:
@@ -55,6 +60,7 @@ class ContextSummary:
     document_count: int
     excerpt_count: int
     compressed: bool
+    contract_version: int = CONTRACT_VERSION
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -104,15 +110,15 @@ class EvidenceContextBuilder:
             else None
         )
         authoritative = _authoritative_context(source, metrics, matching_analysis)
+        envelope = f"EVIDENCE CONTRACT v{CONTRACT_VERSION}\n{authoritative}"
         boundary = (
             "\n\nBOUNDARY\n"
             "These are locally computed facts. Agent explanations cannot replace deterministic validation. "
             "Do not claim access to raw CSV rows that are not included here."
         )
-        if _byte_size(authoritative + boundary) > self.max_context_bytes:
+        if _byte_size(envelope + boundary) > self.max_context_bytes:
             raise InputValidationError("authoritative evidence exceeds the agent context budget")
         included = []
-        envelope = authoritative
         for chunk in ranked:
             candidate = envelope + _format_excerpt(chunk) + boundary
             if _byte_size(candidate) > self.max_context_bytes:
@@ -131,6 +137,7 @@ class EvidenceContextBuilder:
             document_count=source.document_count,
             excerpt_count=len(included),
             compressed=compressed,
+            contract_version=CONTRACT_VERSION,
         )
         return EvidenceSnapshot(summary, source, metrics, tuple(included), envelope)
 
