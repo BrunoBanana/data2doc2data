@@ -27,17 +27,15 @@ class WebDemoContractTests(unittest.TestCase):
         self.assertNotIn("innerHTML", script)
         self.assertNotIn("insertAdjacentHTML", script)
 
-    def test_demo_metadata_updates_suggested_question_only_on_explicit_change(self):
+    def test_demo_selector_change_does_not_trigger_analysis(self):
         script = read_all_js()
 
         self.assertIn('demoScenario.addEventListener("change"', script)
-        self.assertIn("setQuestion(scenario.suggested_question)", script)
         change_handler = script.split('demoScenario.addEventListener("change"', 1)[1]
         change_handler = change_handler.split("});", 1)[0]
-        self.assertNotIn("requestSubmit", change_handler)
         self.assertNotIn("/api/analyze", change_handler)
 
-    def test_mode_switch_hides_demo_selector_without_clearing_local_or_results_state(self):
+    def test_mode_switch_hides_demo_selector_without_clearing_local_state(self):
         script = read_all_js()
 
         self.assertIn("demoScenarioFields.hidden = isLocal", script)
@@ -45,27 +43,23 @@ class WebDemoContractTests(unittest.TestCase):
         sync_body = script.split("function syncSourceMode()", 1)[1].split("}", 1)[0]
         self.assertNotIn("dataPath.value =", sync_body)
         self.assertNotIn("knowledgePath.value =", sync_body)
-        self.assertNotIn("analysisResult", sync_body)
 
-    def test_contradicted_result_has_a_semantic_label_and_style(self):
+    def test_validation_status_has_a_semantic_label(self):
         script = read_all_js()
-        css = read_static("app.css")
 
         self.assertIn('contradicted: "与策略矛盾"', script)
-        self.assertIn('[data-status="contradicted"]', css)
+        self.assertIn("VALIDATION_STATUS_LABELS", script)
 
-    def test_grid_children_can_shrink_at_the_mobile_breakpoint(self):
+    def test_pipeline_and_log_children_can_shrink(self):
         css = read_static("app.css")
 
-        self.assertIn(".workspace { display: grid; gap: 20px; min-width: 0; }", css)
-        self.assertIn(".context-panel {", css)
         self.assertIn("min-width: 0;", css)
+        self.assertIn(".pipeline-pane {", css)
+        self.assertIn(".conversation-log {", css)
 
 
 def read_static(name: str) -> str:
     return (STATIC_ROOT / name).read_text(encoding="utf-8")
-
-
 
 
 def read_all_js() -> str:

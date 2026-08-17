@@ -1,5 +1,4 @@
 // Shared, mutable application state and display constants.
-// Modules import these objects by reference, so updates are visible everywhere.
 
 export const agentState = {
   csrfToken: "",
@@ -11,14 +10,14 @@ export const agentState = {
   lastEventId: 0,
 };
 
-export const analysisState = {
-  result: null,
-  history: [],
-};
-
 export const demoState = {
   scenarios: [],
   defaultId: "",
+};
+
+export const pipelineState = {
+  source: null,
+  analysis: null,
 };
 
 export const METRIC_LABELS = {

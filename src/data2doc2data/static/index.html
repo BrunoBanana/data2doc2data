@@ -20,227 +20,151 @@
       </div>
     </header>
 
-    <nav class="mobile-workspace-tabs" role="tablist" aria-label="工作台区域">
-      <button id="workspace-tab-data" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="data-workspace" data-workspace-tab="data">数据</button>
-      <button id="workspace-tab-analysis" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="analysis-workspace" data-workspace-tab="analysis">分析</button>
-      <button id="workspace-tab-assistant" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="assistant-workspace" data-workspace-tab="assistant">助手</button>
-    </nav>
-
-    <main id="workbench-shell" class="workbench-shell" data-active-workspace="data">
-      <aside id="data-workspace" class="workspace-column data-rail" aria-labelledby="sources-heading" data-workspace-panel="data">
-        <div class="column-heading">
-          <div>
-            <p class="eyebrow">01 · Data</p>
-            <h1 id="sources-heading">数据空间</h1>
-          </div>
-          <output id="profile-state" class="state-label" aria-live="polite">正在加载</output>
+    <main id="workbench-shell" class="workbench-shell">
+      <section class="conversation-pane" aria-label="对话">
+        <div class="assistant-toolbar" aria-label="本地助手">
+          <output id="agent-status" class="state-label" aria-live="polite">正在检测</output>
+          <select id="agent-provider" name="provider" aria-label="本地助手" disabled>
+            <option value="">正在检测</option>
+          </select>
+          <select id="permission-mode" name="permission_mode" aria-label="权限模式">
+            <option value="collaborative">协作模式 · 每次变更需批准</option>
+            <option value="read_only">只读模式 · 禁止变更</option>
+            <option value="trusted_session">信任本次会话 · 同类操作可复用批准</option>
+          </select>
+          <button id="agent-connect" type="button" disabled>连接助手</button>
+          <button id="agent-interrupt" class="button-secondary" type="button" disabled>停止</button>
         </div>
 
-        <section class="workspace-card source-summary-card" aria-labelledby="source-summary-heading">
-          <div class="card-heading">
-            <h2 id="source-summary-heading">当前数据集</h2>
-            <span id="source-kind" class="micro-badge">本地</span>
+        <div id="conversation-log" class="conversation-log" role="log" aria-live="polite" aria-relevant="additions text">
+          <p id="conversation-empty" class="quiet-copy">问一个业务问题开始。确定性分析结论会在对话中标注，右侧显示完整证据流程。</p>
+        </div>
+
+        <form id="agent-message-form" class="agent-message-form">
+          <label class="field" for="agent-message">
+            <span class="sr-only">发送给助手</span>
+            <textarea id="agent-message" name="message" rows="3" required placeholder="例如：留存为什么下降？"></textarea>
+          </label>
+          <div class="composer-actions">
+            <p id="agent-message-status" class="form-message" role="status" aria-live="polite"></p>
+            <button id="agent-send" type="submit">发送</button>
           </div>
-          <dl class="metric-grid" aria-live="polite">
+        </form>
+
+        <details id="operation-queue" class="operations-panel">
+          <summary>操作、输出与审批</summary>
+          <div class="operation-queue" aria-live="polite">
+            <p class="quiet-copy">工具调用、命令输出、文件差异和待审批操作会显示在这里。</p>
+          </div>
+        </details>
+      </section>
+
+      <aside class="pipeline-pane" aria-label="证据流程">
+        <div class="column-heading">
+          <div>
+            <p class="eyebrow">Evidence</p>
+            <h1>证据流程</h1>
+          </div>
+          <span id="agent-context-status" class="micro-badge">等待提问</span>
+        </div>
+
+        <ol id="pipeline-steps" class="pipeline-steps">
+          <li class="pipeline-step" data-step="source">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>数据源</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="signal">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>数据信号</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="retrieval">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>文档检索</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="verification">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>回到数据验证</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="conclusion">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>结论</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+        </ol>
+
+        <p class="snapshot-line">快照 <code id="context-snapshot-id">—</code> · 契约 <code id="context-contract-version">—</code></p>
+
+        <details class="source-settings">
+          <summary>数据源设置</summary>
+          <form id="profile-form" class="source-form">
+            <label class="field" for="data-mode">
+              <span>来源类型</span>
+              <select id="data-mode" name="mode">
+                <option value="demo">内置演示</option>
+                <option value="local">本地文件</option>
+              </select>
+            </label>
+            <div id="demo-scenario-fields" class="scenario-fields">
+              <label class="field" for="demo-scenario">
+                <span>演示场景</span>
+                <select id="demo-scenario" name="demo_scenario" aria-describedby="demo-scenario-summary demo-scenario-objective" disabled>
+                  <option value="">正在加载演示场景</option>
+                </select>
+              </label>
+              <div class="scenario-notes">
+                <p id="demo-scenario-summary" aria-live="polite">所有演示资料均为虚构合成数据。</p>
+                <p id="demo-scenario-objective" aria-live="polite"></p>
+              </div>
+            </div>
+            <div id="local-source-fields" class="local-fields" hidden>
+              <label class="field" for="data-path">
+                <span>CSV 数据路径</span>
+                <input id="data-path" name="data_path" type="text" autocomplete="off" placeholder="/Users/name/metrics.csv">
+              </label>
+              <label class="field" for="knowledge-path">
+                <span>文档目录</span>
+                <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
+              </label>
+              <details class="advanced-fields">
+                <summary>高级选项</summary>
+                <label class="field" for="rules-path">
+                  <span>验证规则 JSON（可选）</span>
+                  <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
+                  <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
+                </label>
+              </details>
+              <p class="field-hint">CSV 需含 date、metric、value 三列；保存后即可在对话中开始分析。</p>
+            </div>
+            <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
+            <button type="submit">保存数据源</button>
+          </form>
+          <dl id="source-summary" class="context-metadata">
             <div><dt>记录</dt><dd id="source-record-count">—</dd></div>
             <div><dt>指标</dt><dd id="source-metric-count">—</dd></div>
-            <div><dt>日期范围</dt><dd id="source-date-range">—</dd></div>
             <div><dt>文档</dt><dd id="source-document-count">—</dd></div>
           </dl>
           <p id="source-profile-label" class="source-label">正在建立本地数据画像</p>
-        </section>
-
-        <form id="profile-form" class="workspace-card source-form">
-          <div class="card-heading"><h2>选择要分析的内容</h2></div>
-          <label class="field" for="data-mode">
-            <span>来源类型</span>
-            <select id="data-mode" name="mode">
-              <option value="demo">内置演示</option>
-              <option value="local">本地文件</option>
-            </select>
-          </label>
-          <div id="demo-scenario-fields" class="scenario-fields">
-            <label class="field" for="demo-scenario">
-              <span>演示场景</span>
-              <select id="demo-scenario" name="demo_scenario" aria-describedby="demo-scenario-summary demo-scenario-objective" disabled>
-                <option value="">正在加载演示场景</option>
-              </select>
-            </label>
-            <div class="scenario-notes">
-              <p id="demo-scenario-summary" aria-live="polite">所有演示资料均为虚构合成数据。</p>
-              <p id="demo-scenario-objective" aria-live="polite"></p>
-            </div>
-          </div>
-          <div id="local-source-fields" class="local-fields" hidden>
-            <label class="field" for="data-path">
-              <span>CSV 数据路径</span>
-              <input id="data-path" name="data_path" type="text" autocomplete="off" placeholder="/Users/name/metrics.csv">
-            </label>
-            <label class="field" for="knowledge-path">
-              <span>文档目录</span>
-              <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
-            </label>
-            <details class="advanced-fields">
-              <summary>高级选项</summary>
-              <label class="field" for="rules-path">
-                <span>验证规则 JSON（可选）</span>
-                <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
-                <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
-              </label>
-            </details>
-            <p class="field-hint">CSV 需含 date、metric、value 三列；保存后即可在「证据分析」栏开始分析。</p>
-          </div>
-          <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
-          <button type="submit">保存并刷新数据</button>
-        </form>
-
-        <section class="boundary-card">
-          <p class="eyebrow">本地边界</p>
-          <p>原始 CSV 仅由本地确定性引擎计算。助手只接收统计结果与按问题检索的文档片段。</p>
-        </section>
-      </aside>
-
-      <section id="analysis-workspace" class="workspace-column analysis-canvas" aria-labelledby="analysis-heading" data-workspace-panel="analysis">
-        <div class="column-heading analysis-heading-row">
-          <div>
-            <p class="eyebrow">02 · Evidence</p>
-            <h1 id="analysis-heading">证据分析</h1>
-          </div>
-          <span class="authority-badge">确定性结果</span>
-        </div>
-
-        <form id="analysis-form" class="question-composer">
-          <label class="question-field" for="analysis-question">
-            <span class="sr-only">你的业务问题</span>
-            <textarea id="analysis-question" name="question" rows="2" required>留存为什么下降？</textarea>
-          </label>
-          <label class="metric-override-field" for="metric-override">
-            <span>指标</span>
-            <input id="metric-override" name="metric_override" type="text" autocomplete="off" placeholder="自动识别或填写 retention_rate">
-          </label>
-          <div class="composer-actions">
-            <p id="analysis-message" class="form-message" role="status" aria-live="polite"></p>
-            <button type="submit">开始分析</button>
-          </div>
-        </form>
-
-        <section id="evidence-panel" class="evidence-stage" aria-label="分析结果">
-          <div id="analysis-empty" class="empty-state">
-            <span class="empty-index">D2D2D</span>
-            <h2>从一个业务问题开始</h2>
-            <p>本地引擎会依次建立数据信号、检索决策语境并回到数据验证。</p>
-          </div>
-          <article id="analysis-result" class="analysis-result" hidden aria-live="polite">
-            <section class="result-hero validation-block">
-              <div>
-                <p class="eyebrow">最终验证</p>
-                <h2 id="result-validation-status"></h2>
-              </div>
-              <p id="result-validation-copy"></p>
-            </section>
-            <div class="result-grid">
-              <section class="result-block signal-block">
-                <p class="eyebrow">数据信号</p>
-                <h3 id="result-signal-title"></h3>
-                <p id="result-signal-copy"></p>
-              </section>
-              <section class="result-block verification-block">
-                <p class="eyebrow">回到数据验证</p>
-                <h3 id="result-verification-title"></h3>
-                <p id="result-verification-copy"></p>
-              </section>
-              <section class="result-block context-block">
-                <p class="eyebrow">文档语境</p>
-                <blockquote id="result-context-copy"></blockquote>
-                <p id="result-context-source" class="source-path"></p>
-              </section>
-              <section class="result-block evidence-block">
-                <p class="eyebrow">证据链</p>
-                <ul id="result-evidence"></ul>
-                <p id="result-limitation" class="limitation"></p>
-              </section>
-            </div>
-          </article>
-          <section id="analysis-history" class="history-panel" hidden aria-labelledby="history-heading">
-            <div class="card-heading">
-              <h2 id="history-heading">分析历史</h2>
-              <span id="history-count" class="micro-badge">0</span>
-            </div>
-            <ul id="history-list" class="history-list"></ul>
-          </section>
-        </section>
-      </section>
-
-      <aside id="assistant-workspace" class="workspace-column assistant-rail" aria-labelledby="agent-heading" data-workspace-panel="assistant">
-        <section id="agent-workspace" class="agent-panel">
-          <div class="column-heading">
-            <div>
-              <p class="eyebrow">03 · Agent</p>
-              <h1 id="agent-heading">本地智能助手</h1>
-            </div>
-            <output id="agent-status" class="state-label" aria-live="polite">正在检测</output>
-          </div>
-          <p class="agent-boundary">助手可以解释证据并请求操作；确定性分析结论不会被助手覆盖。</p>
-          <form id="agent-connect-form" class="workspace-card agent-controls">
-            <label class="field" for="agent-provider">
-              <span>本地助手</span>
-              <select id="agent-provider" name="provider" aria-describedby="agent-provider-hint" disabled>
-                <option value="">正在检测</option>
-              </select>
-              <span id="agent-provider-hint" class="field-hint">支持本机 Codex 与腾讯 WorkBuddy/CodeBuddy。</span>
-            </label>
-            <label class="field" for="permission-mode">
-              <span>权限模式</span>
-              <select id="permission-mode" name="permission_mode">
-                <option value="collaborative">协作模式 · 每次变更需批准</option>
-                <option value="read_only">只读模式 · 禁止变更</option>
-                <option value="trusted_session">信任本次会话 · 同类操作可复用批准</option>
-              </select>
-            </label>
-            <button id="agent-connect" type="submit" disabled>连接助手</button>
-          </form>
-
-          <section class="context-attachment-card context-panel" aria-labelledby="agent-context-heading">
-            <div class="card-heading">
-              <h2 id="agent-context-heading">本轮证据上下文</h2>
-              <span id="agent-context-status" class="micro-badge">等待提问</span>
-            </div>
-            <dl class="context-metadata">
-              <div><dt>记录</dt><dd id="context-record-count">—</dd></div>
-              <div><dt>文档片段</dt><dd id="context-excerpt-count">—</dd></div>
-              <div><dt>上下文</dt><dd id="context-compression-state">未建立</dd></div>
-            </dl>
-            <p class="snapshot-line">快照 <code id="context-snapshot-id">—</code> · 契约 <code id="context-contract-version">—</code></p>
-            <p class="context-disclosure">本地统计和相关文档片段会发送给所选助手提供方。</p>
-          </section>
-
-          <section class="conversation-panel" aria-labelledby="conversation-heading">
-            <div class="subpanel-heading">
-              <h2 id="conversation-heading">协作对话</h2>
-              <button id="agent-interrupt" class="button-secondary" type="button" disabled>停止任务</button>
-            </div>
-            <div id="conversation-log" class="conversation-log" role="log" aria-live="polite" aria-relevant="additions text">
-              <p id="conversation-empty" class="quiet-copy">连接助手后，可以直接询问数据规模、证据含义或下一步行动。</p>
-            </div>
-            <form id="agent-message-form" class="agent-message-form">
-              <label class="field" for="agent-message">
-                <span class="sr-only">发送给助手</span>
-                <textarea id="agent-message" name="message" rows="3" required disabled placeholder="例如：数据有多少？这条结论有哪些证据？"></textarea>
-              </label>
-              <div class="composer-actions">
-                <p id="agent-message-status" class="form-message" role="status" aria-live="polite"></p>
-                <button id="agent-send" type="submit" disabled>发送</button>
-              </div>
-            </form>
-          </section>
-
-          <details class="operations-panel">
-            <summary>操作、输出与审批</summary>
-            <div id="operation-queue" class="operation-queue" aria-live="polite">
-              <p class="quiet-copy">工具调用、命令输出、文件差异和待审批操作会显示在这里。</p>
-            </div>
-          </details>
-        </section>
+          <p class="context-disclosure">本地统计和相关文档片段会发送给所选助手提供方。</p>
+        </details>
       </aside>
     </main>
 

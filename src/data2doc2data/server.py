@@ -298,8 +298,8 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 "state.js",
                 "ui.js",
                 "api.js",
+                "pipeline.js",
                 "data-panel.js",
-                "analysis-panel.js",
                 "assistant-panel.js",
                 "favicon.svg",
             }

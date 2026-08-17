@@ -42,7 +42,6 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/sample/scenarios/strategy-data-conflict/strategy.md",
     "src/data2doc2data/sample/scenarios/insufficient-evidence/metrics.csv",
     "src/data2doc2data/sample/scenarios/insufficient-evidence/strategy.md",
-    "src/data2doc2data/static/analysis-panel.js",
     "src/data2doc2data/static/api.js",
     "src/data2doc2data/static/app.css",
     "src/data2doc2data/static/app.js",
@@ -50,6 +49,7 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/static/data-panel.js",
     "src/data2doc2data/static/favicon.svg",
     "src/data2doc2data/static/index.html",
+    "src/data2doc2data/static/pipeline.js",
     "src/data2doc2data/static/state.js",
     "src/data2doc2data/static/ui.js",
 )

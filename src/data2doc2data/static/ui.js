@@ -1,4 +1,4 @@
-// Small, side-effect-free presentation helpers shared across panels.
+// Small, side-effect-free presentation helpers shared across modules.
 
 import { METRIC_LABELS } from "./state.js";
 

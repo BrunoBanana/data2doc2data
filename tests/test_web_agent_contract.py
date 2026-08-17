@@ -6,28 +6,25 @@ STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "data2doc2data" / "s
 
 
 class WebAgentContractTests(unittest.TestCase):
-    def test_page_exposes_accessible_agent_workspace_controls(self):
+    def test_page_exposes_accessible_agent_controls(self):
         html = read_static("index.html")
 
         for control in (
-            "evidence-panel",
-            "agent-workspace",
             "agent-provider",
             "permission-mode",
             "agent-connect",
+            "agent-interrupt",
             "conversation-log",
             "agent-message-form",
             "agent-message",
             "agent-send",
-            "agent-interrupt",
             "operation-queue",
             "agent-status",
         ):
             self.assertIn(f'id="{control}"', html)
         self.assertIn('role="log"', html)
         self.assertIn('aria-live="polite"', html)
-        self.assertIn("本地智能助手", html)
-        self.assertIn("确定性分析结论不会被助手覆盖", html)
+        self.assertIn("本地助手", html)
 
     def test_script_uses_csrf_session_api_and_event_source(self):
         script = read_all_js()
@@ -60,21 +57,26 @@ class WebAgentContractTests(unittest.TestCase):
         css = read_static("app.css")
 
         for selector in (
-            ".agent-panel",
-            ".agent-controls",
+            ".assistant-toolbar",
             ".conversation-log",
             ".message-card",
             ".approval-card",
             ".operation-queue",
         ):
             self.assertIn(selector, css)
-        self.assertIn("@media (max-width: 800px)", css)
+        self.assertIn("@media (max-width: 880px)", css)
+
+    def test_deterministic_message_is_marked_as_authoritative(self):
+        script = read_all_js()
+        css = read_static("app.css")
+
+        self.assertIn('"deterministic"', script)
+        self.assertIn(".message-deterministic", css)
+        self.assertIn('"确定性"', script)
 
 
 def read_static(name):
     return (STATIC_ROOT / name).read_text(encoding="utf-8")
-
-
 
 
 def read_all_js() -> str:

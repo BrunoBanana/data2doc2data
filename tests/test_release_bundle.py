@@ -40,7 +40,6 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/sessions.py",
     }
     EXPECTED_STATIC_FILES = {
-        "src/data2doc2data/static/analysis-panel.js",
         "src/data2doc2data/static/api.js",
         "src/data2doc2data/static/app.css",
         "src/data2doc2data/static/app.js",
@@ -48,6 +47,7 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/static/data-panel.js",
         "src/data2doc2data/static/favicon.svg",
         "src/data2doc2data/static/index.html",
+        "src/data2doc2data/static/pipeline.js",
         "src/data2doc2data/static/state.js",
         "src/data2doc2data/static/ui.js",
     }

@@ -1,10 +1,10 @@
-// Assistant rail: local agent detection, session, event stream, and approvals.
+// Conversation core: the chat surface, deterministic analysis, and agent streaming.
 
 import { agentRequest, request } from "./api.js";
 import { agentState } from "./state.js";
 import { agentLabel, formatAgentOption, formatObject, setMessage } from "./ui.js";
+import { beginPipeline, renderPipeline } from "./pipeline.js";
 
-const agentConnectForm = document.querySelector("#agent-connect-form");
 const agentProvider = document.querySelector("#agent-provider");
 const permissionMode = document.querySelector("#permission-mode");
 const agentConnect = document.querySelector("#agent-connect");
@@ -16,13 +16,10 @@ const agentInterrupt = document.querySelector("#agent-interrupt");
 const agentMessageStatus = document.querySelector("#agent-message-status");
 const conversationLog = document.querySelector("#conversation-log");
 const conversationEmpty = document.querySelector("#conversation-empty");
-const operationQueue = document.querySelector("#operation-queue");
+const operationQueue = document.querySelector("#operation-queue .operation-queue");
 const agentContextStatus = document.querySelector("#agent-context-status");
 const contextSnapshotId = document.querySelector("#context-snapshot-id");
 const contextContractVersion = document.querySelector("#context-contract-version");
-const contextRecordCount = document.querySelector("#context-record-count");
-const contextExcerptCount = document.querySelector("#context-excerpt-count");
-const contextCompressionState = document.querySelector("#context-compression-state");
 
 let announceTimer = null;
 
@@ -69,8 +66,7 @@ function renderAgentOptions() {
   setMessage(agentMessageStatus, "确定性证据分析仍可正常使用。", "");
 }
 
-agentConnectForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+agentConnect.addEventListener("click", async () => {
   agentConnect.disabled = true;
   setMessage(agentMessageStatus, "正在连接本地助手");
   closeEventStream();
@@ -102,14 +98,47 @@ agentConnectForm.addEventListener("submit", async (event) => {
 
 agentMessageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!agentState.session || agentState.turnActive) return;
+  if (agentState.turnActive) return;
   const message = agentMessage.value.trim();
   if (!message) return;
+  agentMessage.value = "";
+  appendMessage("你", message, "user");
+  beginPipeline();
+
+  const result = await runDeterministicAnalysis(message);
+  if (agentState.session) {
+    await startAssistantTurn(message);
+  } else if (!result) {
+    appendMessage(
+      "系统",
+      "未能解析出指标，也未连接助手。可连接本地助手获取解释，或在「数据源设置」调整数据后重试。",
+      "system",
+    );
+  } else {
+    setMessage(agentMessageStatus, "连接本地助手可获得进一步解释。", "");
+  }
+});
+
+async function runDeterministicAnalysis(question) {
+  try {
+    const result = await request("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    });
+    const copy = `${result.signal.summary}\n验证：${result.validation.summary}`;
+    appendMessage("确定性结论", copy, "deterministic");
+    renderPipeline(null, result);
+    agentContextStatus.textContent = "已分析";
+    return result;
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function startAssistantTurn(message) {
   agentState.turnActive = true;
   agentState.activeAssistant = null;
   setTurnControls(true);
-  appendMessage("你", message, "user");
-  agentMessage.value = "";
   startEventStream();
   try {
     const sessionId = encodeURIComponent(agentState.session.id);
@@ -121,7 +150,7 @@ agentMessageForm.addEventListener("submit", async (event) => {
   } catch (error) {
     finishTurn(error.message, "error");
   }
-});
+}
 
 agentInterrupt.addEventListener("click", async () => {
   if (!agentState.session || !agentState.turnActive) return;
@@ -168,8 +197,6 @@ function startEventStream() {
 
   eventSource.onerror = () => {
     if (agentState.eventSource !== eventSource) return;
-    // 让浏览器基于 Last-Event-ID 自动重连，服务端会从断点续传，因此不主动关闭。
-    // 仅在活动 turn 期间持续断线时兜底提示，避免用户无限等待。
     if (agentState.turnActive && !reconnectTimer) {
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
@@ -194,6 +221,7 @@ function handleAgentEvent(event) {
   switch (event.kind) {
     case "context.attached":
       renderContextSummary(payload);
+      renderPipeline(payload.source, payload.analysis);
       break;
     case "message.delta":
       appendAssistantDelta(payload.text || "");
@@ -232,22 +260,11 @@ function handleAgentEvent(event) {
 }
 
 function renderContextSummary(payload) {
-  contextRecordCount.textContent = String(payload.record_count ?? "—");
-  contextExcerptCount.textContent = String(payload.excerpt_count ?? "—");
-  contextCompressionState.textContent = payload.compressed ? "已压缩" : "完整证据包";
-  const snapshotId = typeof payload.snapshot_id === "string" ? payload.snapshot_id : "";
-  contextSnapshotId.textContent = snapshotId ? snapshotId.slice(0, 12) : "—";
+  contextSnapshotId.textContent = typeof payload.snapshot_id === "string" && payload.snapshot_id
+    ? payload.snapshot_id.slice(0, 12)
+    : "—";
   contextContractVersion.textContent = payload.contract_version != null ? `v${payload.contract_version}` : "—";
-  agentContextStatus.textContent = "已附带";
-}
-
-export function resetContextSummary(status = "等待提问") {
-  agentContextStatus.textContent = status;
-  contextRecordCount.textContent = "—";
-  contextExcerptCount.textContent = "—";
-  contextCompressionState.textContent = "未建立";
-  contextSnapshotId.textContent = "—";
-  contextContractVersion.textContent = "—";
+  agentContextStatus.textContent = payload.compressed ? "已压缩" : "证据已附带";
 }
 
 function appendMessage(author, text, kind) {
@@ -257,6 +274,12 @@ function appendMessage(author, text, kind) {
   const label = document.createElement("p");
   label.className = "message-author";
   label.textContent = author;
+  if (kind === "deterministic") {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "确定性";
+    label.appendChild(badge);
+  }
   const copy = document.createElement("p");
   copy.className = "message-copy";
   copy.textContent = text;
@@ -270,7 +293,6 @@ function appendAssistantDelta(text) {
   if (!agentState.activeAssistant) {
     agentState.activeAssistant = appendMessage("助手", "", "assistant");
   }
-  // 流式增量期间抑制 aria-live 播报，避免屏幕阅读器被逐字打断。
   conversationLog.setAttribute("aria-busy", "true");
   agentState.activeAssistant.textContent += text;
   if (announceTimer) clearTimeout(announceTimer);
