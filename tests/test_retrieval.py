@@ -2,7 +2,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from data2doc2data.retrieval import index_documents, search_chunks
+from data2doc2data.retrieval import (
+    DEFAULT_SYNONYMS,
+    SYNONYM_GROUPS,
+    build_synonym_map,
+    index_documents,
+    search_chunks,
+)
 
 
 class RetrievalTests(unittest.TestCase):
@@ -56,6 +62,55 @@ class RetrievalTests(unittest.TestCase):
             self.assertEqual(cache_path.stat().st_mode & 0o777, 0o600)
             self.assertNotEqual(first[0].sha256, second[0].sha256)
             self.assertIn("rises", second[0].text)
+
+
+class SynonymNormalizationTests(unittest.TestCase):
+    def test_chinese_synonym_group_recalls_across_vocabulary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document_path = Path(directory) / "decision.md"
+            document_path.write_text("用户流失加剧。", encoding="utf-8")
+
+            ranked = search_chunks("客户流失", index_documents([document_path]))
+
+            self.assertEqual(len(ranked), 1)
+            self.assertEqual(ranked[0].text, "用户流失加剧。")
+
+    def test_cross_language_synonym_recalls_english_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document_path = Path(directory) / "decision.md"
+            document_path.write_text("收入上升。", encoding="utf-8")
+
+            ranked = search_chunks("revenue", index_documents([document_path]))
+
+            self.assertEqual(len(ranked), 1)
+
+    def test_synonym_normalization_keeps_chunk_text_verbatim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document_path = Path(directory) / "decision.md"
+            document_path.write_text("营收下滑。", encoding="utf-8")
+            chunks = index_documents([document_path])
+
+            ranked = search_chunks("收入下降", chunks)
+
+            self.assertEqual(ranked[0].text, "营收下滑。")
+            self.assertEqual(chunks[0].text, "营收下滑。")
+
+    def test_synonyms_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document_path = Path(directory) / "decision.md"
+            document_path.write_text("用户", encoding="utf-8")
+            chunks = index_documents([document_path])
+
+            self.assertEqual(search_chunks("客户", chunks, synonyms=None), [])
+            self.assertEqual(len(search_chunks("客户", chunks)), 1)
+
+    def test_build_synonym_map_canonicalizes_every_term(self):
+        mapping = build_synonym_map((("canonical", "alias-1", "alias-2"),))
+
+        self.assertEqual(mapping, {"canonical": "canonical", "alias-1": "canonical", "alias-2": "canonical"})
+
+    def test_default_synonyms_are_consistent_with_groups(self):
+        self.assertEqual(DEFAULT_SYNONYMS, build_synonym_map(SYNONYM_GROUPS))
 
 
 if __name__ == "__main__":

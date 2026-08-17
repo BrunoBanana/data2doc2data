@@ -8,6 +8,7 @@
 - 分析流程改为由规则集驱动：别名解析、显示名、指标定义和文档条件验证均取自规则集；未声明规则时回退到与历史行为等价的内置默认规则集。
 - CLI 新增 `analyze --rules <path>` 与 `check-rules --rules <path>`；工作区配置（Profile）新增可选 `rules_path`，保存配置时即校验规则文件。
 - 证据契约版本化：每份证据快照与信封都会标注 `EVIDENCE CONTRACT v1`，`ContextSummary` 新增 `contract_version` 字段，供跨 harness 消费方（WorkBuddy/DeepSeek harness/Codex 插件）检测契约漂移。
+- 文档检索新增静态同义词归一化（`retrieval.py`）：内置中文/英文业务同义词组（客户/用户、营收/收入、流失率/churn 等），在 BM25 评分前把同义词归一到规范形式，提升中文业务文档召回；`search_chunks` 支持 `synonyms` 参数可关闭，原始 chunk 文本始终原文保留、可追溯。
 
 ### 变更
 

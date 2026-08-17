@@ -18,6 +18,35 @@ from .metrics import InputValidationError
 INDEX_VERSION = 1
 DEFAULT_MAX_DOCUMENT_BYTES = 1_000_000
 
+# Static, auditable synonym groups. Each group's first term is the canonical
+# form; every other term normalizes to it before BM25 scoring. This is the only
+# place cross-language business synonyms are defined, so retrieval stays fully
+# deterministic and zero-dependency. Extend this table to widen recall; it never
+# changes stored chunk text (chunks remain verbatim and traceable).
+SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("客户", "用户", "customer", "user"),
+    ("收入", "营收", "销售额", "营业额", "revenue"),
+    ("流失", "流失率", "churn"),
+    ("留存", "留存率", "retention"),
+    ("激活", "激活率", "activation"),
+    ("转化", "转化率", "conversion"),
+    ("利润", "盈利", "profit", "margin"),
+    ("成本", "费用", "cost", "expense"),
+)
+
+
+def build_synonym_map(groups: tuple[tuple[str, ...], ...]) -> dict[str, str]:
+    """Flatten synonym groups into a term -> canonical lookup."""
+    mapping: dict[str, str] = {}
+    for group in groups:
+        canonical = group[0].lower()
+        for term in group:
+            mapping[term.lower()] = canonical
+    return mapping
+
+
+DEFAULT_SYNONYMS = build_synonym_map(SYNONYM_GROUPS)
+
 
 @dataclass(frozen=True)
 class DocumentChunk:
@@ -84,14 +113,20 @@ def search_chunks(
     chunks: list[DocumentChunk],
     limit: int = 5,
     minimum_relevance: float = 0.01,
+    synonyms: dict[str, str] | None = DEFAULT_SYNONYMS,
 ) -> list[DocumentChunk]:
-    """Rank chunks using normalized BM25 terms with deterministic tie-breaking."""
+    """Rank chunks using normalized BM25 terms with deterministic tie-breaking.
+
+    ``synonyms`` maps non-canonical terms to canonical forms before scoring,
+    widening recall across equivalent business vocabulary (e.g. 客户/用户,
+    营收/收入). Pass ``synonyms=None`` to disable normalization.
+    """
     if not chunks or limit <= 0:
         return []
-    query_terms = Counter(_terms(query))
+    query_terms = Counter(_terms(query, synonyms))
     if not query_terms:
         return []
-    document_terms = [Counter(_terms(chunk.text)) for chunk in chunks]
+    document_terms = [Counter(_terms(chunk.text, synonyms)) for chunk in chunks]
     lengths = [sum(terms.values()) for terms in document_terms]
     average_length = sum(lengths) / len(lengths) or 1.0
     document_frequency = {
@@ -121,12 +156,14 @@ def search_chunks(
     return ranked[:limit]
 
 
-def _terms(value: str) -> list[str]:
+def _terms(value: str, synonyms: dict[str, str] | None = None) -> list[str]:
     normalized = value.lower().replace("_", " ")
     terms = re.findall(r"[a-z0-9]+", normalized)
     for run in re.findall(r"[\u4e00-\u9fff]+", normalized):
         terms.extend(run[index : index + 2] for index in range(max(0, len(run) - 1)))
         terms.extend(run[index : index + 3] for index in range(max(0, len(run) - 2)))
+    if synonyms:
+        terms = [synonyms.get(term, term) for term in terms]
     return terms
 
 
