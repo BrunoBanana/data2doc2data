@@ -73,6 +73,7 @@ class EvidenceSnapshot:
     metrics: tuple[MetricSummary, ...]
     excerpts: tuple[DocumentChunk, ...]
     envelope: str
+    analysis: InsightResult | None = None
 
     def render_prompt(self, message: str) -> str:
         return f"{self.envelope}\n\nUSER MESSAGE\n{message.strip()}"
@@ -139,7 +140,7 @@ class EvidenceContextBuilder:
             compressed=compressed,
             contract_version=CONTRACT_VERSION,
         )
-        return EvidenceSnapshot(summary, source, metrics, tuple(included), envelope)
+        return EvidenceSnapshot(summary, source, metrics, tuple(included), envelope, matching_analysis)
 
 
 def build_source_profile(profile: Profile) -> SourceProfile:

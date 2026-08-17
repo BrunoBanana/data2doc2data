@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
@@ -17,7 +17,7 @@ from .agents.base import AgentEvent, AgentSession, ProviderStatus
 from .agents.gateway import AgentGateway, AgentGatewayError
 from .analysis import InsightResult
 from .config import Profile, ProfileError, ProfileStore
-from .evidence_context import EvidenceContextBuilder, build_source_profile
+from .evidence_context import EvidenceContextBuilder, EvidenceSnapshot, build_source_profile
 from .metrics import InputValidationError
 from .permissions import OperationRequest, PermissionBroker, PermissionMode
 from .sessions import AuditEntry, AuditStore, SessionRecord, SessionStore
@@ -102,6 +102,16 @@ class EventBuffer:
 class PendingApproval:
     request: OperationRequest
     expires_at: datetime
+
+
+def _context_attached_payload(snapshot: EvidenceSnapshot) -> dict[str, object]:
+    """Structure the evidence snapshot so the workbench can render the pipeline."""
+    payload: dict[str, object] = snapshot.summary.to_dict()
+    payload["source"] = snapshot.source.to_dict()
+    payload["metrics"] = [asdict(item) for item in snapshot.metrics]
+    if snapshot.analysis is not None:
+        payload["analysis"] = snapshot.analysis.to_dict()
+    return payload
 
 
 @dataclass
@@ -213,7 +223,7 @@ class AgentWebService:
             if web_session.busy:
                 raise AgentApiError(HTTPStatus.CONFLICT, "agent session already has an active turn")
             web_session.busy = True
-        web_session.events.append(AgentEvent("context.attached", snapshot.summary.to_dict()))
+        web_session.events.append(AgentEvent("context.attached", _context_attached_payload(snapshot)))
         self._audit(
             web_session,
             "context",
