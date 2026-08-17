@@ -25,16 +25,9 @@ export function formatObject(value) {
 }
 
 export function agentLabel(name) {
-  if (name === "workbuddy") return "腾讯 WorkBuddy";
-  if (name === "codex") return "Codex";
   return name;
 }
 
 export function formatAgentOption(agent) {
-  const name = agentLabel(agent.name);
-  const version = agent.version ? ` · ${agent.version}` : "";
-  if (!agent.available) return `${name} · 未安装`;
-  if (!agent.authenticated) return `${name} · 未登录`;
-  if (!agent.compatible) return `${name} · 版本不兼容`;
-  return `${name}${version}`;
+  return agent.name;
 }

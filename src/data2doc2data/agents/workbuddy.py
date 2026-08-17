@@ -7,9 +7,11 @@ import ipaddress
 import json
 from pathlib import Path
 from queue import Empty, Queue
+import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from urllib.error import HTTPError, URLError
@@ -33,6 +35,7 @@ class WorkBuddyProvider:
         workspace: Path,
         endpoint: str | None = None,
         executable: str = "codebuddy",
+        model: str = "hy3",
         request_timeout: float = 10.0,
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
@@ -41,11 +44,14 @@ class WorkBuddyProvider:
         if request_timeout <= 0:
             raise ValueError("WorkBuddy request timeout must be positive")
         self.executable = executable
+        self.model = model
         self.request_timeout = request_timeout
         self.endpoint = _validate_endpoint(endpoint) if endpoint is not None else None
         self._configured_endpoint = self.endpoint is not None
         self._opener = build_opener(ProxyHandler({}))
         self._owned_process: subprocess.Popen[bytes] | None = None
+        self._serve_password: str | None = None
+        self._serve_log_path: Path | None = None
         self._connection_id: str | None = None
         self._session_token: str | None = None
         self._sse_response = None
@@ -62,6 +68,8 @@ class WorkBuddyProvider:
         return (
             self.executable,
             "--serve",
+            "--model",
+            self.model,
             "--port",
             str(port),
             "--session-id",
@@ -302,6 +310,10 @@ class WorkBuddyProvider:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2)
+        self._serve_password = None
+        if self._serve_log_path is not None:
+            self._serve_log_path.unlink(missing_ok=True)
+            self._serve_log_path = None
         if not self._configured_endpoint:
             self.endpoint = None
 
@@ -486,27 +498,52 @@ class WorkBuddyProvider:
             raise ProviderUnavailable(self.name, "codebuddy executable was not found")
         port = _free_loopback_port()
         session_id = uuid.uuid4().hex
+        self._serve_password = None
+        log_handle = tempfile.NamedTemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            prefix="codebuddy-serve-",
+            suffix=".log",
+            delete=False,
+        )
+        self._serve_log_path = Path(log_handle.name)
         try:
             self._owned_process = subprocess.Popen(
                 self.start_command(port, session_id),
                 cwd=self.workspace,
                 env=_minimal_environment(),
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
             )
         except OSError as error:
+            log_handle.close()
+            self._serve_log_path.unlink(missing_ok=True)
+            self._serve_log_path = None
             raise ProviderUnavailable(self.name, "CodeBuddy HTTP service could not start") from error
+        log_handle.close()
         self.endpoint = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + min(10.0, max(2.0, self.request_timeout))
         while time.monotonic() < deadline:
             if self._owned_process.poll() is not None:
                 break
+            self._read_serve_password()
             if self._health_available():
                 return
             time.sleep(0.05)
         self.close()
         raise ProviderUnavailable(self.name, "CodeBuddy HTTP service did not become ready")
+
+    def _read_serve_password(self) -> None:
+        if self._serve_log_path is None or self._serve_password is not None:
+            return
+        try:
+            content = self._serve_log_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return
+        match = re.search(r"Password\s+([A-Za-z0-9_-]{8,})", content)
+        if match:
+            self._serve_password = match.group(1)
 
     def _json_request(
         self,
@@ -552,6 +589,8 @@ class WorkBuddyProvider:
         if self._session_token:
             headers["Authorization"] = f"Bearer {self._session_token}"
             headers["acp-session-token"] = self._session_token
+        elif self._serve_password:
+            headers["Authorization"] = f"Bearer {self._serve_password}"
         return headers
 
     def _emit_provider_error(self, message: str, code: str) -> None:

@@ -243,7 +243,7 @@ class WorkBuddyAdapterTests(unittest.TestCase):
             provider = WorkBuddyProvider(Path(directory))
 
             preview = " ".join(provider.start_command(8765, "session-id"))
-            self.assertEqual(preview, "codebuddy --serve --port 8765 --session-id session-id")
+            self.assertEqual(preview, "codebuddy --serve --model hy3 --port 8765 --session-id session-id")
             self.assertNotIn("yolo", preview)
             self.assertNotIn("dangerously", preview)
 
