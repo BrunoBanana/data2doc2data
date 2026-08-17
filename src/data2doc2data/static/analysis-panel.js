@@ -11,6 +11,11 @@ const analysisResult = document.querySelector("#analysis-result");
 const analysisQuestion = document.querySelector("#analysis-question");
 const metricOverride = document.querySelector("#metric-override");
 const analysisStatusTop = document.querySelector("#analysis-status-top");
+const analysisHistory = document.querySelector("#analysis-history");
+const historyList = document.querySelector("#history-list");
+const historyCount = document.querySelector("#history-count");
+
+const MAX_HISTORY = 10;
 
 export function setQuestion(value) {
   analysisQuestion.value = value;
@@ -31,6 +36,7 @@ analysisForm.addEventListener("submit", async (event) => {
     });
     renderResult(result);
     analysisState.result = result;
+    recordHistory(question, result);
     setMessage(analysisMessage, "分析完成。", "success");
     analysisStatusTop.textContent = formatStatus(result.validation.status, VALIDATION_STATUS_LABELS);
   } catch (error) {
@@ -70,7 +76,53 @@ function renderResult(result) {
 
 export function invalidateAnalysisPresentation() {
   analysisState.result = null;
+  // 数据源切换后旧结论不再适用，但保留在历史中以便追溯"为何失效"。
+  analysisState.history.forEach((entry) => {
+    entry.stale = true;
+  });
+  renderHistory();
   analysisResult.hidden = true;
   analysisEmpty.hidden = false;
   analysisStatusTop.textContent = "等待分析";
+}
+
+function recordHistory(question, result) {
+  analysisState.history.push({
+    question,
+    result,
+    at: new Date().toISOString(),
+    stale: false,
+  });
+  if (analysisState.history.length > MAX_HISTORY) {
+    analysisState.history.shift();
+  }
+  renderHistory();
+}
+
+function renderHistory() {
+  historyList.replaceChildren();
+  if (analysisState.history.length === 0) {
+    analysisHistory.hidden = true;
+    return;
+  }
+  analysisHistory.hidden = false;
+  historyCount.textContent = String(analysisState.history.length);
+  analysisState.history.forEach((entry) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-item";
+    if (entry.stale) button.classList.add("is-stale");
+    const status = entry.stale
+      ? "已失效（数据源已切换）"
+      : formatStatus(entry.result.validation.status, VALIDATION_STATUS_LABELS);
+    button.textContent = `${entry.question} · ${status}`;
+    button.title = entry.stale ? "该结论基于旧数据源，仅作追溯参考。" : "点击查看该次分析结果";
+    button.addEventListener("click", () => {
+      renderResult(entry.result);
+      analysisState.result = entry.result;
+    });
+    item.appendChild(button);
+    historyList.appendChild(item);
+  });
 }

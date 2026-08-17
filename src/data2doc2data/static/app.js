@@ -34,8 +34,8 @@ function setupWorkspaceTabs() {
 
 async function initializeApplication() {
   setupWorkspaceTabs();
-  await loadAgents();
-  await initializeWorkspace();
+  // Agent 检测（子进程）与工作区数据加载互不依赖，并行执行以缩短首屏时间。
+  await Promise.all([loadAgents(), initializeWorkspace()]);
 }
 
 initializeApplication();

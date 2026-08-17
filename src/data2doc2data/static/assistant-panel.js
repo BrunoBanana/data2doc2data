@@ -20,9 +20,12 @@ const operationQueue = document.querySelector("#operation-queue");
 const agentStatusTop = document.querySelector("#agent-status-top");
 const agentContextStatus = document.querySelector("#agent-context-status");
 const contextSnapshotId = document.querySelector("#context-snapshot-id");
+const contextContractVersion = document.querySelector("#context-contract-version");
 const contextRecordCount = document.querySelector("#context-record-count");
 const contextExcerptCount = document.querySelector("#context-excerpt-count");
 const contextCompressionState = document.querySelector("#context-compression-state");
+
+let announceTimer = null;
 
 export async function loadAgents() {
   try {
@@ -147,6 +150,17 @@ function startEventStream() {
   const eventsRoute = `/api/agent-sessions/${sessionId}/events`;
   const eventSource = new EventSource(`${eventsRoute}?after=${agentState.lastEventId}`);
   agentState.eventSource = eventSource;
+  let reconnectTimer = null;
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  };
+
+  eventSource.onopen = clearReconnectTimer;
+
   eventSource.onmessage = (event) => {
     try {
       const eventId = Number.parseInt(event.lastEventId, 10);
@@ -156,11 +170,19 @@ function startEventStream() {
       finishTurn("助手返回了无法读取的事件。", "error");
     }
   };
+
   eventSource.onerror = () => {
     if (agentState.eventSource !== eventSource) return;
-    closeEventStream();
-    if (agentState.turnActive) {
-      finishTurn("助手事件连接已断开，可以重新发送。", "error");
+    // 让浏览器基于 Last-Event-ID 自动重连，服务端会从断点续传，因此不主动关闭。
+    // 仅在活动 turn 期间持续断线时兜底提示，避免用户无限等待。
+    if (agentState.turnActive && !reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (agentState.eventSource === eventSource && agentState.turnActive) {
+          closeEventStream();
+          finishTurn("助手连接持续中断，请重新发送。", "error");
+        }
+      }, 15000);
     }
   };
 }
@@ -220,6 +242,7 @@ function renderContextSummary(payload) {
   contextCompressionState.textContent = payload.compressed ? "已压缩" : "完整证据包";
   const snapshotId = typeof payload.snapshot_id === "string" ? payload.snapshot_id : "";
   contextSnapshotId.textContent = snapshotId ? snapshotId.slice(0, 12) : "—";
+  contextContractVersion.textContent = payload.contract_version != null ? `v${payload.contract_version}` : "—";
   agentContextStatus.textContent = "已附带";
 }
 
@@ -229,6 +252,7 @@ export function resetContextSummary(status = "等待提问") {
   contextExcerptCount.textContent = "—";
   contextCompressionState.textContent = "未建立";
   contextSnapshotId.textContent = "—";
+  contextContractVersion.textContent = "—";
 }
 
 function appendMessage(author, text, kind) {
@@ -251,7 +275,14 @@ function appendAssistantDelta(text) {
   if (!agentState.activeAssistant) {
     agentState.activeAssistant = appendMessage("助手", "", "assistant");
   }
+  // 流式增量期间抑制 aria-live 播报，避免屏幕阅读器被逐字打断。
+  conversationLog.setAttribute("aria-busy", "true");
   agentState.activeAssistant.textContent += text;
+  if (announceTimer) clearTimeout(announceTimer);
+  announceTimer = setTimeout(() => {
+    announceTimer = null;
+    conversationLog.setAttribute("aria-busy", "false");
+  }, 400);
 }
 
 function appendOperation(title, content, className) {
@@ -333,6 +364,11 @@ function setTurnControls(active) {
 function finishTurn(message, state) {
   agentState.turnActive = false;
   agentState.activeAssistant = null;
+  if (announceTimer) {
+    clearTimeout(announceTimer);
+    announceTimer = null;
+  }
+  conversationLog.setAttribute("aria-busy", "false");
   setTurnControls(false);
   closeEventStream();
   setMessage(agentMessageStatus, message, state);

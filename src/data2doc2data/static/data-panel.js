@@ -15,6 +15,7 @@ const demoScenarioObjective = document.querySelector("#demo-scenario-objective")
 const localFields = document.querySelector("#local-source-fields");
 const dataPath = document.querySelector("#data-path");
 const knowledgePath = document.querySelector("#knowledge-path");
+const rulesPath = document.querySelector("#rules-path");
 const profileState = document.querySelector("#profile-state");
 const profileMessage = document.querySelector("#profile-message");
 const activeSourceStatus = document.querySelector("#active-source-status");
@@ -61,6 +62,7 @@ export async function loadProfile() {
       dataMode.value = profile.mode;
       dataPath.value = profile.data_path;
       knowledgePath.value = profile.knowledge_path;
+      rulesPath.value = profile.rules_path || "";
       if (demoState.scenarios.some((scenario) => scenario.id === profile.demo_scenario)) {
         demoScenario.value = profile.demo_scenario;
       }
@@ -126,8 +128,8 @@ export async function loadDemoScenarios() {
 
 export async function initializeWorkspace() {
   await loadDemoScenarios();
-  await loadProfile();
-  await loadSourceProfile();
+  // loadProfile 依赖已加载的场景列表；数据画像与工作区配置互不依赖，可并行。
+  await Promise.all([loadProfile(), loadSourceProfile()]);
 }
 
 profileForm.addEventListener("submit", async (event) => {
@@ -142,6 +144,7 @@ profileForm.addEventListener("submit", async (event) => {
         mode: dataMode.value,
         data_path: dataPath.value.trim(),
         knowledge_path: knowledgePath.value.trim(),
+        rules_path: dataMode.value === "local" ? rulesPath.value.trim() : "",
         demo_scenario: demoScenario.value,
       }),
     });

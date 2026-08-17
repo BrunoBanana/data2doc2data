@@ -17,6 +17,17 @@
 - 前端从单一 `app.js` 拆分为零构建 ES modules（`state.js`/`ui.js`/`api.js`/`data-panel.js`/`analysis-panel.js`/`assistant-panel.js` + `app.js` 入口），`index.html` 改用 `type="module"`；本地服务白名单与发布打包器同步纳入全部模块，安全契约测试改为覆盖所有脚本文件。
 - 新增跨 harness 工具接口（`data2doc2data mcp`）：零依赖的 MCP stdio 服务器，把确定性引擎暴露为 `analyze`、`check_rules`、`source_profile` 三个工具，任意 MCP 客户端（WorkBuddy/DeepSeek harness/Codex/通用客户端）可直接以工具方式调用，原始 CSV 永不写入客户端。
 
+### 修复
+
+- 助手事件流改为断线自动重连：`onerror` 不再主动关闭 EventSource，而是利用浏览器的 `Last-Event-ID` 续传能力从断点恢复，仅在活动 turn 持续断线 15 秒时兜底提示，避免长对话因一次网络抖动而中断。
+- 工作台首屏改为并行初始化（助手检测与工作区数据加载互不依赖），缩短启动等待。
+
+### 变更
+
+- 工作台数据栏新增「验证规则 JSON」入口，把声明式规则 DSL 的能力对网页使用者可见；保存时校验、分析时按规则裁决。
+- 分析结果新增「分析历史」区块，保留多次分析并按验证状态标注；数据源切换后旧结论标记为「已失效（数据源已切换）」但保留可追溯。
+- 证据上下文面板展示 `contract_version`；流式助手输出期间抑制 `aria-live` 播报，避免屏幕阅读器被逐字打断。
+
 ## [3.0.0] - 2026-08-17
 
 ### 新增

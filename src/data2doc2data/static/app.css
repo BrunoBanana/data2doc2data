@@ -301,6 +301,12 @@ blockquote { margin: 0; font-size: 16px; line-height: 1.6; }
 .source-path { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .evidence-block ul { display: grid; gap: 6px; margin: 10px 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 
+.history-panel { margin-top: 14px; padding: 15px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); box-shadow: 0 8px 24px rgb(28 43 37 / .035); }
+.history-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.history-item { width: 100%; justify-content: flex-start; min-height: 34px; padding: 7px 10px; border-color: var(--line); background: var(--surface-quiet); color: var(--ink); font-size: 12px; font-weight: 620; text-align: left; white-space: normal; }
+.history-item:hover { border-color: var(--line-strong); background: var(--surface); }
+.history-item.is-stale { opacity: .55; border-style: dashed; }
+
 .agent-panel { display: grid; gap: 12px; }
 .agent-panel > .column-heading { margin-bottom: 2px; }
 .agent-boundary { margin: 0; padding: 10px 11px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--accent-strong); font-size: 10px; }

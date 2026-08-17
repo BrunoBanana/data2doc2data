@@ -11,7 +11,10 @@ export const agentState = {
   lastEventId: 0,
 };
 
-export const analysisState = { result: null };
+export const analysisState = {
+  result: null,
+  history: [],
+};
 
 export const demoState = {
   scenarios: [],

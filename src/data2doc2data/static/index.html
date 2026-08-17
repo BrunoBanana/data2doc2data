@@ -82,6 +82,11 @@
               <span>文档目录</span>
               <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
             </label>
+            <label class="field" for="rules-path">
+              <span>验证规则 JSON（可选）</span>
+              <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
+              <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
+            </label>
             <p class="field-hint">CSV 需要 date、metric、value 三列；路径仅在本机校验。</p>
           </div>
           <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
@@ -155,6 +160,13 @@
               </section>
             </div>
           </article>
+          <section id="analysis-history" class="history-panel" hidden aria-labelledby="history-heading">
+            <div class="card-heading">
+              <h2 id="history-heading">分析历史</h2>
+              <span id="history-count" class="micro-badge">0</span>
+            </div>
+            <ul id="history-list" class="history-list"></ul>
+          </section>
         </section>
       </section>
 
@@ -197,7 +209,7 @@
               <div><dt>文档片段</dt><dd id="context-excerpt-count">—</dd></div>
               <div><dt>上下文</dt><dd id="context-compression-state">未建立</dd></div>
             </dl>
-            <p class="snapshot-line">快照 <code id="context-snapshot-id">—</code></p>
+            <p class="snapshot-line">快照 <code id="context-snapshot-id">—</code> · 契约 <code id="context-contract-version">—</code></p>
             <p class="context-disclosure">本地统计和相关文档片段会发送给所选助手提供方。</p>
           </section>
 
