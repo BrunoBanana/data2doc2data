@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
             }
             print(json.dumps(summary, ensure_ascii=False, indent=2), file=output)
             return 0
+        if args.command == "mcp":
+            from .mcp_server import serve
+
+            serve(store)
+            return 0
         return _run_setup(store, args.port, args.no_browser, output)
     except (InputValidationError, ProfileError, OSError) as error:
         print(json.dumps({"error": str(error)}), file=output)
@@ -72,6 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
     check_rules = commands.add_parser("check-rules", help="Validate a declarative rules JSON file.")
     check_rules.add_argument("--rules", required=True, help="Path to the rules JSON file.")
 
+    commands.add_parser("mcp", help="Run the MCP stdio tool server for cross-harness tool calls.")
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser
 

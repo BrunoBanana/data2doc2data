@@ -56,6 +56,22 @@ data2doc2data analyze --question "发生了什么变化？" --metric retention_r
 - 助手只能在启动配置页时的工作目录内运行，且不能覆盖确定性证据结果。
 - 首次 Codex 回合可能因本地工具冷启动耗时约两分钟；不要将正常冷启动误报为分析失败。
 
+## MCP 工具接口
+
+以工具方式接入任意支持 MCP 的 harness（WorkBuddy、DeepSeek harness、Codex 或通用客户端）时，启动 stdio 工具服务器：
+
+```bash
+data2doc2data mcp
+```
+
+它通过 stdio 传输 MCP，暴露三个工具：
+
+- `analyze`：运行确定性证据分析（`question` 必填，`metric` 与 `rules_path` 可选）。
+- `check_rules`：校验声明式规则 JSON 文件并列出其指标与规则。
+- `source_profile`：返回本地数据画像（记录数、指标、日期范围、文档数），不含原始数据行。
+
+工具结果只包含派生信号、溯源、来源计数与检索片段；原始 CSV 永不写入客户端。
+
 ## 数据源要求
 
 - CSV 输入必须包含 `date`、`metric` 和 `value` 列。

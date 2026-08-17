@@ -94,6 +94,16 @@ data2doc2data analyze --question "What changed?" --metric retention_rate
 
 Results present: measured signal, most relevant document context, verification status, and local source paths used. Analysis is refused when no metric is resolved or fewer than two observations exist; zero-relevance documents are flagged as insufficient evidence; document matching is context only unless backed by data verification. A transparent "activation up, retention down" dual-metric verification rule is built in.
 
+## MCP Tool Interface
+
+Run the deterministic engine as a tool server for any MCP-capable agent (Codex, Tencent WorkBuddy, DeepSeek harness, or a generic client):
+
+```bash
+data2doc2data mcp
+```
+
+It speaks MCP over stdio and exposes three tools: `analyze` (deterministic evidence analysis), `check_rules` (validate a declarative rules JSON file), and `source_profile` (dataset profile without raw rows). Raw CSV rows are never written to the client.
+
 ## Data Source Roadmap
 
 This version does not connect to external vendors. For user-purchasable, configurable future options, see the [connector guide](references/connector-guide.md).
@@ -203,6 +213,16 @@ data2doc2data analyze --question "发生了什么变化？" --metric retention_r
 ```
 
 结果会依次给出测得信号、最相关的文档语境、验证状态和所用本地来源路径。未解析出指标或指标少于两条观测值时会拒绝分析；零相关度文档会被标为证据不足；文档匹配仅是语境，除非另有数据验证。当前内置一条透明的"激活上升、留存下降"双指标验证规则。
+
+## MCP 工具接口
+
+将确定性引擎作为工具服务器，供任意支持 MCP 的助手（Codex、腾讯 WorkBuddy、DeepSeek harness 或通用客户端）直接调用：
+
+```bash
+data2doc2data mcp
+```
+
+它通过 stdio 传输 MCP 协议，暴露三个工具：`analyze`（确定性证据分析）、`check_rules`（校验声明式规则 JSON 文件）与 `source_profile`（不含原始数据行的数据画像）。原始 CSV 永不写入客户端。
 
 ## 数据源路线图
 
