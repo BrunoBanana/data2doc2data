@@ -14,19 +14,12 @@ import re
 from .config import Profile
 from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
 from .hypotheses import ClauseVerification, parse_controlled_hypothesis, verify_hypothesis
-from .metrics import InputValidationError, MetricRow, MetricSpec, Signal, SignalEngine
+from .metrics import InputValidationError, MetricRow, Signal, SignalEngine
 from .provenance import AnalysisProvenance, SourceRef, build_provenance
 from .retrieval import index_documents, search_chunks
+from .rules import RuleSet, default_ruleset, load_ruleset
 
 
-METRIC_ALIASES = {
-    "retention_rate": ("retention", "retention rate", "留存", "留存率"),
-    "activation_rate": ("activation", "activation rate", "激活", "激活率"),
-}
-METRIC_DISPLAY_NAMES = {
-    "retention_rate": "留存率",
-    "activation_rate": "激活率",
-}
 MAX_CSV_BYTES = 5_000_000
 MAX_DOCUMENT_BYTES = 1_000_000
 MAX_DOCUMENTS = 200
@@ -54,6 +47,8 @@ class Verification:
     metric: str | None
     summary: str
     clauses: tuple[ClauseVerification, ...] = ()
+    rule_id: str | None = None
+    rule_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,20 +81,22 @@ def analyze(
     profile: Profile,
     metric_override: str | None = None,
     cache_path: Path | None = None,
+    ruleset: RuleSet | None = None,
 ) -> InsightResult:
     normalized_question = question.strip()
     if not normalized_question:
         raise InputValidationError("question is required")
     if metric_override is not None and not isinstance(metric_override, str):
         raise InputValidationError("metric override must be text")
+    contract = ruleset or default_ruleset()
 
     csv_path, document_paths = _resolve_sources(profile)
     rows, csv_sha256 = _read_metrics_source(csv_path)
-    metric = _select_metric(normalized_question, rows, metric_override)
-    signal = _build_signal(metric, [row for row in rows if row.metric == metric])
-    context_query = f"{normalized_question} {metric} {' '.join(METRIC_ALIASES.get(metric, ()))}"
+    metric = _select_metric(normalized_question, rows, metric_override, contract.aliases())
+    signal = _build_signal(metric, [row for row in rows if row.metric == metric], contract)
+    context_query = f"{normalized_question} {metric} {' '.join(contract.aliases().get(metric, ()))}"
     context = _best_context(context_query, document_paths, cache_path)
-    verification = _verify_document_condition(signal, rows, context)
+    verification = _verify_document_condition(signal, rows, context, contract)
     validation = _validate(signal, context, verification)
     evidence = [
         f"指标来源：{csv_path}",
@@ -150,6 +147,15 @@ def validate_profile(profile: Profile) -> None:
     csv_path, document_paths = _resolve_sources(profile)
     _read_metrics(csv_path)
     _best_context("evidence", document_paths)
+    if profile.rules_path:
+        load_ruleset(Path(profile.rules_path))
+
+
+def load_profile_ruleset(profile: Profile) -> RuleSet | None:
+    """Load the declarative rules contract attached to a profile, if any."""
+    if not profile.rules_path:
+        return None
+    return load_ruleset(Path(profile.rules_path))
 
 
 def resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
@@ -230,9 +236,11 @@ def _select_metric(
     question: str,
     rows: list[MetricRow],
     metric_override: str | None = None,
+    aliases: dict[str, tuple[str, ...]] | None = None,
 ) -> str:
     metrics = sorted({row.metric for row in rows})
     metrics_by_normalized_name = {_normalize_metric(metric): metric for metric in metrics}
+    alias_map = aliases or {}
 
     if metric_override and metric_override.strip():
         requested_metric = metrics_by_normalized_name.get(_normalize_metric(metric_override))
@@ -250,7 +258,7 @@ def _select_metric(
         if _normalize_metric(metric) in normalized_question
         or any(
             _normalize_metric(alias) in normalized_question
-            for alias in METRIC_ALIASES.get(metric, ())
+            for alias in alias_map.get(metric, ())
         )
     }
     if len(candidates) == 1:
@@ -263,13 +271,8 @@ def _select_metric(
     raise InputValidationError("Unable to identify a metric. Specify --metric <metric>.")
 
 
-def _build_signal(metric: str, rows: list[MetricRow]) -> Signal:
-    spec = MetricSpec(
-        name=metric,
-        aliases=METRIC_ALIASES.get(metric, ()),
-        display_name=METRIC_DISPLAY_NAMES.get(metric),
-    )
-    return SignalEngine().build(spec, rows)
+def _build_signal(metric: str, rows: list[MetricRow], contract: RuleSet) -> Signal:
+    return SignalEngine().build(contract.spec_for(metric), rows)
 
 
 def _best_context(
@@ -317,27 +320,32 @@ def _verify_document_condition(
     primary_signal: Signal,
     rows: list[MetricRow],
     context: DocumentContext,
+    contract: RuleSet,
 ) -> Verification:
-    hypothesis = parse_controlled_hypothesis(context.excerpt, METRIC_ALIASES)
+    hypothesis = parse_controlled_hypothesis(context.excerpt, contract.aliases())
     if hypothesis is None or len(hypothesis.clauses) < 2:
         return Verification("not_applicable", None, "文档语境中未发现可验证的跨指标条件。")
-    specs = {
-        clause.metric: MetricSpec(
-            name=clause.metric,
-            aliases=METRIC_ALIASES.get(clause.metric, ()),
-            display_name=METRIC_DISPLAY_NAMES.get(clause.metric),
-        )
-        for clause in hypothesis.clauses
-    }
-    result = verify_hypothesis(hypothesis, rows, specs)
+    rule = contract.match_rule(hypothesis)
+    target = rule.hypothesis() if rule else hypothesis
+    specs = {clause.metric: contract.spec_for(clause.metric) for clause in target.clauses}
+    result = verify_hypothesis(target, rows, specs)
     secondary_clause = next(
         (clause for clause in result.clauses if clause.metric != primary_signal.metric),
         result.clauses[0],
     )
     status = "not_confirmed" if result.status == "contradicted" else result.status
-    display_name = METRIC_DISPLAY_NAMES.get(secondary_clause.metric, secondary_clause.metric)
+    display_name = contract.display_name(secondary_clause.metric)
     summary = f"{display_name}：{result.summary}"
-    return Verification(status, secondary_clause.metric, summary, result.clauses)
+    if rule:
+        summary = f"规则「{rule.name}」：{summary}"
+    return Verification(
+        status,
+        secondary_clause.metric,
+        summary,
+        result.clauses,
+        rule.rule_id if rule else None,
+        rule.name if rule else None,
+    )
 
 
 def _tokens(value: str) -> list[str]:

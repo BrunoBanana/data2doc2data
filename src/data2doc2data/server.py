@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .agent_api import AgentApiError, AgentWebService, BROWSER_SESSION_SECONDS, TERMINAL_EVENTS
 from .agents.gateway import AgentGateway
-from .analysis import InputValidationError, analyze, validate_profile
+from .analysis import InputValidationError, analyze, load_profile_ruleset, validate_profile
 from .config import Profile, ProfileError, ProfileStore
 from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
 from .evidence_context import build_source_profile
@@ -187,7 +187,13 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
                 question = payload.get("question", "") if isinstance(payload, dict) else ""
                 metric_override = payload.get("metric_override") if isinstance(payload, dict) else None
                 profile = self._store().load() or Profile.demo()
-                result = analyze(question, profile, metric_override, self._store().index_cache_path)
+                result = analyze(
+                    question,
+                    profile,
+                    metric_override,
+                    self._store().index_cache_path,
+                    load_profile_ruleset(profile),
+                )
                 owner_id = self._optional_agent_owner()
                 if owner_id is not None:
                     self._agents().record_analysis(owner_id, result, profile)

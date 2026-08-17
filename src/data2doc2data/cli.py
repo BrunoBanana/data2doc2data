@@ -11,8 +11,9 @@ import webbrowser
 from .agents.codex import CodexProvider
 from .agents.gateway import AgentGateway
 from .agents.workbuddy import WorkBuddyProvider
-from .analysis import InputValidationError, analyze
+from .analysis import InputValidationError, analyze, load_profile_ruleset
 from .config import Profile, ProfileError, ProfileStore, default_store
+from .rules import load_ruleset
 from .server import create_server
 
 
@@ -28,13 +29,25 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
             print(json.dumps({"configured": profile is not None, "mode": profile.mode if profile else None}), file=output)
             return 0
         if args.command == "analyze":
+            profile = store.load() or Profile.demo()
+            ruleset = load_ruleset(Path(args.rules)) if args.rules else load_profile_ruleset(profile)
             result = analyze(
                 args.question,
-                store.load() or Profile.demo(),
+                profile,
                 args.metric_override,
                 store.index_cache_path,
+                ruleset,
             )
             print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), file=output)
+            return 0
+        if args.command == "check-rules":
+            ruleset = load_ruleset(Path(args.rules))
+            summary = {
+                "valid": True,
+                "metrics": sorted(ruleset.metrics),
+                "rules": [rule.rule_id for rule in ruleset.rules],
+            }
+            print(json.dumps(summary, ensure_ascii=False, indent=2), file=output)
             return 0
         return _run_setup(store, args.port, args.no_browser, output)
     except (InputValidationError, ProfileError, OSError) as error:
@@ -54,6 +67,10 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser = commands.add_parser("analyze", help="Analyze the saved profile or built-in demo.")
     analyze_parser.add_argument("--question", required=True)
     analyze_parser.add_argument("--metric", dest="metric_override", help="Optional exact metric name override.")
+    analyze_parser.add_argument("--rules", help="Optional declarative rules JSON file.")
+
+    check_rules = commands.add_parser("check-rules", help="Validate a declarative rules JSON file.")
+    check_rules.add_argument("--rules", required=True, help="Path to the rules JSON file.")
 
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser

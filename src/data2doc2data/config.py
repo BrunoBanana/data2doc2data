@@ -24,6 +24,7 @@ class Profile:
     data_path: str
     knowledge_path: str
     demo_scenario: str = DEFAULT_DEMO_SCENARIO
+    rules_path: str = ""
 
     def __post_init__(self) -> None:
         if self.mode not in {"demo", "local"}:
@@ -32,6 +33,8 @@ class Profile:
             raise ProfileError("source paths must be text")
         if not isinstance(self.demo_scenario, str):
             raise ProfileError("demo scenario must be text")
+        if not isinstance(self.rules_path, str):
+            raise ProfileError("rules path must be text")
         if self.mode == "demo":
             try:
                 DemoScenarioCatalog.load().get(self.demo_scenario)
@@ -55,6 +58,7 @@ class Profile:
                 data_path=value.get("data_path", ""),
                 knowledge_path=value.get("knowledge_path", ""),
                 demo_scenario=value.get("demo_scenario", DEFAULT_DEMO_SCENARIO),
+                rules_path=value.get("rules_path", ""),
             )
         except (KeyError, TypeError) as error:
             raise ProfileError("profile is missing required fields") from error

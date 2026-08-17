@@ -17,6 +17,7 @@ from data2doc2data.analysis import (
 )
 from data2doc2data.config import Profile
 from data2doc2data.demo_scenarios import DemoScenarioCatalog
+from data2doc2data.rules import default_ruleset
 
 
 class AnalysisTests(unittest.TestCase):
@@ -234,7 +235,7 @@ class AnalysisTests(unittest.TestCase):
             MetricRow(date(2026, 1, 2), "activation_rate", 10.0),
         ]
 
-        signal = _build_signal("activation_rate", rows)
+        signal = _build_signal("activation_rate", rows, default_ruleset())
 
         self.assertIsNone(signal.change_percent)
         self.assertEqual(signal.direction, "up")
@@ -263,6 +264,7 @@ class AnalysisTests(unittest.TestCase):
             Signal("retention_rate", 0.66, 0.55, -16.7, "down", "Retention fell."),
             self._activation_rows(),
             DocumentContext("decision.md", "Retention rises while activation falls.", 4),
+            default_ruleset(),
         )
 
         self.assertNotEqual(verification.status, "confirmed")
@@ -272,6 +274,7 @@ class AnalysisTests(unittest.TestCase):
             Signal("retention_rate", 0.66, 0.55, -16.7, "down", "留存下降。"),
             self._activation_rows(),
             DocumentContext("decision.md", "激活下降、留存上升。", 4),
+            default_ruleset(),
         )
 
         self.assertNotEqual(verification.status, "confirmed")
@@ -281,6 +284,7 @@ class AnalysisTests(unittest.TestCase):
             Signal("retention_rate", 0.66, 0.55, -16.7, "down", "留存下降。"),
             self._activation_rows(),
             DocumentContext("decision.md", "不能说明激活率上升导致留存率下降。", 4),
+            default_ruleset(),
         )
 
         self.assertEqual(verification.status, "not_applicable")
