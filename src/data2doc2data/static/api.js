@@ -11,7 +11,13 @@ export async function request(path, options = {}) {
     ...options,
     headers,
   });
-  const payload = await response.json();
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch (_error) {
+    payload = {};
+  }
   if (!response.ok) {
     throw new Error(payload.error || "本地服务暂时无法完成此请求。");
   }

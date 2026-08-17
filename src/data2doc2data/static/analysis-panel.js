@@ -14,6 +14,16 @@ const analysisStatusTop = document.querySelector("#analysis-status-top");
 const analysisHistory = document.querySelector("#analysis-history");
 const historyList = document.querySelector("#history-list");
 const historyCount = document.querySelector("#history-count");
+const resultSignalTitle = document.querySelector("#result-signal-title");
+const resultSignalCopy = document.querySelector("#result-signal-copy");
+const resultContextCopy = document.querySelector("#result-context-copy");
+const resultContextSource = document.querySelector("#result-context-source");
+const resultVerificationTitle = document.querySelector("#result-verification-title");
+const resultVerificationCopy = document.querySelector("#result-verification-copy");
+const resultValidationStatus = document.querySelector("#result-validation-status");
+const resultValidationCopy = document.querySelector("#result-validation-copy");
+const resultLimitation = document.querySelector("#result-limitation");
+const resultEvidence = document.querySelector("#result-evidence");
 
 const MAX_HISTORY = 10;
 
@@ -50,27 +60,25 @@ analysisForm.addEventListener("submit", async (event) => {
 function renderResult(result) {
   analysisEmpty.hidden = true;
   analysisResult.hidden = false;
-  document.querySelector("#result-signal-title").textContent = formatMetric(result.signal.metric);
-  document.querySelector("#result-signal-copy").textContent = result.signal.summary;
-  document.querySelector("#result-context-copy").textContent = result.context.excerpt;
-  document.querySelector("#result-context-source").textContent = result.context.source;
+  resultSignalTitle.textContent = formatMetric(result.signal.metric);
+  resultSignalCopy.textContent = result.signal.summary;
+  resultContextCopy.textContent = result.context.excerpt;
+  resultContextSource.textContent = result.context.source;
   const verificationStatus = formatStatus(result.verification.status, VERIFICATION_STATUS_LABELS);
-  document.querySelector("#result-verification-title").textContent = result.verification.metric
+  resultVerificationTitle.textContent = result.verification.metric
     ? `${formatMetric(result.verification.metric)} · ${verificationStatus}`
     : verificationStatus;
-  document.querySelector("#result-verification-copy").textContent = result.verification.summary;
-  const validationStatus = document.querySelector("#result-validation-status");
-  validationStatus.textContent = formatStatus(result.validation.status, VALIDATION_STATUS_LABELS);
-  validationStatus.dataset.status = result.validation.status;
-  document.querySelector("#result-validation-copy").textContent = result.validation.summary;
-  document.querySelector("#result-limitation").textContent = result.limitation;
+  resultVerificationCopy.textContent = result.verification.summary;
+  resultValidationStatus.textContent = formatStatus(result.validation.status, VALIDATION_STATUS_LABELS);
+  resultValidationStatus.dataset.status = result.validation.status;
+  resultValidationCopy.textContent = result.validation.summary;
+  resultLimitation.textContent = result.limitation;
 
-  const evidence = document.querySelector("#result-evidence");
-  evidence.replaceChildren();
+  resultEvidence.replaceChildren();
   result.evidence.forEach((item) => {
     const listItem = document.createElement("li");
     listItem.textContent = item;
-    evidence.appendChild(listItem);
+    resultEvidence.appendChild(listItem);
   });
 }
 

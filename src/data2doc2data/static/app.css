@@ -1,3 +1,4 @@
+/* ============ 1. 设计令牌 ============ */
 :root {
   color-scheme: light dark;
   --canvas: #eef1ee;
@@ -19,6 +20,7 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* ============ 2. 基础 reset 与元素 ============ */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -59,6 +61,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   outline-offset: 2px;
 }
 
+/* ============ 无障碍工具类 ============ */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -71,6 +74,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   border: 0;
 }
 
+/* ============ 3. 顶栏 ============ */
 .topbar {
   position: sticky;
   z-index: 20;
@@ -130,6 +134,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .workspace { display: grid; gap: 20px; min-width: 0; }
 .context-panel { min-width: 0; }
 
+/* ============ 4. 三栏布局 ============ */
 .workbench-shell {
   display: grid;
   grid-template-columns: 286px minmax(460px, 1fr) 386px;
@@ -152,6 +157,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .assistant-rail { border-left: 1px solid var(--line); }
 .analysis-canvas { padding: clamp(24px, 3vw, 42px); background: var(--canvas); }
 
+/* ============ 栏标题与状态徽标 ============ */
 .column-heading,
 .card-heading,
 .subpanel-heading,
@@ -181,6 +187,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 .authority-badge { border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); }
 
+/* ============ 卡片容器 ============ */
 .workspace-card,
 .context-attachment-card,
 .question-composer,
@@ -199,6 +206,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .card-heading h2,
 .subpanel-heading h2 { margin: 0; font-size: 13px; letter-spacing: -.015em; }
 
+/* ============ 5. 数据栏 ============ */
 .metric-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -265,6 +273,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in
 .boundary-card { margin-top: 14px; padding: 13px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
 .boundary-card p:last-child { margin: 0; color: var(--muted); font-size: 11px; }
 
+/* ============ 6. 分析栏 ============ */
 .question-composer { display: grid; gap: 12px; padding: 18px; }
 .question-field textarea { min-height: 74px; border: 0; padding: 2px; background: transparent; font-size: clamp(18px, 2vw, 25px); font-weight: 680; line-height: 1.35; letter-spacing: -.025em; }
 .question-field textarea:focus { box-shadow: none; }
@@ -307,6 +316,7 @@ blockquote { margin: 0; font-size: 16px; line-height: 1.6; }
 .history-item:hover { border-color: var(--line-strong); background: var(--surface); }
 .history-item.is-stale { opacity: .55; border-style: dashed; }
 
+/* ============ 7. 助手栏 ============ */
 .agent-panel { display: grid; gap: 12px; }
 .agent-panel > .column-heading { margin-bottom: 2px; }
 .agent-boundary { margin: 0; padding: 10px 11px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--accent-strong); font-size: 10px; }
@@ -352,6 +362,7 @@ blockquote { margin: 0; font-size: 16px; line-height: 1.6; }
 .button-danger { border-color: var(--danger); background: transparent; color: var(--danger); }
 .button-danger:hover { border-color: var(--danger); background: var(--danger); color: #fff; }
 
+/* ============ 8. 响应式 ============ */
 @media (max-width: 1180px) and (min-width: 981px) {
   .workbench-shell { grid-template-columns: 250px minmax(420px, 1fr) 340px; }
   .workspace-column { padding: 17px; }
@@ -401,6 +412,7 @@ blockquote { margin: 0; font-size: 16px; line-height: 1.6; }
   .context-metadata { grid-template-columns: 1fr 1fr 1fr; }
 }
 
+/* ============ 9. 深色模式 ============ */
 @media (prefers-color-scheme: dark) {
   :root {
     --canvas: #141a18;
@@ -420,6 +432,7 @@ blockquote { margin: 0; font-size: 16px; line-height: 1.6; }
   button { color: #10211e; }
 }
 
+/* ============ 10. 减少动效 ============ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0ms !important; }
 }
