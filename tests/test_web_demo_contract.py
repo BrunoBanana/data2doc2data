@@ -18,7 +18,7 @@ class WebDemoContractTests(unittest.TestCase):
         self.assertGreaterEqual(html.count('aria-live="polite"'), 2)
 
     def test_scenarios_are_loaded_rendered_and_persisted_without_html_injection(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('request("/api/demo-scenarios")', script)
         self.assertIn("document.createElement(\"option\")", script)
@@ -28,17 +28,17 @@ class WebDemoContractTests(unittest.TestCase):
         self.assertNotIn("insertAdjacentHTML", script)
 
     def test_demo_metadata_updates_suggested_question_only_on_explicit_change(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('demoScenario.addEventListener("change"', script)
-        self.assertIn("analysisQuestion.value = scenario.suggested_question", script)
+        self.assertIn("setQuestion(scenario.suggested_question)", script)
         change_handler = script.split('demoScenario.addEventListener("change"', 1)[1]
         change_handler = change_handler.split("});", 1)[0]
         self.assertNotIn("requestSubmit", change_handler)
         self.assertNotIn("/api/analyze", change_handler)
 
     def test_mode_switch_hides_demo_selector_without_clearing_local_or_results_state(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn("demoScenarioFields.hidden = isLocal", script)
         self.assertIn("localFields.hidden = !isLocal", script)
@@ -48,7 +48,7 @@ class WebDemoContractTests(unittest.TestCase):
         self.assertNotIn("analysisResult", sync_body)
 
     def test_contradicted_result_has_a_semantic_label_and_style(self):
-        script = read_static("app.js")
+        script = read_all_js()
         css = read_static("app.css")
 
         self.assertIn('contradicted: "与策略矛盾"', script)
@@ -64,6 +64,17 @@ class WebDemoContractTests(unittest.TestCase):
 
 def read_static(name: str) -> str:
     return (STATIC_ROOT / name).read_text(encoding="utf-8")
+
+
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 if __name__ == "__main__":

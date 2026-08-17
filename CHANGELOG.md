@@ -14,6 +14,7 @@
 
 - 规则文件为受信任的数据契约，加载时严格校验（版本、指标名、规则 id、方向、聚合、阈值、重复指标集等），超过 256 KB 或格式错误返回明确本地错误。
 - 助手适配器共享逻辑下沉到 `agents/_shared.py`（`emit_provider_error`、`validate_session`、`minimal_environment`、`required_text`），消除 Codex 与 WorkBuddy 之间的重复实现，并补充适配器协议测试（总覆盖率 84% → 86%，gateway 75% → 87%，codex 77% → 81%）。
+- 前端从单一 `app.js` 拆分为零构建 ES modules（`state.js`/`ui.js`/`api.js`/`data-panel.js`/`analysis-panel.js`/`assistant-panel.js` + `app.js` 入口），`index.html` 改用 `type="module"`；本地服务白名单与发布打包器同步纳入全部模块，安全契约测试改为覆盖所有脚本文件。
 
 ## [3.0.0] - 2026-08-17
 

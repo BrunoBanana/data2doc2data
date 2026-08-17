@@ -291,7 +291,19 @@ def _handler_class() -> Type[BaseHTTPRequestHandler]:
 
         def _serve_static(self, path: str) -> None:
             requested = "index.html" if path in {"/", "/index.html"} else path.lstrip("/")
-            if requested not in {"index.html", "app.css", "app.js", "favicon.svg"}:
+            allowed = {
+                "index.html",
+                "app.css",
+                "app.js",
+                "state.js",
+                "ui.js",
+                "api.js",
+                "data-panel.js",
+                "analysis-panel.js",
+                "assistant-panel.js",
+                "favicon.svg",
+            }
+            if requested not in allowed:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
                 return
             asset = STATIC_ROOT / requested

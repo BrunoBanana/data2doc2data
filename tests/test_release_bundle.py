@@ -19,6 +19,7 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/__init__.py",
         "src/data2doc2data/agent_api.py",
         "src/data2doc2data/agents/__init__.py",
+        "src/data2doc2data/agents/_shared.py",
         "src/data2doc2data/agents/base.py",
         "src/data2doc2data/agents/codex.py",
         "src/data2doc2data/agents/gateway.py",
@@ -33,8 +34,21 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/permissions.py",
         "src/data2doc2data/provenance.py",
         "src/data2doc2data/retrieval.py",
+        "src/data2doc2data/rules.py",
         "src/data2doc2data/server.py",
         "src/data2doc2data/sessions.py",
+    }
+    EXPECTED_STATIC_FILES = {
+        "src/data2doc2data/static/analysis-panel.js",
+        "src/data2doc2data/static/api.js",
+        "src/data2doc2data/static/app.css",
+        "src/data2doc2data/static/app.js",
+        "src/data2doc2data/static/assistant-panel.js",
+        "src/data2doc2data/static/data-panel.js",
+        "src/data2doc2data/static/favicon.svg",
+        "src/data2doc2data/static/index.html",
+        "src/data2doc2data/static/state.js",
+        "src/data2doc2data/static/ui.js",
     }
     EXPECTED_SCENARIO_FILES = {
         "src/data2doc2data/sample/scenarios/catalog.json",
@@ -87,6 +101,7 @@ class ReleaseBundleTests(unittest.TestCase):
             )
             self.assertTrue(self.EXPECTED_RUNTIME_FILES.issubset(names))
             self.assertTrue(self.EXPECTED_SCENARIO_FILES.issubset(names))
+            self.assertTrue(self.EXPECTED_STATIC_FILES.issubset(names))
             self.assertFalse(any(".egg-info/" in name or "__pycache__/" in name for name in names))
             for forbidden in (
                 ".env",

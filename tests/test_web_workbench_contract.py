@@ -42,7 +42,7 @@ class WebWorkbenchContractTests(unittest.TestCase):
 
     def test_mobile_workspace_tabs_are_accessible_and_stateful(self):
         html = read_static("index.html")
-        script = read_static("app.js")
+        script = read_all_js()
         css = read_static("app.css")
 
         self.assertIn('role="tablist"', html)
@@ -54,7 +54,7 @@ class WebWorkbenchContractTests(unittest.TestCase):
         self.assertIn("@media (max-width: 980px)", css)
 
     def test_script_loads_source_profile_and_renders_context_events_safely(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('request("/api/source-profile")', script)
         self.assertIn('case "context.attached"', script)
@@ -66,6 +66,17 @@ class WebWorkbenchContractTests(unittest.TestCase):
 
 def read_static(name):
     return (STATIC_ROOT / name).read_text(encoding="utf-8")
+
+
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 if __name__ == "__main__":

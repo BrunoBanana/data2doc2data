@@ -16,7 +16,7 @@ class StaticAssetTests(unittest.TestCase):
 
     def test_setup_page_uses_chinese_product_copy(self):
         html = read_static("index.html")
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('<html lang="zh-CN">', html)
         for copy in ("本地证据工作台", "先理解指标，再采取行动。", "选择要分析的内容", "开始分析"):
@@ -34,7 +34,7 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("transform: scale(.97)", css)
 
     def test_validation_status_has_semantic_style_contract(self):
-        script = read_static("app.js")
+        script = read_all_js()
         css = read_static("app.css")
 
         self.assertIn("dataset.status = result.validation.status", script)
@@ -43,14 +43,14 @@ class StaticAssetTests(unittest.TestCase):
 
     def test_setup_page_renders_secondary_data_verification(self):
         html = read_static("index.html")
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('id="result-verification-title"', html)
         self.assertIn('id="result-verification-copy"', html)
         self.assertIn("result.verification", script)
 
     def test_script_calls_only_loopback_api_routes(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         for route in (
             "/api/profile",
@@ -70,6 +70,17 @@ def read_static(name: str) -> str:
     if not path.is_file():
         raise AssertionError(f"missing static asset: {name}")
     return path.read_text(encoding="utf-8")
+
+
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 if __name__ == "__main__":

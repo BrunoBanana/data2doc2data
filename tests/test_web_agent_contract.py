@@ -30,7 +30,7 @@ class WebAgentContractTests(unittest.TestCase):
         self.assertIn("确定性分析结论不会被助手覆盖", html)
 
     def test_script_uses_csrf_session_api_and_event_source(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         for route in (
             '"/api/agents"',
@@ -46,7 +46,7 @@ class WebAgentContractTests(unittest.TestCase):
         self.assertIn("eventSource.close()", script)
 
     def test_provider_content_is_rendered_as_text_not_markup(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn("textContent", script)
         self.assertIn("document.createElement", script)
@@ -73,6 +73,17 @@ class WebAgentContractTests(unittest.TestCase):
 
 def read_static(name):
     return (STATIC_ROOT / name).read_text(encoding="utf-8")
+
+
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 if __name__ == "__main__":
