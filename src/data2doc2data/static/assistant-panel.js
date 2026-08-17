@@ -17,7 +17,6 @@ const agentMessageStatus = document.querySelector("#agent-message-status");
 const conversationLog = document.querySelector("#conversation-log");
 const conversationEmpty = document.querySelector("#conversation-empty");
 const operationQueue = document.querySelector("#operation-queue");
-const agentStatusTop = document.querySelector("#agent-status-top");
 const agentContextStatus = document.querySelector("#agent-context-status");
 const contextSnapshotId = document.querySelector("#context-snapshot-id");
 const contextContractVersion = document.querySelector("#context-contract-version");
@@ -35,7 +34,6 @@ export async function loadAgents() {
     renderAgentOptions();
   } catch (error) {
     agentStatus.textContent = "助手检测失败";
-    agentStatusTop.textContent = "助手检测失败";
     setMessage(agentMessageStatus, error.message, "error");
   }
 }
@@ -63,13 +61,11 @@ function renderAgentOptions() {
     agentProvider.disabled = false;
     agentConnect.disabled = false;
     agentStatus.textContent = `已发现 ${selectable.length} 个可用助手`;
-    agentStatusTop.textContent = `${selectable.length} 个助手可用`;
     return;
   }
   agentProvider.disabled = true;
   agentConnect.disabled = true;
   agentStatus.textContent = "未发现可用助手";
-  agentStatusTop.textContent = "无可用助手";
   setMessage(agentMessageStatus, "确定性证据分析仍可正常使用。", "");
 }
 
@@ -95,7 +91,6 @@ agentConnectForm.addEventListener("submit", async (event) => {
     permissionMode.disabled = true;
     agentProvider.disabled = true;
     agentStatus.textContent = `${agentLabel(payload.session.provider)} 已连接`;
-    agentStatusTop.textContent = `${agentLabel(payload.session.provider)} 已连接`;
     setMessage(agentMessageStatus, `工作目录：${payload.session.workspace}`, "success");
     startEventStream();
     agentMessage.focus();

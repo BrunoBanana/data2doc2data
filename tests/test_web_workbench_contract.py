@@ -15,8 +15,6 @@ class WebWorkbenchContractTests(unittest.TestCase):
             "analysis-workspace",
             "assistant-workspace",
             "active-source-status",
-            "analysis-status-top",
-            "agent-status-top",
             "privacy-status",
         ):
             self.assertIn(f'id="{identifier}"', html)

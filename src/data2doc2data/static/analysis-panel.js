@@ -10,7 +10,6 @@ const analysisEmpty = document.querySelector("#analysis-empty");
 const analysisResult = document.querySelector("#analysis-result");
 const analysisQuestion = document.querySelector("#analysis-question");
 const metricOverride = document.querySelector("#metric-override");
-const analysisStatusTop = document.querySelector("#analysis-status-top");
 const analysisHistory = document.querySelector("#analysis-history");
 const historyList = document.querySelector("#history-list");
 const historyCount = document.querySelector("#history-count");
@@ -38,7 +37,6 @@ analysisForm.addEventListener("submit", async (event) => {
   const override = metricOverride.value.trim();
   button.disabled = true;
   setMessage(analysisMessage, "正在读取本地证据");
-  analysisStatusTop.textContent = "分析中";
   try {
     const result = await request("/api/analyze", {
       method: "POST",
@@ -48,10 +46,8 @@ analysisForm.addEventListener("submit", async (event) => {
     analysisState.result = result;
     recordHistory(question, result);
     setMessage(analysisMessage, "分析完成。", "success");
-    analysisStatusTop.textContent = formatStatus(result.validation.status, VALIDATION_STATUS_LABELS);
   } catch (error) {
     setMessage(analysisMessage, error.message, "error");
-    analysisStatusTop.textContent = "分析失败";
   } finally {
     button.disabled = false;
   }
@@ -91,7 +87,6 @@ export function invalidateAnalysisPresentation() {
   renderHistory();
   analysisResult.hidden = true;
   analysisEmpty.hidden = false;
-  analysisStatusTop.textContent = "等待分析";
 }
 
 function recordHistory(question, result) {

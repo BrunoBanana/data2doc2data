@@ -16,8 +16,6 @@
       </div>
       <div class="status-strip" aria-label="工作台状态">
         <span class="status-item"><span class="status-dot"></span><span id="active-source-status">正在读取数据源</span></span>
-        <span class="status-item"><span id="analysis-status-top">等待分析</span></span>
-        <span class="status-item"><span id="agent-status-top">正在检测助手</span></span>
         <span id="privacy-status" class="privacy-chip">原始数据本地计算</span>
       </div>
     </header>
@@ -82,12 +80,15 @@
               <span>文档目录</span>
               <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
             </label>
-            <label class="field" for="rules-path">
-              <span>验证规则 JSON（可选）</span>
-              <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
-              <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
-            </label>
-            <p class="field-hint">CSV 需要 date、metric、value 三列；路径仅在本机校验。</p>
+            <details class="advanced-fields">
+              <summary>高级选项</summary>
+              <label class="field" for="rules-path">
+                <span>验证规则 JSON（可选）</span>
+                <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
+                <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
+              </label>
+            </details>
+            <p class="field-hint">CSV 需含 date、metric、value 三列；保存后即可在「证据分析」栏开始分析。</p>
           </div>
           <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
           <button type="submit">保存并刷新数据</button>
