@@ -6,6 +6,7 @@ export const agentState = {
   session: null,
   eventSource: null,
   activeAssistant: null,
+  activeAssistantRaw: "",
   turnActive: false,
   lastEventId: 0,
 };

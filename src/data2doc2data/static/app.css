@@ -192,6 +192,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message-card p { margin: 0; }
 .message-author { margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 800; }
 .message-copy { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.message-copy p { margin: 0 0 8px; }
+.message-copy p:last-child { margin-bottom: 0; }
+.message-copy ul,
+.message-copy ol { margin: 6px 0; padding-left: 22px; }
+.message-copy li { margin: 2px 0; }
+.message-copy pre { margin: 8px 0; padding: 9px 11px; background: var(--surface-quiet); border-radius: var(--radius-sm); overflow-x: auto; }
+.message-copy code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-quiet); padding: 1px 5px; border-radius: 4px; }
+.message-copy pre code { background: transparent; padding: 0; }
+.message-copy strong { font-weight: 700; }
 
 .message-user { align-self: flex-end; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-soft); }
 

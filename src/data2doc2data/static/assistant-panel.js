@@ -2,7 +2,7 @@
 
 import { agentRequest, request } from "./api.js";
 import { agentState } from "./state.js";
-import { agentLabel, formatAgentOption, formatObject, setMessage } from "./ui.js";
+import { agentLabel, formatAgentOption, formatObject, renderMarkdown, setMessage } from "./ui.js";
 import { beginPipeline, renderPipeline } from "./pipeline.js";
 
 const agentProvider = document.querySelector("#agent-provider");
@@ -280,7 +280,7 @@ function appendMessage(author, text, kind) {
     badge.textContent = "确定性";
     label.appendChild(badge);
   }
-  const copy = document.createElement("p");
+  const copy = document.createElement("div");
   copy.className = "message-copy";
   copy.textContent = text;
   article.append(label, copy);
@@ -292,9 +292,11 @@ function appendMessage(author, text, kind) {
 function appendAssistantDelta(text) {
   if (!agentState.activeAssistant) {
     agentState.activeAssistant = appendMessage("助手", "", "assistant");
+    agentState.activeAssistantRaw = "";
   }
   conversationLog.setAttribute("aria-busy", "true");
-  agentState.activeAssistant.textContent += text;
+  agentState.activeAssistantRaw += text;
+  renderMarkdown(agentState.activeAssistant, agentState.activeAssistantRaw);
   if (announceTimer) clearTimeout(announceTimer);
   announceTimer = setTimeout(() => {
     announceTimer = null;
@@ -381,6 +383,7 @@ function setTurnControls(active) {
 function finishTurn(message, state) {
   agentState.turnActive = false;
   agentState.activeAssistant = null;
+  agentState.activeAssistantRaw = "";
   if (announceTimer) {
     clearTimeout(announceTimer);
     announceTimer = null;
