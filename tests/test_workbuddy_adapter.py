@@ -84,10 +84,12 @@ class FakeWorkBuddy:
                     result = {"sessionId": "workbuddy-session"}
                 elif method == "session/prompt":
                     stream = FIXTURE.read_text(encoding="utf-8").replace("SESSION", "workbuddy-session")
-                    for event in stream.split("\n\n"):
-                        if event.strip():
-                            state.events.put(event + "\n\n")
-                    result = {"stopReason": "end_turn"}
+                    result_event = (
+                        'data: {"jsonrpc":"2.0","id":' + str(payload.get("id"))
+                        + ',"result":{"stopReason":"end_turn"}}\n\n'
+                    )
+                    self._sse_body(stream + result_event)
+                    return
                 elif method == "session/cancel":
                     result = {}
                 elif "result" in payload and payload.get("id") == "permission-1":
@@ -120,6 +122,14 @@ class FakeWorkBuddy:
 
             def _sse(self, payload):
                 encoded = f"event: message\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def _sse_body(self, body):
+                encoded = body.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Content-Length", str(len(encoded)))

@@ -191,55 +191,82 @@ class WorkBuddyProvider:
 
     def stream_turn(self, session: AgentSession, message: str):
         self._validate_session(session)
-        completion: Queue[object] = Queue(maxsize=1)
-
-        def prompt() -> None:
-            try:
-                completion.put(
-                    self._rpc(
-                        "session/prompt",
-                        {
-                            "sessionId": session.provider_session_id,
-                            "prompt": [{"type": "text", "text": message}],
-                        },
-                    )
-                )
-            except Exception as error:
-                completion.put(error)
-
-        worker = threading.Thread(target=prompt, daemon=True)
-        worker.start()
+        with self._request_lock:
+            request_id = self._next_request_id
+            self._next_request_id += 1
         event_queue = self._event_queues[session.provider_session_id]
         try:
-            while worker.is_alive():
-                try:
-                    yield event_queue.get(timeout=0.05)
-                except Empty:
+            response = self._open_prompt(request_id, session.provider_session_id, message)
+        except Exception as error:
+            raise ProviderUnavailable(self.name, "WorkBuddy prompt could not start") from error
+        stop_reason = None
+        try:
+            for raw_line in response:
+                for queued in self._drain_queue(event_queue):
+                    yield queued
+                line = raw_line.decode("utf-8").rstrip("\r\n")
+                if not line.startswith("data:"):
                     continue
-            worker.join(timeout=self.request_timeout)
-            result = completion.get(timeout=self.request_timeout)
-            if isinstance(result, Exception):
-                raise result
-
-            grace_deadline = time.monotonic() + min(0.2, self.request_timeout)
-            while time.monotonic() < grace_deadline:
                 try:
-                    yield event_queue.get(timeout=0.02)
-                    grace_deadline = time.monotonic() + 0.05
-                except Empty:
+                    event_message = json.loads(line[5:].lstrip())
+                except json.JSONDecodeError:
                     continue
-            stop_reason = result.get("stopReason") if isinstance(result, Mapping) else None
-            if stop_reason in {"cancelled", "canceled"}:
-                yield AgentEvent("turn.cancelled", {"reason": str(stop_reason)})
-            else:
-                payload = {"reason": str(stop_reason)} if stop_reason else {}
-                yield AgentEvent("turn.completed", payload)
+                event_message = _unwrap_data(event_message)
+                if not isinstance(event_message, dict):
+                    continue
+                if event_message.get("id") == request_id and "result" in event_message:
+                    result = event_message["result"]
+                    if isinstance(result, Mapping):
+                        stop_reason = result.get("stopReason")
+                    continue
+                method = event_message.get("method")
+                params = event_message.get("params", {})
+                if event_message.get("id") is not None:
+                    if method == "session/request_permission" and isinstance(params, dict):
+                        self._route_permission_request(event_message["id"], method, params)
+                    continue
+                if method == "session/update" and isinstance(params, dict):
+                    update = params.get("update")
+                    if isinstance(update, dict):
+                        event = self._normalize_update(update)
+                        if event is not None:
+                            yield event
         finally:
-            if worker.is_alive() and self._connection_id is not None:
-                try:
-                    self._cancel_session(session.provider_session_id)
-                except ProviderUnavailable:
-                    pass
+            response.close()
+        for queued in self._drain_queue(event_queue):
+            yield queued
+        if stop_reason in {"cancelled", "canceled"}:
+            yield AgentEvent("turn.cancelled", {"reason": str(stop_reason)})
+        else:
+            yield AgentEvent("turn.completed", {})
+
+    def _open_prompt(self, request_id: int, session_id: str, message: str):
+        payload = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "session/prompt",
+            "params": {
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": message}],
+            },
+        }
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        request = Request(
+            f"{self.endpoint}/api/v1/acp",
+            data=encoded,
+            method="POST",
+            headers=self._headers(accept="application/json, text/event-stream", content_type=True),
+        )
+        return self._opener.open(request, timeout=max(60.0, self.request_timeout))
+
+    @staticmethod
+    def _drain_queue(queue: Queue[object]):
+        drained = []
+        while True:
+            try:
+                drained.append(queue.get_nowait())
+            except Empty:
+                return drained
 
     def decide_approval(
         self,

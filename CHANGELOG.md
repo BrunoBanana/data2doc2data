@@ -27,6 +27,7 @@
 - 工作台首屏改为并行初始化（助手检测与工作区数据加载互不依赖），缩短启动等待。
 - 修复 981–1180px 三栏横向溢出：调整网格列宽，消除窄桌面下右侧助手栏被裁剪的问题。
 - WorkBuddy 适配 codebuddy 2.x 的 serve 认证：启动时从输出捕获一次性密码并以 `Authorization: Bearer` 头访问，修复此前 health 返回 `AUTH_REQUIRED` 导致无法连接的问题；启动命令指定 `--model hy3`。
+- WorkBuddy 适配 codebuddy 2.x 的流式响应：消息增量（`agent_message_chunk` 等）由独立 GET SSE 流改为内联在 `session/prompt` 的 POST SSE 响应里，据此重写 `stream_turn` 直接从该流读取增量事件，修复助手只出确定性结论、不返回解释的问题。
 
 ### 变更
 
