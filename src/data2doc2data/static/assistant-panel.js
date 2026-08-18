@@ -1,7 +1,7 @@
 // Conversation core: the chat surface, deterministic analysis, and agent streaming.
 
 import { agentRequest, request } from "./api.js";
-import { agentState } from "./state.js";
+import { agentState, pipelineState } from "./state.js";
 import { agentLabel, formatAgentOption, formatObject, renderMarkdown, setMessage } from "./ui.js";
 import { beginPipeline, renderPipeline } from "./pipeline.js";
 
@@ -17,6 +17,8 @@ const agentMessageStatus = document.querySelector("#agent-message-status");
 const conversationLog = document.querySelector("#conversation-log");
 const conversationEmpty = document.querySelector("#conversation-empty");
 const operationQueue = document.querySelector("#operation-queue .operation-queue");
+const operationQueueDetails = document.querySelector("#operation-queue");
+const approvalBadge = document.querySelector("#approval-badge");
 const agentContextStatus = document.querySelector("#agent-context-status");
 const contextSnapshotId = document.querySelector("#context-snapshot-id");
 const contextContractVersion = document.querySelector("#context-contract-version");
@@ -103,10 +105,12 @@ agentMessageForm.addEventListener("submit", async (event) => {
   const message = agentMessage.value.trim();
   if (!message) return;
   agentMessage.value = "";
-  appendMessage("你", message, "user");
+  const turnId = `turn-${Date.now()}`;
+  agentState.currentTurnId = turnId;
+  appendMessage("你", message, "user", turnId);
   beginPipeline();
 
-  const result = await runDeterministicAnalysis(message);
+  const result = await runDeterministicAnalysis(message, turnId);
   if (agentState.session) {
     await startAssistantTurn(message);
   } else if (!result) {
@@ -114,20 +118,22 @@ agentMessageForm.addEventListener("submit", async (event) => {
       "系统",
       "未能解析出指标，也未连接助手。可连接本地助手获取解释，或在「数据源设置」调整数据后重试。",
       "system",
+      turnId,
     );
   } else {
     setMessage(agentMessageStatus, "连接本地助手可获得进一步解释。", "");
   }
 });
 
-async function runDeterministicAnalysis(question) {
+async function runDeterministicAnalysis(question, turnId) {
   try {
     const result = await request("/api/analyze", {
       method: "POST",
       body: JSON.stringify({ question }),
     });
     const copy = `${result.signal.summary}\n验证：${result.validation.summary}`;
-    appendMessage("确定性结论", copy, "deterministic");
+    appendMessage("确定性结论", copy, "deterministic", turnId);
+    pipelineState.turns[turnId] = { analysis: result };
     renderPipeline(null, result);
     agentContextStatus.textContent = "已分析";
     return result;
@@ -222,7 +228,7 @@ function handleAgentEvent(event) {
   switch (event.kind) {
     case "context.attached":
       renderContextSummary(payload);
-      renderPipeline(payload.source, payload.analysis);
+      renderPipeline(payload.source, currentTurnAnalysis());
       break;
     case "message.delta":
       appendAssistantDelta(payload.text || "");
@@ -268,10 +274,14 @@ function renderContextSummary(payload) {
   agentContextStatus.textContent = payload.compressed ? "已压缩" : "证据已附带";
 }
 
-function appendMessage(author, text, kind) {
+function appendMessage(author, text, kind, turnId) {
   if (conversationEmpty && conversationEmpty.isConnected) conversationEmpty.remove();
   const article = document.createElement("article");
   article.className = `message-card message-${kind}`;
+  if (turnId) {
+    article.dataset.turnId = turnId;
+    article.addEventListener("click", () => focusTurn(turnId));
+  }
   const label = document.createElement("p");
   label.className = "message-author";
   label.textContent = author;
@@ -290,9 +300,21 @@ function appendMessage(author, text, kind) {
   return copy;
 }
 
+function focusTurn(turnId) {
+  const snapshot = pipelineState.turns[turnId];
+  if (!snapshot) return;
+  renderPipeline(pipelineState.source, snapshot.analysis);
+  agentContextStatus.textContent = snapshot.analysis ? "已分析" : "无确定性结论";
+}
+
+function currentTurnAnalysis() {
+  const snapshot = pipelineState.turns[agentState.currentTurnId];
+  return snapshot ? snapshot.analysis : null;
+}
+
 function appendAssistantDelta(text) {
   if (!agentState.activeAssistant) {
-    agentState.activeAssistant = appendMessage("助手", "", "assistant");
+    agentState.activeAssistant = appendMessage("助手", "", "assistant", agentState.currentTurnId);
     agentState.activeAssistantRaw = "";
   }
   conversationLog.setAttribute("aria-busy", "true");
@@ -318,6 +340,8 @@ function appendOperation(title, content, className) {
 }
 
 function renderApproval(payload) {
+  if (operationQueueDetails) operationQueueDetails.open = true;
+  if (approvalBadge) approvalBadge.hidden = false;
   const card = appendOperation("等待批准", "", "approval-card");
   const details = document.createElement("dl");
   appendApprovalDetail(details, "操作", payload.operation || "未知操作");

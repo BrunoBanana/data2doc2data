@@ -37,7 +37,7 @@ function markActive() {
 
 export function renderPipeline(source, analysis) {
   if (source) pipelineState.source = source;
-  if (analysis) pipelineState.analysis = analysis;
+  pipelineState.analysis = analysis ?? null;
   renderSource(pipelineState.source);
   renderAnalysis(pipelineState.analysis);
 }
@@ -50,6 +50,7 @@ export function beginPipeline() {
 export function resetPipeline() {
   pipelineState.source = null;
   pipelineState.analysis = null;
+  pipelineState.turns = {};
   [stepSource, stepSignal, stepRetrieval, stepVerification, stepConclusion].forEach((step) => {
     setStep(step, "", "—", []);
   });
@@ -73,7 +74,12 @@ function renderSource(source) {
 }
 
 function renderAnalysis(analysis) {
-  if (!analysis) return;
+  if (!analysis) {
+    [stepSignal, stepRetrieval, stepVerification, stepConclusion].forEach((step) => {
+      setStep(step, "", "—", []);
+    });
+    return;
+  }
   if (analysis.signal) {
     setStep(stepSignal, "done", "完成", [analysis.signal.summary]);
   }

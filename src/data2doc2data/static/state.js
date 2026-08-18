@@ -7,6 +7,7 @@ export const agentState = {
   eventSource: null,
   activeAssistant: null,
   activeAssistantRaw: "",
+  currentTurnId: "",
   turnActive: false,
   lastEventId: 0,
 };
@@ -19,6 +20,7 @@ export const demoState = {
 export const pipelineState = {
   source: null,
   analysis: null,
+  turns: {},
 };
 
 export const METRIC_LABELS = {
