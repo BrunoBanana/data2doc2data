@@ -54,7 +54,8 @@ function renderAgentOptions() {
     agentProvider.appendChild(option);
   }
   if (selectable.length > 0) {
-    agentProvider.value = selectable[0].name;
+    const preferred = selectable.find((agent) => agent.name === "workbuddy") || selectable[0];
+    agentProvider.value = preferred.name;
     agentProvider.disabled = false;
     agentConnect.disabled = false;
     agentStatus.textContent = `已发现 ${selectable.length} 个可用助手`;
