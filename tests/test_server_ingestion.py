@@ -75,6 +75,37 @@ class PreviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ingest_preview("")
 
+    def test_preview_use_agent_falls_back_without_gateway(self):
+        result = ingest_preview(str(_csv_source()), use_agent=True, gateway=None)
+        self.assertNotIn("agent_plan", result)
+        self.assertNotIn("agent_used", result)
+        self.assertIsNotNone(result["suggestion"])
+
+    def test_preview_use_agent_with_fake_gateway(self):
+        proposal = (
+            '{"format":"csv","date_field":"date","metric_field":"metric",'
+            '"value_field":"value"}'
+        )
+        gateway = _FakeGateway(proposal)
+        result = ingest_preview(
+            str(_csv_source()), use_agent=True, gateway=gateway, workspace=Path("/tmp")
+        )
+        self.assertTrue(result["agent_used"])
+        self.assertEqual(result["agent_plan"]["date_field"], "date")
+
+    def test_preview_local_path_requires_existing_file(self):
+        with self.assertRaises(ValueError):
+            ingest_preview("/no/such/file.csv", validate_local=True)
+
+    def test_preview_local_path_requires_absolute(self):
+        with self.assertRaises(ValueError):
+            ingest_preview("relative.csv", validate_local=True)
+
+    def test_preview_local_path_valid(self):
+        source = _csv_source()
+        result = ingest_preview(str(source), validate_local=True)
+        self.assertEqual(result["preview"]["fields"], ["date", "metric", "value"])
+
 
 class ApplyTests(unittest.TestCase):
     def test_apply_produces_standard_csv_and_updates_profile(self):
@@ -290,6 +321,53 @@ class ApiSnapshotTests(unittest.TestCase):
         self.assertTrue(Path(result["snapshot"]["path"]).is_file())
         self.assertEqual(result["preview"]["fields"], ["date", "metric", "value"])
         self.assertIsNotNone(result["suggestion"])
+
+    def test_api_snapshot_use_agent_with_fake_gateway(self):
+        store = _make_store()
+        payload = json.dumps(
+            [{"date": "2026-01-05", "metric": "m", "value": 1}]
+        ).encode("utf-8")
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+            def read(self, _n=-1):
+                return payload
+
+            @property
+            def headers(self):
+                return type("H", (), {"get_content_type": lambda self: "application/json"})()
+
+        class _FakeOpener:
+            def open(self, _request, timeout=30):
+                return _FakeResponse()
+
+        import data2doc2data.ingestion as ingestion_module
+
+        original = ingestion_module.build_opener
+        ingestion_module.build_opener = lambda *_a, **_k: _FakeOpener()
+        proposal = (
+            '{"format":"csv","date_field":"date","metric_field":"metric",'
+            '"value_field":"value"}'
+        )
+        gateway = _FakeGateway(proposal)
+        try:
+            result = ingest_api_snapshot(
+                "https://example.com/metrics",
+                store,
+                use_agent=True,
+                gateway=gateway,
+                workspace=Path("/tmp"),
+            )
+        finally:
+            ingestion_module.build_opener = original
+
+        self.assertIn("agent_plan", result)
+        self.assertTrue(result["agent_used"])
 
 
 if __name__ == "__main__":

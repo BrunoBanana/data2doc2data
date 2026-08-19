@@ -113,16 +113,36 @@ def ingest_upload(filename: str, content_b64: str, store: ProfileStore) -> dict[
     return {"path": str(target), "filename": target.name}
 
 
-def ingest_preview(path: str) -> dict[str, object]:
-    """Probe a local source file and suggest a built-in field mapping."""
+def ingest_preview(
+    path: str,
+    use_agent: bool = False,
+    gateway: AgentGateway | None = None,
+    workspace: Path | None = None,
+    validate_local: bool = False,
+) -> dict[str, object]:
+    """Probe a local source file and suggest a built-in field mapping.
+
+    With ``use_agent=True`` the preview also asks a ready local agent to propose
+    a mapping (returned as ``agent_plan``) without blocking the caller when no
+    agent is available. ``validate_local=True`` enforces stricter checks for a
+    user-supplied absolute path (exists, regular file, within the size limit).
+    """
     if not isinstance(path, str) or not path:
         raise ValueError("path is required")
+    if validate_local:
+        _validate_local_source_path(path)
     preview = preview_source(Path(path))
     suggestion = suggest_plan(preview)
-    return {
+    result: dict[str, object] = {
         "preview": preview.to_dict(),
         "suggestion": suggestion.to_dict() if suggestion else None,
     }
+    if use_agent:
+        agent_plan, _reason = _agent_plan_for(preview, path, gateway, workspace)
+        if agent_plan is not None:
+            result["agent_plan"] = agent_plan.to_dict()
+            result["agent_used"] = True
+    return result
 
 
 def ingest_apply(
@@ -195,6 +215,31 @@ def _validate_knowledge_path(path: str) -> str | None:
     return None
 
 
+def _agent_plan_for(
+    preview: object,
+    path: str,
+    gateway: AgentGateway | None,
+    workspace: Path | None,
+) -> tuple[IngestionPlan | None, str | None]:
+    """Ask a ready local agent for a field mapping; return (plan, reason) where reason is set on failure."""
+    provider = _first_ready_provider(gateway)
+    if provider is None:
+        return None, "没有可用的本地助手，已使用内置建议。"
+    try:
+        gateway.connect(provider)
+        session = gateway.create_session(provider, workspace)
+        prompt = build_proposal_prompt(preview, path)
+        collected: list[str] = []
+        for event in gateway.send(provider, session, prompt):
+            if event.kind == "message.delta":
+                collected.append(str(event.payload.get("text", "")))
+            elif event.kind in {"turn.error", "provider.error"}:
+                return None, "助手推断失败，已使用内置建议。"
+        return parse_plan_response("".join(collected)), None
+    except AgentGatewayError:
+        return None, "助手推断失败，已使用内置建议。"
+
+
 def ingest_propose(
     path: str,
     gateway: AgentGateway | None,
@@ -210,40 +255,13 @@ def ingest_propose(
         raise ValueError("path is required")
     preview = preview_source(Path(path))
     builtin = suggest_plan(preview)
-    provider = _first_ready_provider(gateway)
-    if provider is None:
-        return {
-            "preview": preview.to_dict(),
-            "suggestion": builtin.to_dict() if builtin else None,
-            "agent_plan": None,
-            "agent_used": False,
-            "reason": "没有可用的本地助手，已使用内置建议。",
-        }
-    try:
-        gateway.connect(provider)
-        session = gateway.create_session(provider, workspace)
-        prompt = build_proposal_prompt(preview, path)
-        collected: list[str] = []
-        for event in gateway.send(provider, session, prompt):
-            if event.kind == "message.delta":
-                collected.append(str(event.payload.get("text", "")))
-            elif event.kind in {"turn.error", "provider.error"}:
-                return {
-                    "preview": preview.to_dict(),
-                    "suggestion": builtin.to_dict() if builtin else None,
-                    "agent_plan": None,
-                    "agent_used": False,
-                    "reason": "助手推断失败，已使用内置建议。",
-                }
-        agent_plan = parse_plan_response("".join(collected))
-    except AgentGatewayError:
-        agent_plan = None
+    agent_plan, reason = _agent_plan_for(preview, path, gateway, workspace)
     return {
         "preview": preview.to_dict(),
         "suggestion": builtin.to_dict() if builtin else None,
         "agent_plan": agent_plan.to_dict() if agent_plan else None,
         "agent_used": agent_plan is not None,
-        "reason": None if agent_plan is not None else "助手未给出可用映射，已使用内置建议。",
+        "reason": None if agent_plan is not None else reason,
     }
 
 
@@ -261,11 +279,31 @@ def _first_ready_provider(gateway: AgentGateway | None) -> str | None:
     return None
 
 
+def _validate_local_source_path(path: str) -> None:
+    """Validate a user-supplied absolute path before ingestion."""
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("请提供本机上的绝对路径（如 /Users/name/data.xlsx）。")
+    if not candidate.exists():
+        raise ValueError("该路径不存在，请确认后重试。")
+    if not candidate.is_file():
+        raise ValueError("该路径不是文件，请选择数据文件。")
+    try:
+        size = candidate.stat().st_size
+    except OSError as error:
+        raise ValueError(f"无法读取文件大小：{error}") from error
+    if size > MAX_SOURCE_BYTES:
+        raise ValueError("文件超过本地处理大小上限，请用较小的文件或拆分后上传。")
+
+
 def ingest_api_snapshot(
     url: str,
     store: ProfileStore,
     headers: dict[str, str] | None = None,
     params: dict[str, str] | None = None,
+    use_agent: bool = False,
+    gateway: AgentGateway | None = None,
+    workspace: Path | None = None,
 ) -> dict[str, object]:
     """Fetch an HTTPS API into a local snapshot, then preview it like any file."""
     if not isinstance(url, str) or not url:
@@ -274,7 +312,7 @@ def ingest_api_snapshot(
     snapshot = fetch_api_snapshot(url, snapshot_dir, headers, params)
     preview = preview_source(snapshot.path)
     suggestion = suggest_plan(preview)
-    return {
+    result: dict[str, object] = {
         "snapshot": {
             "path": str(snapshot.path),
             "fetched_at": snapshot.fetched_at,
@@ -283,6 +321,12 @@ def ingest_api_snapshot(
         "preview": preview.to_dict(),
         "suggestion": suggestion.to_dict() if suggestion else None,
     }
+    if use_agent:
+        agent_plan, _reason = _agent_plan_for(preview, str(snapshot.path), gateway, workspace)
+        if agent_plan is not None:
+            result["agent_plan"] = agent_plan.to_dict()
+            result["agent_used"] = True
+    return result
 class CompanionHandler(BaseHTTPRequestHandler):
     server: ThreadingHTTPServer
 
@@ -490,7 +534,13 @@ class CompanionHandler(BaseHTTPRequestHandler):
             payload = self._read_json()
             if not isinstance(payload, dict):
                 raise ValueError("request must be an object")
-            result = ingest_preview(payload.get("path", ""))
+            result = ingest_preview(
+                payload.get("path", ""),
+                use_agent=bool(payload.get("use_agent", False)),
+                gateway=self._agents().gateway,
+                workspace=self._agents().workspace,
+                validate_local=bool(payload.get("validate_local", False)),
+            )
             self._send_json(HTTPStatus.OK, result)
         except (ValueError, IngestionError) as error:
             self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
@@ -542,6 +592,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 self._store(),
                 headers,
                 params,
+                use_agent=bool(payload.get("use_agent", False)),
+                gateway=self._agents().gateway,
+                workspace=self._agents().workspace,
             )
             self._send_json(HTTPStatus.OK, result)
         except (ValueError, IngestionError) as error:

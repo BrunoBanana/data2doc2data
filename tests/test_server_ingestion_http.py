@@ -117,6 +117,26 @@ class IngestionHttpTests(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertIn("文件不存在", payload["error"])
 
+    def test_preview_local_path_valid(self):
+        csv_path = Path(self.temporary_directory.name) / "local.csv"
+        csv_path.write_text(
+            "date,metric,value\n2026-01-05,a,1\n", encoding="utf-8"
+        )
+        status, preview = request_json(
+            self.base_url, "POST", "/api/ingest/preview",
+            {"path": str(csv_path), "validate_local": True},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["preview"]["fields"], ["date", "metric", "value"])
+
+    def test_preview_local_path_rejects_missing(self):
+        status, payload = request_json(
+            self.base_url, "POST", "/api/ingest/preview",
+            {"path": "/no/such/file.csv", "validate_local": True},
+        )
+        self.assertEqual(status, 422)
+        self.assertIn("不存在", payload["error"])
+
     def test_apply_accepts_knowledge_path_and_flags_when_missing(self):
         path = self._upload_csv()
         status, applied = request_json(

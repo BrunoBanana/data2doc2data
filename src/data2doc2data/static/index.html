@@ -181,6 +181,14 @@
               <input id="ingest-file" type="file" accept=".csv,.tsv,.json,.xlsx,.xlsm">
             </label>
             <p id="ingest-local-message" class="form-message" role="status" aria-live="polite"></p>
+
+            <p class="field-hint">或填写本机上的文件绝对路径（适合超大文件，免上传）：</p>
+            <label class="field" for="ingest-local-path">
+              <span>本机文件路径</span>
+              <input id="ingest-local-path" type="text" autocomplete="off" placeholder="/Users/name/data.xlsx">
+            </label>
+            <button id="ingest-local-path-use" type="button" class="button-secondary">用本机路径预览</button>
+            <p id="ingest-local-path-message" class="form-message" role="status" aria-live="polite"></p>
           </div>
 
           <div class="ingest-panel" data-ingest-panel="api" hidden>
@@ -194,6 +202,13 @@
             </label>
             <button id="ingest-api-fetch" type="button" class="button-secondary">拉取快照并预览</button>
             <p id="ingest-api-message" class="form-message" role="status" aria-live="polite"></p>
+          </div>
+
+          <div id="ingest-agent-row" class="ingest-agent-row">
+            <label class="field-checkbox" for="ingest-use-agent">
+              <input id="ingest-use-agent" type="checkbox">
+              <span>预览时请助手自动推断映射（可选；无可用助手时自动回退内置建议）</span>
+            </label>
           </div>
 
           <div id="ingest-preview" class="ingest-preview" hidden></div>

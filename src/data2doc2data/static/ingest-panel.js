@@ -29,6 +29,10 @@ const knowledgePath = document.querySelector("#ingest-knowledge-path");
 const proposeRow = document.querySelector("#ingest-propose-row");
 const proposeButton = document.querySelector("#ingest-propose");
 const resultBox = document.querySelector("#ingest-result");
+const useAgent = document.querySelector("#ingest-use-agent");
+const localPathInput = document.querySelector("#ingest-local-path");
+const localPathUseButton = document.querySelector("#ingest-local-path-use");
+const localPathMessage = document.querySelector("#ingest-local-path-message");
 
 function setIngestTab(tab) {
   currentMode = tab;
@@ -62,10 +66,11 @@ function populateSelect(select, values, selected) {
   }
 }
 
-function renderPreview(payload) {
+function renderPreview(payload, agentPlan = null) {
   currentPreview = payload.preview;
   const preview = payload.preview;
-  const suggestion = payload.suggestion;
+  const suggestion = agentPlan || payload.agent_plan || payload.suggestion;
+  const usedAgent = Boolean(agentPlan || payload.agent_plan);
 
   previewBox.replaceChildren();
   const heading = document.createElement("p");
@@ -112,7 +117,13 @@ function renderPreview(payload) {
   knowledgePath.value = settingsKnowledge ? settingsKnowledge.value.trim() : "";
 
   proposeRow.hidden = false;
-  setMessage(planMessage, suggestion ? "已根据字段名给出建议，可调整后应用，或让助手重新推断。" : "未能自动推断映射，请手动选择字段，或让助手尝试推断。", suggestion ? "" : "warn");
+  if (usedAgent) {
+    setMessage(planMessage, "助手已根据数据结构给出映射建议，可调整后应用。", "");
+  } else if (suggestion) {
+    setMessage(planMessage, "已根据字段名给出建议，可调整后应用，或让助手重新推断。", "");
+  } else {
+    setMessage(planMessage, "未能自动推断映射，请手动选择字段，或让助手尝试推断。", "warn");
+  }
   planForm.hidden = false;
 }
 
@@ -145,7 +156,7 @@ async function handlePropose() {
   }
 }
 
-async function uploadAndPreview(base64Content, filename) {
+async function uploadAndPreview(base64Content, filename, useAgentFlag = false) {
   setMessage(localMessage, "正在上传并解析文件");
   try {
     const upload = await request("/api/ingest/upload", {
@@ -155,10 +166,10 @@ async function uploadAndPreview(base64Content, filename) {
     currentPath = upload.path;
     const preview = await request("/api/ingest/preview", {
       method: "POST",
-      body: JSON.stringify({ path: currentPath }),
+      body: JSON.stringify({ path: currentPath, use_agent: useAgentFlag }),
     });
     hidePreviewAndPlan();
-    renderPreview(preview);
+    renderPreview(preview, useAgentFlag ? preview.agent_plan : null);
     setMessage(localMessage, "文件已解析，请确认字段映射。");
   } catch (error) {
     setMessage(localMessage, error.message, "error");
@@ -175,10 +186,32 @@ function handleFileSelected(event) {
     const dataUrl = String(reader.result);
     const comma = dataUrl.indexOf(",");
     const base64Content = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-    uploadAndPreview(base64Content, file.name);
+    uploadAndPreview(base64Content, file.name, useAgent.checked);
   };
   reader.onerror = () => setMessage(localMessage, "文件读取失败，请重试。", "error");
   reader.readAsDataURL(file);
+}
+
+async function handleLocalPathUse() {
+  const raw = localPathInput.value.trim();
+  if (!raw) {
+    setMessage(localPathMessage, "请填写本机文件绝对路径。", "error");
+    return;
+  }
+  setMessage(localPathMessage, "正在解析本机文件");
+  try {
+    const preview = await request("/api/ingest/preview", {
+      method: "POST",
+      body: JSON.stringify({ path: raw, validate_local: true, use_agent: useAgent.checked }),
+    });
+    currentPath = raw;
+    currentMode = "local";
+    hidePreviewAndPlan();
+    renderPreview(preview, useAgent.checked ? preview.agent_plan : null);
+    setMessage(localPathMessage, "文件已解析，请确认字段映射。");
+  } catch (error) {
+    setMessage(localPathMessage, error.message, "error");
+  }
 }
 
 async function handleApiFetch() {
@@ -201,11 +234,11 @@ async function handleApiFetch() {
   try {
     const snapshot = await request("/api/ingest/api-snapshot", {
       method: "POST",
-      body: JSON.stringify({ url, headers }),
+      body: JSON.stringify({ url, headers, use_agent: useAgent.checked }),
     });
     currentPath = snapshot.snapshot.path;
     hidePreviewAndPlan();
-    renderPreview(snapshot);
+    renderPreview(snapshot, useAgent.checked ? snapshot.agent_plan : null);
     setMessage(apiMessage, `快照已保存于 ${snapshot.snapshot.fetched_at}，请确认字段映射。`);
   } catch (error) {
     setMessage(apiMessage, error.message, "error");
@@ -303,6 +336,7 @@ export function initIngestPanel() {
     button.addEventListener("click", () => setIngestTab(button.dataset.ingestTab));
   });
   fileInput.addEventListener("change", handleFileSelected);
+  localPathUseButton.addEventListener("click", handleLocalPathUse);
   apiFetchButton.addEventListener("click", handleApiFetch);
   proposeButton.addEventListener("click", handlePropose);
   planForm.addEventListener("submit", handlePlanSubmit);

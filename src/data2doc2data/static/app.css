@@ -244,6 +244,10 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in
 .form-message[data-state="error"] { color: var(--danger); }
 .form-message[data-state="success"] { color: var(--accent-strong); }
 
+.field-checkbox { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--muted); padding: 2px 14px 6px; }
+.field-checkbox input { margin: 0; }
+.ingest-agent-row { padding: 8px 0 2px; border-top: 1px solid var(--line); }
+
 .column-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 .column-heading h1 { margin: 0; font-size: 23px; letter-spacing: -.035em; line-height: 1.05; }
 .eyebrow { margin: 0 0 5px; color: var(--accent-strong); font-size: 10px; font-weight: 820; letter-spacing: .09em; text-transform: uppercase; }
