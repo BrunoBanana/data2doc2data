@@ -8,11 +8,16 @@
 - 纯对话式分析：在输入框提问即触发确定性分析，确定性结论作为特殊标注的消息插入对话（助手不可覆盖）；`context.attached` 事件携带结构化步骤数据（source/metrics/analysis）驱动流水线渲染。
 - 本地助手作为对话核心驱动，确定性引擎作为其证据工具；数据源配置收进可折叠的「数据源设置」面板。
 
+- 数据接入层（`data2doc2data/ingestion.py`）：支持本地任意格式（CSV / TSV / JSON / XLSX）与数据 API（HTTPS 快照）两种来源，并把它们统一转换为 `date,metric,value` 标准指标行。接入层负责「想/理解」（格式探测、结构预览、字段映射建议），引擎保持确定性「证」（逐行校验、可溯源、Agent 不可篡改）。
+
 - 声明式验证规则 DSL（`data2doc2data/rules.py`）：使用者可用本地 JSON 文件声明指标（别名、显示名、聚合、比较窗口、方向阈值、最小观测数、重复策略）与命名多指标规则，引擎据此裁决并标注命中的 `rule_id`/`rule_name`，不再局限于内置的两个指标。
 - 分析流程改为由规则集驱动：别名解析、显示名、指标定义和文档条件验证均取自规则集；未声明规则时回退到与历史行为等价的内置默认规则集。
 - CLI 新增 `analyze --rules <path>` 与 `check-rules --rules <path>`；工作区配置（Profile）新增可选 `rules_path`，保存配置时即校验规则文件。
 - 证据契约版本化：每份证据快照与信封都会标注 `EVIDENCE CONTRACT v1`，`ContextSummary` 新增 `contract_version` 字段，供跨 harness 消费方（WorkBuddy/DeepSeek harness/Codex 插件）检测契约漂移。
 - 文档检索新增静态同义词归一化（`retrieval.py`）：内置中文/英文业务同义词组（客户/用户、营收/收入、流失率/churn 等），在 BM25 评分前把同义词归一到规范形式，提升中文业务文档召回；`search_chunks` 支持 `synonyms` 参数可关闭，原始 chunk 文本始终原文保留、可追溯。
+
+- 数据接入 HTTP 端点与服务端编排（`server.py`）：新增 `/api/ingest/upload`（本地文件 base64 上传）、`/api/ingest/preview`（结构预览 + 内置映射建议）、`/api/ingest/apply`（按确认方案转换并写入标准 CSV、回写 Profile 的 `data_path`）、`/api/ingest/api-snapshot`（HTTPS 拉取快照后本地预览）；`Profile` 扩展 `api` 模式与 `ingestion`/`api` 配置字段。
+- 工作台新增「接入任意数据源」面板（`ingest-panel.js`）：本地文件（拖拽/选择后自动上传预览）与数据 API（填地址 + 可选请求头后拉取快照）两种入口，统一进入字段映射方案编辑器（日期/指标/数值/记录路径/工作表/日期格式，预填建议值），应用后即成为当前分析的确定性数据源；全程无 `innerHTML`、无外链，文件仅在本机解析。
 
 ### 变更
 

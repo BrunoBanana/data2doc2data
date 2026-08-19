@@ -48,6 +48,7 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/static/assistant-panel.js",
     "src/data2doc2data/static/data-panel.js",
     "src/data2doc2data/static/favicon.svg",
+    "src/data2doc2data/static/ingest-panel.js",
     "src/data2doc2data/static/index.html",
     "src/data2doc2data/static/pipeline.js",
     "src/data2doc2data/static/state.js",

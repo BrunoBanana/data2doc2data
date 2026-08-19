@@ -11,7 +11,7 @@ from typing import Literal
 from .demo_scenarios import DEFAULT_DEMO_SCENARIO, DemoScenarioCatalog, DemoScenarioError
 
 
-ProfileMode = Literal["demo", "local"]
+ProfileMode = Literal["demo", "local", "api"]
 
 
 class ProfileError(ValueError):
@@ -25,16 +25,22 @@ class Profile:
     knowledge_path: str
     demo_scenario: str = DEFAULT_DEMO_SCENARIO
     rules_path: str = ""
+    ingestion: dict | None = None
+    api: dict | None = None
 
     def __post_init__(self) -> None:
-        if self.mode not in {"demo", "local"}:
-            raise ProfileError("mode must be 'demo' or 'local'")
+        if self.mode not in {"demo", "local", "api"}:
+            raise ProfileError("mode must be 'demo', 'local' or 'api'")
         if not isinstance(self.data_path, str) or not isinstance(self.knowledge_path, str):
             raise ProfileError("source paths must be text")
         if not isinstance(self.demo_scenario, str):
             raise ProfileError("demo scenario must be text")
         if not isinstance(self.rules_path, str):
             raise ProfileError("rules path must be text")
+        for name in ("ingestion", "api"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, dict):
+                raise ProfileError(f"{name} config must be a JSON object")
         if self.mode == "demo":
             try:
                 DemoScenarioCatalog.load().get(self.demo_scenario)
@@ -45,7 +51,7 @@ class Profile:
     def demo(cls, scenario_id: str = DEFAULT_DEMO_SCENARIO) -> "Profile":
         return cls(mode="demo", data_path="", knowledge_path="", demo_scenario=scenario_id)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
     @classmethod
@@ -59,6 +65,8 @@ class Profile:
                 knowledge_path=value.get("knowledge_path", ""),
                 demo_scenario=value.get("demo_scenario", DEFAULT_DEMO_SCENARIO),
                 rules_path=value.get("rules_path", ""),
+                ingestion=value.get("ingestion"),
+                api=value.get("api"),
             )
         except (KeyError, TypeError) as error:
             raise ProfileError("profile is missing required fields") from error

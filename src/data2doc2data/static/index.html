@@ -165,6 +165,71 @@
           <p id="source-profile-label" class="source-label">正在建立本地数据画像</p>
           <p class="context-disclosure">本地统计和相关文档片段会发送给所选助手提供方。</p>
         </details>
+
+        <details class="ingest-settings">
+          <summary>接入任意数据源（CSV / JSON / XLSX / API）</summary>
+          <p class="field-hint">支持非标准格式：本地文件会自动探测字段并给出映射建议；数据 API 会拉取快照后在本地解析。原始数据始终留在你的机器上。</p>
+
+          <div class="ingest-tabs" role="tablist">
+            <button type="button" class="ingest-tab" data-ingest-tab="local" aria-selected="true">本地文件</button>
+            <button type="button" class="ingest-tab" data-ingest-tab="api" aria-selected="false">数据 API</button>
+          </div>
+
+          <div class="ingest-panel" data-ingest-panel="local">
+            <label class="field" for="ingest-file">
+              <span>选择文件（CSV / TSV / JSON / XLSX）</span>
+              <input id="ingest-file" type="file" accept=".csv,.tsv,.json,.xlsx,.xlsm">
+            </label>
+            <p id="ingest-local-message" class="form-message" role="status" aria-live="polite"></p>
+          </div>
+
+          <div class="ingest-panel" data-ingest-panel="api" hidden>
+            <label class="field" for="ingest-api-url">
+              <span>API 地址（需 https 开头）</span>
+              <input id="ingest-api-url" type="url" placeholder="API 文档或数据接口地址">
+            </label>
+            <label class="field" for="ingest-api-headers">
+              <span>请求头（可选，JSON）</span>
+              <textarea id="ingest-api-headers" rows="2" placeholder='如 {"Authorization":"Bearer ..."}'></textarea>
+            </label>
+            <button id="ingest-api-fetch" type="button" class="button-secondary">拉取快照并预览</button>
+            <p id="ingest-api-message" class="form-message" role="status" aria-live="polite"></p>
+          </div>
+
+          <div id="ingest-preview" class="ingest-preview" hidden></div>
+
+          <form id="ingest-plan-form" class="ingest-plan" hidden>
+            <p class="ingest-plan-title">字段映射方案</p>
+            <label class="field" for="ingest-date-field">
+              <span>日期字段</span>
+              <select id="ingest-date-field"></select>
+            </label>
+            <label class="field" for="ingest-metric-field">
+              <span>指标字段</span>
+              <select id="ingest-metric-field"></select>
+            </label>
+            <label class="field" for="ingest-value-field">
+              <span>数值字段</span>
+              <select id="ingest-value-field"></select>
+            </label>
+            <label class="field" for="ingest-records-path">
+              <span>记录路径（JSON 嵌套路径，可选）</span>
+              <input id="ingest-records-path" type="text" autocomplete="off" placeholder="如 data.rows">
+            </label>
+            <label class="field" for="ingest-sheet">
+              <span>工作表（XLSX，可选）</span>
+              <select id="ingest-sheet"></select>
+            </label>
+            <label class="field" for="ingest-date-format">
+              <span>日期格式（可选）</span>
+              <input id="ingest-date-format" type="text" autocomplete="off" placeholder="如 %Y-%m-%d">
+            </label>
+            <p id="ingest-plan-message" class="form-message" role="status" aria-live="polite"></p>
+            <button id="ingest-apply" type="submit">应用并设为数据源</button>
+          </form>
+
+          <div id="ingest-result" class="ingest-result" hidden></div>
+        </details>
       </aside>
     </main>
 

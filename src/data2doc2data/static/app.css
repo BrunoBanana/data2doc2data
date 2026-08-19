@@ -299,6 +299,19 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in
 .source-label { margin: 0 14px 14px; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
 .context-disclosure { padding: 0 14px 14px; }
 
+.ingest-settings { margin-top: 12px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); overflow: hidden; }
+.ingest-settings summary { padding: 12px 14px; cursor: pointer; font-size: 12px; font-weight: 740; }
+.ingest-settings > .field-hint { padding: 0 14px; }
+.ingest-tabs { display: flex; gap: 6px; padding: 0 14px 10px; }
+.ingest-tab { min-height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 720; }
+.ingest-tab[aria-selected="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
+.ingest-panel { display: grid; gap: 10px; padding: 0 14px 12px; }
+.ingest-preview { display: grid; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.ingest-preview-title { margin: 0; font-size: 12px; font-weight: 760; }
+.ingest-plan { display: grid; gap: 10px; padding: 0 14px 14px; }
+.ingest-plan-title { margin: 0; font-size: 11px; font-weight: 740; color: var(--muted); }
+.ingest-result { display: grid; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+
 .operations-panel { margin-top: 12px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); overflow: hidden; }
 .operations-panel summary { padding: 12px 14px; cursor: pointer; font-size: 12px; font-weight: 740; }
 .approval-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 9px; font-weight: 720; }

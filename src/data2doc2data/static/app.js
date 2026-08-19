@@ -2,9 +2,11 @@
 
 import { initializeWorkspace } from "./data-panel.js";
 import { loadAgents } from "./assistant-panel.js";
+import { initIngestPanel } from "./ingest-panel.js";
 
 async function initializeApplication() {
   await Promise.all([loadAgents(), initializeWorkspace()]);
+  initIngestPanel();
 }
 
 initializeApplication();
