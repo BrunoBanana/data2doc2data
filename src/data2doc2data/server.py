@@ -7,12 +7,13 @@ import binascii
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from pathlib import Path
 import re
+import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .agent_api import AgentApiError, AgentWebService, BROWSER_SESSION_SECONDS, TERMINAL_EVENTS
-from .agents.gateway import AgentGateway
+from .agents.gateway import AgentGateway, AgentGatewayError
 from .analysis import InputValidationError, analyze, load_profile_ruleset, validate_profile
 from .config import Profile, ProfileError, ProfileStore
 from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
@@ -22,7 +23,9 @@ from .ingestion import (
     IngestionError,
     IngestionPlan,
     apply_plan,
+    build_proposal_prompt,
     fetch_api_snapshot,
+    parse_plan_response,
     preview_source,
     suggest_plan,
     write_standard_csv,
@@ -127,8 +130,15 @@ def ingest_apply(
     plan: dict,
     store: ProfileStore,
     mode: str,
+    knowledge_path: str | None = None,
+    api_config: dict | None = None,
 ) -> dict[str, object]:
-    """Convert a source under a confirmed plan and point the profile at the result."""
+    """Convert a source under a confirmed plan and point the profile at the result.
+
+    Beyond the standard CSV output, this captures the ingestion provenance
+    (source + plan) and, for API mode, the endpoint config, so a later snapshot
+    refresh or audit can reproduce how the deterministic dataset was built.
+    """
     if not isinstance(path, str) or not path:
         raise ValueError("path is required")
     if not isinstance(plan, dict):
@@ -140,15 +150,115 @@ def ingest_apply(
     output = output_dir / f"{Path(path).stem}.standard.csv"
     write_standard_csv(result.rows, output)
     profile = store.load() or Profile.demo()
+    resolved_mode = mode or profile.mode
+    resolved_knowledge = (knowledge_path or "").strip() or profile.knowledge_path
+    knowledge_warning = _validate_knowledge_path(resolved_knowledge)
+    ingestion_config: dict[str, object] = {
+        "source_path": path,
+        "plan": parsed_plan.to_dict(),
+        "applied_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    api_blob = api_config if resolved_mode == "api" else profile.api
+    if api_blob is not None and not isinstance(api_blob, dict):
+        api_blob = None
     new_profile = Profile(
-        mode=mode or profile.mode,
+        mode=resolved_mode,
         data_path=str(output),
-        knowledge_path=profile.knowledge_path,
+        knowledge_path=resolved_knowledge,
         demo_scenario=profile.demo_scenario,
         rules_path=profile.rules_path,
+        ingestion=ingestion_config,
+        api=api_blob,
     )
     store.save(new_profile)
-    return {"result": result.to_dict(), "profile": new_profile.to_dict()}
+    return {
+        "result": result.to_dict(),
+        "profile": new_profile.to_dict(),
+        "needs_knowledge_path": not resolved_knowledge,
+        "knowledge_warning": knowledge_warning,
+    }
+
+
+def _validate_knowledge_path(path: str) -> str | None:
+    """Return a warning if the knowledge directory looks unusable, else None."""
+    if not path:
+        return None
+    candidate = Path(path).expanduser()
+    if not candidate.is_dir():
+        return "文档目录不存在，确定性结论可能缺少证据来源。"
+    documents = [
+        child for child in candidate.iterdir()
+        if child.is_file() and child.suffix.lower() in {".md", ".txt"}
+    ]
+    if not documents:
+        return "文档目录中没有 .md/.txt 文档，确定性结论可能缺少证据来源。"
+    return None
+
+
+def ingest_propose(
+    path: str,
+    gateway: AgentGateway | None,
+    workspace: Path,
+) -> dict[str, object]:
+    """Propose a field mapping, preferring an in-the-loop local agent over the built-in heuristic.
+
+    The agent only interprets the already-probed structure (field names + sample
+    rows); it never sees the raw file. When no agent is available the call degrades
+    to the built-in suggestion so the user is never blocked.
+    """
+    if not isinstance(path, str) or not path:
+        raise ValueError("path is required")
+    preview = preview_source(Path(path))
+    builtin = suggest_plan(preview)
+    provider = _first_ready_provider(gateway)
+    if provider is None:
+        return {
+            "preview": preview.to_dict(),
+            "suggestion": builtin.to_dict() if builtin else None,
+            "agent_plan": None,
+            "agent_used": False,
+            "reason": "没有可用的本地助手，已使用内置建议。",
+        }
+    try:
+        gateway.connect(provider)
+        session = gateway.create_session(provider, workspace)
+        prompt = build_proposal_prompt(preview, path)
+        collected: list[str] = []
+        for event in gateway.send(provider, session, prompt):
+            if event.kind == "message.delta":
+                collected.append(str(event.payload.get("text", "")))
+            elif event.kind in {"turn.error", "provider.error"}:
+                return {
+                    "preview": preview.to_dict(),
+                    "suggestion": builtin.to_dict() if builtin else None,
+                    "agent_plan": None,
+                    "agent_used": False,
+                    "reason": "助手推断失败，已使用内置建议。",
+                }
+        agent_plan = parse_plan_response("".join(collected))
+    except AgentGatewayError:
+        agent_plan = None
+    return {
+        "preview": preview.to_dict(),
+        "suggestion": builtin.to_dict() if builtin else None,
+        "agent_plan": agent_plan.to_dict() if agent_plan else None,
+        "agent_used": agent_plan is not None,
+        "reason": None if agent_plan is not None else "助手未给出可用映射，已使用内置建议。",
+    }
+
+
+def _first_ready_provider(gateway: AgentGateway | None) -> str | None:
+    """Return the first provider that is installed, authenticated and compatible."""
+    if gateway is None:
+        return None
+    for name in gateway.provider_names:
+        try:
+            status = gateway.detect(name)
+        except AgentGatewayError:
+            continue
+        if status.available and status.authenticated and status.compatible:
+            return name
+    return None
 
 
 def ingest_api_snapshot(
@@ -293,6 +403,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if path == "/api/ingest/api-snapshot":
             self._ingest_api_snapshot()
             return
+        if path == "/api/ingest/propose":
+            self._ingest_propose()
+            return
         if path != "/api/analyze":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
             return
@@ -392,6 +505,22 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 payload.get("plan", {}),
                 self._store(),
                 payload.get("mode", "local"),
+                payload.get("knowledge_path"),
+                payload.get("api_config"),
+            )
+            self._send_json(HTTPStatus.OK, result)
+        except (ValueError, IngestionError) as error:
+            self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+
+    def _ingest_propose(self) -> None:
+        try:
+            payload = self._read_json()
+            if not isinstance(payload, dict):
+                raise ValueError("request must be an object")
+            result = ingest_propose(
+                payload.get("path", ""),
+                self._agents().gateway,
+                self._agents().workspace,
             )
             self._send_json(HTTPStatus.OK, result)
         except (ValueError, IngestionError) as error:

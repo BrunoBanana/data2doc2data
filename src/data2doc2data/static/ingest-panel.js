@@ -25,6 +25,9 @@ const recordsPath = document.querySelector("#ingest-records-path");
 const sheetField = document.querySelector("#ingest-sheet");
 const dateFormat = document.querySelector("#ingest-date-format");
 const planMessage = document.querySelector("#ingest-plan-message");
+const knowledgePath = document.querySelector("#ingest-knowledge-path");
+const proposeRow = document.querySelector("#ingest-propose-row");
+const proposeButton = document.querySelector("#ingest-propose");
 const resultBox = document.querySelector("#ingest-result");
 
 function setIngestTab(tab) {
@@ -40,6 +43,7 @@ function setIngestTab(tab) {
 function hidePreviewAndPlan() {
   previewBox.hidden = true;
   previewBox.replaceChildren();
+  proposeRow.hidden = true;
   planForm.hidden = true;
   resultBox.hidden = true;
   resultBox.replaceChildren();
@@ -104,8 +108,41 @@ function renderPreview(payload) {
   recordsPath.value = (suggestion && suggestion.records_path) || "";
   dateFormat.value = (suggestion && suggestion.date_format) || "";
 
-  setMessage(planMessage, suggestion ? "已根据字段名给出建议，可调整后应用。" : "未能自动推断映射，请手动选择字段。", suggestion ? "" : "warn");
+  const settingsKnowledge = document.querySelector("#knowledge-path");
+  knowledgePath.value = settingsKnowledge ? settingsKnowledge.value.trim() : "";
+
+  proposeRow.hidden = false;
+  setMessage(planMessage, suggestion ? "已根据字段名给出建议，可调整后应用，或让助手重新推断。" : "未能自动推断映射，请手动选择字段，或让助手尝试推断。", suggestion ? "" : "warn");
   planForm.hidden = false;
+}
+
+async function handlePropose() {
+  if (!currentPath || !currentPreview) {
+    setMessage(planMessage, "请先上传文件或拉取 API 快照。", "error");
+    return;
+  }
+  setMessage(planMessage, "正在请助手理解数据结构并推断映射");
+  try {
+    const res = await request("/api/ingest/propose", {
+      method: "POST",
+      body: JSON.stringify({ path: currentPath }),
+    });
+    const plan = res.agent_plan;
+    const fields = currentPreview.fields || [];
+    if (plan && fields.includes(plan.date_field) && fields.includes(plan.metric_field) && fields.includes(plan.value_field)) {
+      populateSelect(dateField, fields, plan.date_field);
+      populateSelect(metricField, fields, plan.metric_field);
+      populateSelect(valueField, fields, plan.value_field);
+      populateSelect(sheetField, ["", ...(currentPreview.sheets || [])], plan.sheet);
+      recordsPath.value = plan.records_path || "";
+      dateFormat.value = plan.date_format || "";
+      setMessage(planMessage, "助手已根据数据结构给出映射建议，确认后应用。", "");
+    } else {
+      setMessage(planMessage, (res.reason || "助手暂不可用，已保留内置建议。"), "warn");
+    }
+  } catch (error) {
+    setMessage(planMessage, error.message, "error");
+  }
 }
 
 async function uploadAndPreview(base64Content, filename) {
@@ -194,11 +231,28 @@ async function handlePlanSubmit(event) {
     setMessage(planMessage, "日期、指标、数值三个字段都必须选择。", "error");
     return;
   }
+  const payload = { path: currentPath, plan, mode: currentMode };
+  const knowledgeValue = knowledgePath.value.trim();
+  if (knowledgeValue) {
+    payload.knowledge_path = knowledgeValue;
+  }
+  if (currentMode === "api") {
+    let headers = null;
+    const rawHeaders = apiHeaders.value.trim();
+    if (rawHeaders) {
+      try {
+        headers = JSON.parse(rawHeaders);
+      } catch (_error) {
+        headers = null;
+      }
+    }
+    payload.api_config = { url: apiUrl.value.trim(), headers };
+  }
   setMessage(planMessage, "正在转换为标准指标数据");
   try {
     const applied = await request("/api/ingest/apply", {
       method: "POST",
-      body: JSON.stringify({ path: currentPath, plan, mode: currentMode }),
+      body: JSON.stringify(payload),
     });
     resultBox.replaceChildren();
     const summary = document.createElement("p");
@@ -221,9 +275,20 @@ async function handlePlanSubmit(event) {
       });
       resultBox.appendChild(warn);
     }
+    if (applied.knowledge_warning) {
+      const warnLine = document.createElement("p");
+      warnLine.className = "context-disclosure";
+      warnLine.textContent = `提示：${applied.knowledge_warning}`;
+      resultBox.appendChild(warnLine);
+    }
     const hint = document.createElement("p");
-    hint.className = "context-disclosure";
-    hint.textContent = "数据源已切换为标准指标文件，请在『数据源设置』中确认文档目录后再提问分析。";
+    if (applied.needs_knowledge_path) {
+      hint.className = "ingest-warning";
+      hint.textContent = "数据源已生成，但仍缺少文档目录——确定性结论需要它作为证据。请在左侧『数据源设置』填写文档目录后立即重试分析。";
+    } else {
+      hint.className = "context-disclosure";
+      hint.textContent = "数据源已切换为标准指标文件，可以开始提问分析了。";
+    }
     resultBox.appendChild(hint);
     resultBox.hidden = false;
     setMessage(planMessage, "数据源已更新。", "success");
@@ -239,6 +304,7 @@ export function initIngestPanel() {
   });
   fileInput.addEventListener("change", handleFileSelected);
   apiFetchButton.addEventListener("click", handleApiFetch);
+  proposeButton.addEventListener("click", handlePropose);
   planForm.addEventListener("submit", handlePlanSubmit);
   setIngestTab("local");
 }

@@ -117,6 +117,37 @@ class IngestionHttpTests(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertIn("文件不存在", payload["error"])
 
+    def test_apply_accepts_knowledge_path_and_flags_when_missing(self):
+        path = self._upload_csv()
+        status, applied = request_json(
+            self.base_url, "POST", "/api/ingest/apply",
+            {
+                "path": path,
+                "plan": {
+                    "format": "csv",
+                    "date_field": "date",
+                    "metric_field": "metric",
+                    "value_field": "value",
+                },
+                "mode": "local",
+                "knowledge_path": "",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(applied["needs_knowledge_path"])
+        self.assertEqual(applied["profile"]["knowledge_path"], "")
+        self.assertIsNotNone(applied["profile"]["ingestion"])
+
+    def test_propose_endpoint_degrades_without_agent(self):
+        path = self._upload_csv()
+        status, payload = request_json(
+            self.base_url, "POST", "/api/ingest/propose", {"path": path}
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["agent_used"])
+        self.assertIsNotNone(payload["suggestion"])
+        self.assertIn("没有可用的本地助手", payload["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

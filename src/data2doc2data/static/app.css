@@ -311,6 +311,9 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in
 .ingest-plan { display: grid; gap: 10px; padding: 0 14px 14px; }
 .ingest-plan-title { margin: 0; font-size: 11px; font-weight: 740; color: var(--muted); }
 .ingest-result { display: grid; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+.ingest-propose-row { display: grid; gap: 6px; padding: 10px 14px 0; }
+.ingest-propose-row > .field-hint { padding: 0; }
+.ingest-warning { margin: 0; padding: 8px 10px; border: 1px solid var(--danger); border-radius: 8px; background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--text); font-size: 11px; font-weight: 620; }
 
 .operations-panel { margin-top: 12px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); overflow: hidden; }
 .operations-panel summary { padding: 12px 14px; cursor: pointer; font-size: 12px; font-weight: 740; }

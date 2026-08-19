@@ -6,11 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from data2doc2data.agents.base import AgentEvent, AgentSession, ProviderStatus
 from data2doc2data.config import Profile, ProfileStore
 from data2doc2data.server import (
     ingest_api_snapshot,
     ingest_apply,
     ingest_preview,
+    ingest_propose,
     ingest_upload,
 )
 
@@ -111,6 +113,138 @@ class ApplyTests(unittest.TestCase):
         store = _make_store()
         with self.assertRaises(ValueError):
             ingest_apply(str(_csv_source()), {}, store, "local")
+
+    def test_apply_captures_knowledge_path_and_config(self):
+        store = _make_store()
+        source = _csv_source()
+        plan = {
+            "format": "csv",
+            "date_field": "date",
+            "metric_field": "metric",
+            "value_field": "value",
+        }
+        result = ingest_apply(
+            str(source),
+            plan,
+            store,
+            "api",
+            knowledge_path="/tmp/my-docs",
+            api_config={"url": "https://api.example.com/metrics", "headers": None},
+        )
+        self.assertEqual(result["profile"]["knowledge_path"], "/tmp/my-docs")
+        self.assertEqual(result["profile"]["mode"], "api")
+        self.assertEqual(
+            result["profile"]["api"],
+            {"url": "https://api.example.com/metrics", "headers": None},
+        )
+        self.assertEqual(result["profile"]["ingestion"]["source_path"], str(source))
+        self.assertEqual(result["profile"]["ingestion"]["plan"]["format"], "csv")
+        self.assertFalse(result["needs_knowledge_path"])
+
+    def test_apply_flags_missing_knowledge_path(self):
+        store = _make_store()
+        source = _csv_source()
+        plan = {
+            "format": "csv",
+            "date_field": "date",
+            "metric_field": "metric",
+            "value_field": "value",
+        }
+        result = ingest_apply(str(source), plan, store, "local")
+        self.assertTrue(result["needs_knowledge_path"])
+
+    def test_apply_warns_on_missing_knowledge_dir(self):
+        store = _make_store()
+        source = _csv_source()
+        plan = {
+            "format": "csv",
+            "date_field": "date",
+            "metric_field": "metric",
+            "value_field": "value",
+        }
+        result = ingest_apply(
+            str(source), plan, store, "local", knowledge_path="/no/such/dir/xyz"
+        )
+        self.assertEqual(
+            result["knowledge_warning"],
+            "文档目录不存在，确定性结论可能缺少证据来源。",
+        )
+        self.assertFalse(result["needs_knowledge_path"])
+
+    def test_apply_no_warning_on_valid_knowledge_dir(self):
+        store = _make_store()
+        docs = Path(tempfile.mkdtemp()) / "notes"
+        docs.mkdir()
+        (docs / "decisions.md").write_text("# notes", encoding="utf-8")
+        source = _csv_source()
+        plan = {
+            "format": "csv",
+            "date_field": "date",
+            "metric_field": "metric",
+            "value_field": "value",
+        }
+        result = ingest_apply(
+            str(source), plan, store, "local", knowledge_path=str(docs)
+        )
+        self.assertIsNone(result["knowledge_warning"])
+
+
+class _FakeGateway:
+    """Minimal AgentGateway stand-in that returns a fixed mapping proposal."""
+
+    def __init__(self, proposal: str, ready: bool = True) -> None:
+        self.provider_names = ("codex",)
+        self._proposal = proposal
+        self._ready = ready
+
+    def detect(self, _name):
+        return ProviderStatus(available=self._ready, connected=self._ready)
+
+    def connect(self, _name):
+        return ProviderStatus(available=True, connected=True)
+
+    def create_session(self, _name, workspace):
+        return AgentSession(
+            id="sess-1",
+            provider="codex",
+            provider_session_id="prov-1",
+            workspace=workspace,
+        )
+
+    def send(self, _name, _session, _message):
+        yield AgentEvent("message.delta", {"text": self._proposal})
+
+
+class ProposeTests(unittest.TestCase):
+    def _source(self) -> Path:
+        return _csv_source()
+
+    def test_propose_falls_back_without_gateway(self):
+        source = self._source()
+        result = ingest_propose(str(source), None, Path("/tmp"))
+        self.assertFalse(result["agent_used"])
+        self.assertIsNone(result["agent_plan"])
+        self.assertIsNotNone(result["suggestion"])
+        self.assertIn("没有可用的本地助手", result["reason"])
+
+    def test_propose_uses_agent_plan(self):
+        proposal = (
+            '{"format":"csv","date_field":"date","metric_field":"metric",'
+            '"value_field":"value"}'
+        )
+        source = self._source()
+        gateway = _FakeGateway(proposal)
+        result = ingest_propose(str(source), gateway, Path("/tmp"))
+        self.assertTrue(result["agent_used"])
+        self.assertEqual(result["agent_plan"]["date_field"], "date")
+        self.assertIsNone(result["reason"])
+
+    def test_propose_falls_back_when_agent_unavailable(self):
+        source = self._source()
+        gateway = _FakeGateway("", ready=False)
+        result = ingest_propose(str(source), gateway, Path("/tmp"))
+        self.assertFalse(result["agent_used"])
+        self.assertIsNotNone(result["suggestion"])
 
 
 class ApiSnapshotTests(unittest.TestCase):

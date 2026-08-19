@@ -198,6 +198,11 @@
 
           <div id="ingest-preview" class="ingest-preview" hidden></div>
 
+          <div id="ingest-propose-row" class="ingest-propose-row" hidden>
+            <button id="ingest-propose" type="button" class="button-secondary">让助手帮我推断映射（可选）</button>
+            <p class="field-hint">助手只读取已解析出的字段名与样例数据来推断日期/指标/数值的映射；最终仍由确定性引擎逐行校验。</p>
+          </div>
+
           <form id="ingest-plan-form" class="ingest-plan" hidden>
             <p class="ingest-plan-title">字段映射方案</p>
             <label class="field" for="ingest-date-field">
@@ -223,6 +228,10 @@
             <label class="field" for="ingest-date-format">
               <span>日期格式（可选）</span>
               <input id="ingest-date-format" type="text" autocomplete="off" placeholder="如 %Y-%m-%d">
+            </label>
+            <label class="field" for="ingest-knowledge-path">
+              <span>文档目录（确定性结论的证据来源，可选）</span>
+              <input id="ingest-knowledge-path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
             </label>
             <p id="ingest-plan-message" class="form-message" role="status" aria-live="polite"></p>
             <button id="ingest-apply" type="submit">应用并设为数据源</button>

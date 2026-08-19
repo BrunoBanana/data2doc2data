@@ -19,6 +19,10 @@
 - 数据接入 HTTP 端点与服务端编排（`server.py`）：新增 `/api/ingest/upload`（本地文件 base64 上传）、`/api/ingest/preview`（结构预览 + 内置映射建议）、`/api/ingest/apply`（按确认方案转换并写入标准 CSV、回写 Profile 的 `data_path`）、`/api/ingest/api-snapshot`（HTTPS 拉取快照后本地预览）；`Profile` 扩展 `api` 模式与 `ingestion`/`api` 配置字段。
 - 工作台新增「接入任意数据源」面板（`ingest-panel.js`）：本地文件（拖拽/选择后自动上传预览）与数据 API（填地址 + 可选请求头后拉取快照）两种入口，统一进入字段映射方案编辑器（日期/指标/数值/记录路径/工作表/日期格式，预填建议值），应用后即成为当前分析的确定性数据源；全程无 `innerHTML`、无外链，文件仅在本机解析。
 
+- 接入层增强（上一版两项边界补齐）：
+  - **Agent 在环提案**：新增 `/api/ingest/propose` 与前端「让助手帮我推断映射」按钮。助手只读取已探测出的字段名与样例数据（从不接触原始文件）来推断 `date/metric/value` 映射；无可用助手时自动回退到内置建议，用户永不被阻塞。提案与内置建议共用同一 `IngestionPlan` 契约，确认后执行仍由确定性引擎逐行校验。
+  - **文档目录闭环**：`/api/ingest/apply` 现接受 `knowledge_path`（应用后回写 Profile），并捕获 `ingestion`（来源 + 方案 + 时间）与 `api`（API 模式下的端点配置）配置；当缺少文档目录时返回 `needs_knowledge_path` 与 `knowledge_warning`，前端以醒目样式提示「确定性结论需要它作为证据」，避免应用后分析因缺文档目录而失败。
+
 ### 变更
 
 - 规则文件为受信任的数据契约，加载时严格校验（版本、指标名、规则 id、方向、聚合、阈值、重复指标集等），超过 256 KB 或格式错误返回明确本地错误。
