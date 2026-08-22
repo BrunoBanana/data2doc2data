@@ -54,6 +54,9 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/static/state.js",
     "src/data2doc2data/static/ui.js",
 )
+PUBLIC_RESOURCE_DIRECTORIES = (
+    "src/data2doc2data/static/dist",
+)
 SKILLHUB_METADATA = (
     ("slug", "data2doc2data"),
     ("version", "3.0.0"),
@@ -95,6 +98,12 @@ def bundle_files(root: Path = ROOT) -> list[Path]:
         for relative_path in PUBLIC_RESOURCE_FILES
         if _is_public_regular_file(root / relative_path, root)
     )
+    for relative_directory in PUBLIC_RESOURCE_DIRECTORIES:
+        directory = root / relative_directory
+        if directory.is_dir() and not directory.is_symlink():
+            files.extend(
+                path for path in directory.rglob("*") if _is_public_regular_file(path, root)
+            )
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
 

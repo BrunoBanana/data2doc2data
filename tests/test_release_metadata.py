@@ -52,6 +52,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('"sample/scenarios/*.json"', pyproject)
         self.assertIn('"sample/scenarios/*/*.csv"', pyproject)
         self.assertIn('"sample/scenarios/*/*.md"', pyproject)
+        self.assertIn('"static/dist/assets/*"', pyproject)
 
 
 if __name__ == "__main__":

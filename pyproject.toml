@@ -40,6 +40,8 @@ data2doc2data = [
   "sample/scenarios/*/*.csv",
   "sample/scenarios/*/*.md",
   "static/*",
+  "static/dist/*",
+  "static/dist/assets/*",
 ]
 
 [tool.ruff]

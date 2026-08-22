@@ -103,6 +103,8 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertTrue(self.EXPECTED_RUNTIME_FILES.issubset(names))
             self.assertTrue(self.EXPECTED_SCENARIO_FILES.issubset(names))
             self.assertTrue(self.EXPECTED_STATIC_FILES.issubset(names))
+            self.assertIn("src/data2doc2data/static/dist/index.html", names)
+            self.assertTrue(any(name.startswith("src/data2doc2data/static/dist/assets/") for name in names))
             self.assertFalse(any(".egg-info/" in name or "__pycache__/" in name for name in names))
             for forbidden in (
                 ".env",

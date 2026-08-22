@@ -802,6 +802,20 @@ class CompanionHandler(BaseHTTPRequestHandler):
             raise ValueError("request body must be JSON") from error
 
     def _serve_static(self, path: str) -> None:
+        dist_root = (STATIC_ROOT / "dist").resolve()
+        if path in {"/", "/index.html"} and (dist_root / "index.html").is_file():
+            self._send_static_asset(dist_root / "index.html")
+            return
+        if path.startswith("/assets/"):
+            asset = (dist_root / path.lstrip("/")).resolve()
+            if dist_root not in asset.parents or not asset.is_file() or asset.suffix not in {".js", ".css", ".svg", ".woff2"}:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
+                return
+            self._send_static_asset(asset)
+            return
+        if not path.startswith("/api/") and "." not in Path(path).name and (dist_root / "index.html").is_file():
+            self._send_static_asset(dist_root / "index.html")
+            return
         requested = "index.html" if path in {"/", "/index.html"} else path.lstrip("/")
         allowed = {
             "index.html",
@@ -823,12 +837,16 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if not asset.is_file():
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "setup page is unavailable"})
             return
+        self._send_static_asset(asset)
+
+    def _send_static_asset(self, asset: Path) -> None:
         content_type = {
             ".html": "text/html; charset=utf-8",
             ".css": "text/css; charset=utf-8",
             ".js": "text/javascript; charset=utf-8",
             ".svg": "image/svg+xml",
-        }[asset.suffix]
+            ".woff2": "font/woff2",
+        }.get(asset.suffix, "application/octet-stream")
         payload = asset.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)

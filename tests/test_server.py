@@ -1,4 +1,5 @@
 import json
+import re
 from http.client import HTTPConnection
 from pathlib import Path
 import tempfile
@@ -102,6 +103,26 @@ class LocalServerTests(unittest.TestCase):
             self.assertEqual(response.headers["Content-Type"], "image/svg+xml")
             self.assertIn(b"<svg", response.read())
         finally:
+            connection.close()
+
+    def test_server_serves_react_shell_hashed_assets_and_spa_fallback(self):
+        with urlopen(f"{self.base_url}/", timeout=2) as response:
+            html = response.read().decode("utf-8")
+        script_path = re.search(r'src="(/assets/[^"]+\.js)"', html).group(1)
+
+        with urlopen(f"{self.base_url}{script_path}", timeout=2) as response:
+            self.assertEqual(response.headers["Content-Type"], "text/javascript; charset=utf-8")
+            self.assertGreater(len(response.read()), 1000)
+        with urlopen(f"{self.base_url}/tasks/task-1", timeout=2) as response:
+            self.assertIn('id="root"', response.read().decode("utf-8"))
+
+        connection = HTTPConnection("127.0.0.1", self.server.server_port, timeout=2)
+        connection.request("GET", "/assets/../index.html", headers={"Host": f"127.0.0.1:{self.server.server_port}"})
+        response = connection.getresponse()
+        try:
+            self.assertEqual(response.status, 404)
+        finally:
+            response.read()
             connection.close()
 
     def test_profile_api_rejects_a_missing_local_path(self):
