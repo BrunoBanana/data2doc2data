@@ -42,6 +42,13 @@ class WebAgentContractTests(unittest.TestCase):
         self.assertIn("new EventSource", script)
         self.assertIn("eventSource.close()", script)
 
+    def test_ingestion_mutations_use_the_csrf_bound_session(self):
+        script = read_static("ingest-panel.js")
+
+        self.assertIn('import { agentRequest } from "./api.js"', script)
+        self.assertEqual(script.count('agentRequest("/api/ingest/'), 6)
+        self.assertNotIn('request("/api/ingest/', script)
+
     def test_provider_content_is_rendered_as_text_not_markup(self):
         script = read_all_js()
 
@@ -73,6 +80,36 @@ class WebAgentContractTests(unittest.TestCase):
         self.assertIn('"deterministic"', script)
         self.assertIn(".message-deterministic", css)
         self.assertIn('"确定性"', script)
+
+    def test_streamed_operations_are_aggregated_and_approvals_are_prioritized(self):
+        script = read_static("assistant-panel.js")
+
+        self.assertIn("operationStreams", script)
+        self.assertIn("appendStreamOperation", script)
+        self.assertIn("normalizeOperationContent", script)
+        self.assertIn("operationQueue.prepend(card)", script)
+        self.assertIn("operationQueue.scrollTop = 0", script)
+        stream_method = script[
+            script.index("function appendStreamOperation"):script.index("function normalizeOperationContent")
+        ]
+        self.assertIn('.approval-card:not([data-decision])', stream_method)
+        self.assertNotIn('case "plan.delta":\n      appendOperation', script)
+
+    def test_conversation_follows_stream_only_when_reader_is_near_bottom(self):
+        script = read_static("assistant-panel.js")
+
+        self.assertIn("function isNearBottom", script)
+        self.assertIn("const shouldFollow = isNearBottom(conversationLog)", script)
+        self.assertIn("if (shouldFollow) followConversation()", script)
+
+    def test_safe_markdown_supports_headings_and_blockquotes(self):
+        script = read_static("ui.js")
+
+        self.assertIn('document.createElement("blockquote")', script)
+        self.assertIn("headingMatch", script)
+        self.assertIn("document.createElement(`h${headingLevel}`)", script)
+        self.assertIn("appendListBlock", script)
+        self.assertNotIn("innerHTML", script)
 
 
 def read_static(name):

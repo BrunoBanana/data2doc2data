@@ -296,7 +296,10 @@ class WorkBuddyProvider:
             if selected is not None
             else {"outcome": "cancelled"}
         )
-        self._post_rpc_message({"jsonrpc": "2.0", "id": request_id, "result": {"outcome": outcome}})
+        self._post_rpc_message(
+            {"jsonrpc": "2.0", "id": request_id, "result": {"outcome": outcome}},
+            allow_empty=True,
+        )
 
     def interrupt(self, session: AgentSession) -> None:
         self._validate_session(session)
@@ -363,12 +366,13 @@ class WorkBuddyProvider:
             raise InvalidProviderPayload(self.name, "WorkBuddy JSON-RPC response does not match the request")
         return response["result"]
 
-    def _post_rpc_message(self, payload: dict[str, object]) -> object:
+    def _post_rpc_message(self, payload: dict[str, object], allow_empty: bool = False) -> object:
         return self._json_request(
             "POST",
             "/api/v1/acp",
             payload,
             accept="application/json, text/event-stream",
+            allow_empty=allow_empty,
         )
 
     def _sse_loop(self) -> None:
@@ -578,6 +582,7 @@ class WorkBuddyProvider:
         path: str,
         payload: object | None = None,
         accept: str = "application/json",
+        allow_empty: bool = False,
     ) -> object:
         if self.endpoint is None or not path.startswith("/api/v1/"):
             raise ProviderUnavailable(self.name, "WorkBuddy public endpoint is unavailable")
@@ -599,6 +604,8 @@ class WorkBuddyProvider:
             raise ProviderUnavailable(self.name, "WorkBuddy HTTP request failed") from error
         if len(body) > MAX_HTTP_BYTES:
             raise InvalidProviderPayload(self.name, "WorkBuddy HTTP response is too large")
+        if allow_empty and not body:
+            return {}
         try:
             text = body.decode("utf-8")
             if content_type == "text/event-stream":

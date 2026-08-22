@@ -50,6 +50,17 @@ class WebWorkbenchContractTests(unittest.TestCase):
         self.assertNotIn("innerHTML", script)
         self.assertNotIn("insertAdjacentHTML", script)
 
+    def test_compact_workbench_uses_readable_type_and_targets(self):
+        css = read_static("app.css")
+
+        self.assertIn("--font-caption: 12px", css)
+        self.assertIn("--control-compact: 38px", css)
+        self.assertIn("min-height: var(--control-compact)", css)
+        self.assertIn("flex-wrap: wrap", css)
+        self.assertIn(".message-copy blockquote", css)
+        self.assertIn(".message-copy h2", css)
+        self.assertNotIn("font-size: 9px", css)
+
 
 def read_static(name):
     return (STATIC_ROOT / name).read_text(encoding="utf-8")

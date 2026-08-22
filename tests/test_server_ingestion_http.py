@@ -13,13 +13,13 @@ from data2doc2data.config import ProfileStore
 from data2doc2data.server import create_server
 
 
-def request_json(base_url, method, path, payload=None):
+def request_json(base_url, method, path, payload=None, headers=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = Request(
         f"{base_url}{path}",
         data=data,
         method=method,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **(headers or {})},
     )
     try:
         with urlopen(request, timeout=2) as response:
@@ -31,6 +31,14 @@ def request_json(base_url, method, path, payload=None):
             error.close()
 
 
+def issue_browser_authorization(base_url):
+    request = Request(f"{base_url}/api/agents", method="GET")
+    with urlopen(request, timeout=2) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+        cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+    return {"Cookie": cookie, "X-CSRF-Token": payload["csrf_token"]}
+
+
 class IngestionHttpTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -39,6 +47,7 @@ class IngestionHttpTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
+        self.auth_headers = issue_browser_authorization(self.base_url)
 
     def tearDown(self):
         self.server.shutdown()
@@ -53,15 +62,30 @@ class IngestionHttpTests(unittest.TestCase):
         status, payload = request_json(
             self.base_url, "POST", "/api/ingest/upload",
             {"filename": "metrics.csv", "content": content},
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         return payload["path"]
+
+    def test_ingestion_routes_require_cookie_and_csrf(self):
+        for route in (
+            "/api/ingest/upload",
+            "/api/ingest/preview",
+            "/api/ingest/apply",
+            "/api/ingest/api-snapshot",
+            "/api/ingest/propose",
+        ):
+            with self.subTest(route=route):
+                status, payload = request_json(self.base_url, "POST", route, {})
+                self.assertEqual(status, 403)
+                self.assertIn("authorization", payload["error"])
 
     def test_upload_preview_apply_pipeline(self):
         path = self._upload_csv()
 
         status, preview = request_json(
-            self.base_url, "POST", "/api/ingest/preview", {"path": path}
+            self.base_url, "POST", "/api/ingest/preview", {"path": path},
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         self.assertEqual(preview["preview"]["fields"], ["date", "metric", "value"])
@@ -79,6 +103,7 @@ class IngestionHttpTests(unittest.TestCase):
                 },
                 "mode": "local",
             },
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         self.assertEqual(applied["result"]["row_count"], 2)
@@ -93,6 +118,7 @@ class IngestionHttpTests(unittest.TestCase):
         status, payload = request_json(
             self.base_url, "POST", "/api/ingest/upload",
             {"filename": "bad.csv", "content": content},
+            self.auth_headers,
         )
         path = payload["path"]
         status, applied = request_json(
@@ -106,13 +132,15 @@ class IngestionHttpTests(unittest.TestCase):
                     "value_field": "value",
                 },
             },
+            self.auth_headers,
         )
         self.assertEqual(status, 422)
         self.assertIn("无法转换", applied["error"])
 
     def test_preview_rejects_missing_file(self):
         status, payload = request_json(
-            self.base_url, "POST", "/api/ingest/preview", {"path": "/no/such/file.csv"}
+            self.base_url, "POST", "/api/ingest/preview", {"path": "/no/such/file.csv"},
+            self.auth_headers,
         )
         self.assertEqual(status, 422)
         self.assertIn("文件不存在", payload["error"])
@@ -125,6 +153,7 @@ class IngestionHttpTests(unittest.TestCase):
         status, preview = request_json(
             self.base_url, "POST", "/api/ingest/preview",
             {"path": str(csv_path), "validate_local": True},
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         self.assertEqual(preview["preview"]["fields"], ["date", "metric", "value"])
@@ -133,6 +162,7 @@ class IngestionHttpTests(unittest.TestCase):
         status, payload = request_json(
             self.base_url, "POST", "/api/ingest/preview",
             {"path": "/no/such/file.csv", "validate_local": True},
+            self.auth_headers,
         )
         self.assertEqual(status, 422)
         self.assertIn("不存在", payload["error"])
@@ -152,6 +182,7 @@ class IngestionHttpTests(unittest.TestCase):
                 "mode": "local",
                 "knowledge_path": "",
             },
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         self.assertTrue(applied["needs_knowledge_path"])
@@ -161,7 +192,8 @@ class IngestionHttpTests(unittest.TestCase):
     def test_propose_endpoint_degrades_without_agent(self):
         path = self._upload_csv()
         status, payload = request_json(
-            self.base_url, "POST", "/api/ingest/propose", {"path": path}
+            self.base_url, "POST", "/api/ingest/propose", {"path": path},
+            self.auth_headers,
         )
         self.assertEqual(status, 200)
         self.assertFalse(payload["agent_used"])

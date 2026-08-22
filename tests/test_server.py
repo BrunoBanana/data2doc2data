@@ -72,13 +72,14 @@ class LocalServerTests(unittest.TestCase):
             create_server(self.store, host="0.0.0.0", port=0)
 
     def test_server_rejects_an_untrusted_host_header(self):
-        request = Request(f"{self.base_url}/api/profile", headers={"Host": "example.test"})
-
-        with self.assertRaises(HTTPError) as raised:
-            urlopen(request, timeout=2)
-
-        self.assertEqual(raised.exception.code, 400)
-        raised.exception.close()
+        connection = HTTPConnection("127.0.0.1", self.server.server_port, timeout=2)
+        connection.request("GET", "/api/profile", headers={"Host": "example.test"})
+        response = connection.getresponse()
+        try:
+            self.assertEqual(response.status, 400)
+        finally:
+            response.read()
+            connection.close()
 
     def test_static_page_has_local_security_headers(self):
         with urlopen(f"{self.base_url}/", timeout=2) as response:

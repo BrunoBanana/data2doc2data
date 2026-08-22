@@ -21,8 +21,8 @@ import re
 import time
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -31,7 +31,16 @@ from .metrics import MetricRow
 
 MAX_SOURCE_BYTES = 5_000_000
 MAX_SAMPLE_ROWS = 5
+MAX_API_REDIRECTS = 3
 SUPPORTED_FORMATS = ("csv", "json", "xlsx")
+
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+_UNSAFE_REQUEST_HEADERS = frozenset(
+    {"connection", "content-length", "host", "proxy-authorization", "transfer-encoding"}
+)
+_CROSS_ORIGIN_SECRET_HEADERS = frozenset(
+    {"authorization", "cookie", "proxy-authorization", "x-api-key"}
+)
 
 _NS_MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _NS_REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -244,6 +253,90 @@ class ApiSnapshot:
     content_type: str
 
 
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, new_url):
+        return None
+
+
+def _build_api_url(url: str, params: dict[str, str] | None = None) -> str:
+    if not isinstance(url, str) or not url.strip():
+        raise IngestionError("数据 API 地址不能为空")
+    try:
+        parsed = urlsplit(url.strip())
+        port = parsed.port
+    except ValueError as error:
+        raise IngestionError("数据 API 地址格式无效") from error
+    if parsed.scheme.lower() != "https":
+        raise IngestionError("数据 API 仅支持 HTTPS 地址")
+    if not parsed.hostname or any(character.isspace() for character in parsed.hostname):
+        raise IngestionError("数据 API 地址必须包含有效主机名")
+    if parsed.username is not None or parsed.password is not None:
+        raise IngestionError("数据 API 地址不能包含用户名或密码")
+    if port not in {None, 443}:
+        raise IngestionError("数据 API 仅允许标准 HTTPS 端口 443")
+    if parsed.fragment:
+        raise IngestionError("数据 API 地址不能包含片段标识")
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    if params:
+        if not isinstance(params, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in params.items()
+        ):
+            raise IngestionError("数据 API 查询参数必须是字符串键值")
+        query.extend(params.items())
+    path = parsed.path or "/"
+    return urlunsplit(("https", parsed.netloc, path, urlencode(query), ""))
+
+
+def _validated_api_headers(headers: dict[str, str] | None) -> dict[str, str]:
+    if headers is None:
+        return {}
+    if not isinstance(headers, dict):
+        raise IngestionError("数据 API 请求头必须是对象")
+    validated: dict[str, str] = {}
+    for name, value in headers.items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise IngestionError("数据 API 请求头必须是字符串键值")
+        normalized = name.strip().lower()
+        if not normalized or normalized in _UNSAFE_REQUEST_HEADERS:
+            raise IngestionError(f"数据 API 不允许覆盖请求头：{name}")
+        if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
+            raise IngestionError("数据 API 请求头包含非法换行")
+        validated[name] = value
+    return validated
+
+
+def _api_origin(url: str) -> tuple[str, str, int]:
+    parsed = urlsplit(url)
+    return parsed.scheme.lower(), parsed.hostname.lower(), parsed.port or 443
+
+
+def _open_api_response(opener, url: str, headers: dict[str, str]):
+    current_url = url
+    current_headers = dict(headers)
+    for redirect_count in range(MAX_API_REDIRECTS + 1):
+        request = Request(current_url, headers=current_headers)
+        try:
+            return opener.open(request, timeout=30)
+        except HTTPError as error:
+            if error.code not in _REDIRECT_CODES:
+                raise
+            location = error.headers.get("Location") if error.headers else None
+            error.close()
+            if not location:
+                raise IngestionError("数据 API 重定向缺少目标地址") from error
+            if redirect_count >= MAX_API_REDIRECTS:
+                raise IngestionError("数据 API 重定向次数过多") from error
+            next_url = _build_api_url(urljoin(current_url, location))
+            if _api_origin(next_url) != _api_origin(current_url):
+                current_headers = {
+                    name: value
+                    for name, value in current_headers.items()
+                    if name.lower() not in _CROSS_ORIGIN_SECRET_HEADERS
+                }
+            current_url = next_url
+    raise IngestionError("数据 API 重定向次数过多")
+
+
 def fetch_api_snapshot(
     url: str,
     target_dir: Path,
@@ -251,13 +344,11 @@ def fetch_api_snapshot(
     params: dict[str, str] | None = None,
 ) -> ApiSnapshot:
     """Fetch an HTTPS API into a local, timestamped snapshot; credentials stay in memory."""
-    if not url.startswith("https://"):
-        raise IngestionError("数据 API 仅支持 HTTPS 地址")
-    request_url = url if not params else f"{url}?{urlencode(params)}"
-    request = Request(request_url, headers=dict(headers or {}))
-    opener = build_opener(ProxyHandler({}))
+    request_url = _build_api_url(url, params)
+    request_headers = _validated_api_headers(headers)
+    opener = build_opener(ProxyHandler({}), _NoRedirectHandler())
     try:
-        with opener.open(request, timeout=30) as response:
+        with _open_api_response(opener, request_url, request_headers) as response:
             content_type = response.headers.get_content_type()
             body = response.read(MAX_SOURCE_BYTES + 1)
     except HTTPError as error:

@@ -1,9 +1,12 @@
 import io
 import json
 from datetime import date, timedelta
+from email.message import Message
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 import zipfile
 
 from data2doc2data.ingestion import (
@@ -297,6 +300,131 @@ class ApiSnapshotGuardTests(unittest.TestCase):
 
         with self.assertRaises(IngestionError):
             fetch_api_snapshot("http://api.example.com/metrics", target_dir=Path("/tmp/d2d2d"))
+
+    def test_api_url_merges_params_with_existing_query(self):
+        opener = _FakeApiOpener()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("data2doc2data.ingestion.build_opener", return_value=opener):
+                from data2doc2data.ingestion import fetch_api_snapshot
+
+                fetch_api_snapshot(
+                    "https://api.example.com/metrics?region=cn",
+                    Path(directory),
+                    params={"page": "2"},
+                )
+        self.assertEqual(
+            opener.requests[0].full_url,
+            "https://api.example.com/metrics?region=cn&page=2",
+        )
+
+    def test_api_url_rejects_credentials_missing_host_and_nonstandard_port(self):
+        for url in (
+            "https://user:secret@api.example.com/metrics",
+            "https:///metrics",
+            "https://api.example.com:444/metrics",
+        ):
+            with self.subTest(url=url):
+                with tempfile.TemporaryDirectory() as directory:
+                    with patch(
+                        "data2doc2data.ingestion.build_opener",
+                        return_value=_FakeApiOpener(),
+                    ):
+                        from data2doc2data.ingestion import fetch_api_snapshot
+
+                        with self.assertRaises(IngestionError):
+                            fetch_api_snapshot(url, Path(directory))
+
+    def test_api_snapshot_follows_same_origin_https_redirect(self):
+        opener = _FakeApiOpener(redirects=["https://api.example.com/v2/metrics"])
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("data2doc2data.ingestion.build_opener", return_value=opener):
+                from data2doc2data.ingestion import fetch_api_snapshot
+
+                fetch_api_snapshot(
+                    "https://api.example.com/v1/metrics",
+                    Path(directory),
+                    headers={"Authorization": "Bearer secret"},
+                )
+        self.assertEqual(len(opener.requests), 2)
+        self.assertEqual(opener.requests[1].full_url, "https://api.example.com/v2/metrics")
+        self.assertEqual(opener.requests[1].get_header("Authorization"), "Bearer secret")
+
+    def test_api_snapshot_strips_credentials_on_cross_origin_redirect(self):
+        opener = _FakeApiOpener(redirects=["https://cdn.example.net/metrics"])
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("data2doc2data.ingestion.build_opener", return_value=opener):
+                from data2doc2data.ingestion import fetch_api_snapshot
+
+                fetch_api_snapshot(
+                    "https://api.example.com/metrics",
+                    Path(directory),
+                    headers={"Authorization": "Bearer secret", "Accept": "application/json"},
+                )
+        redirected = opener.requests[1]
+        self.assertIsNone(redirected.get_header("Authorization"))
+        self.assertEqual(redirected.get_header("Accept"), "application/json")
+
+    def test_api_snapshot_limits_redirect_chain(self):
+        opener = _FakeApiOpener(redirects=["https://api.example.com/next"] * 5)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("data2doc2data.ingestion.build_opener", return_value=opener):
+                from data2doc2data.ingestion import fetch_api_snapshot
+
+                with self.assertRaisesRegex(IngestionError, "重定向"):
+                    fetch_api_snapshot("https://api.example.com/start", Path(directory))
+        self.assertEqual(len(opener.requests), 4)
+
+    def test_api_snapshot_rejects_unsafe_header_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch(
+                "data2doc2data.ingestion.build_opener",
+                return_value=_FakeApiOpener(),
+            ):
+                from data2doc2data.ingestion import fetch_api_snapshot
+
+                for header in ("Host", "Content-Length", "Proxy-Authorization"):
+                    with self.subTest(header=header):
+                        with self.assertRaises(IngestionError):
+                            fetch_api_snapshot(
+                                "https://api.example.com/metrics",
+                                Path(directory),
+                                headers={header: "unsafe"},
+                            )
+
+
+class _FakeHeaders:
+    @staticmethod
+    def get_content_type():
+        return "application/json"
+
+
+class _FakeApiResponse:
+    headers = _FakeHeaders()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    @staticmethod
+    def read(_limit):
+        return b"[]"
+
+
+class _FakeApiOpener:
+    def __init__(self, redirects=None):
+        self.requests = []
+        self.redirects = list(redirects or [])
+
+    def open(self, request, timeout):
+        self.requests.append(request)
+        if self.redirects:
+            location = self.redirects.pop(0)
+            headers = Message()
+            headers["Location"] = location
+            raise HTTPError(request.full_url, 302, "Found", headers, None)
+        return _FakeApiResponse()
 
 
 def _csv_preview():

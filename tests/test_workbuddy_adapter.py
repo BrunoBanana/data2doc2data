@@ -26,6 +26,8 @@ class FakeWorkBuddy:
         health_body=None,
         streamable_posts=False,
         session_new_error=None,
+        blocking_permission_stream=False,
+        empty_permission_response=False,
     ):
         self.events = Queue()
         self.requests = []
@@ -34,6 +36,9 @@ class FakeWorkBuddy:
         self.health_body = health_body or {"data": {"status": "ok", "version": "2.106.7"}}
         self.streamable_posts = streamable_posts
         self.session_new_error = session_new_error
+        self.blocking_permission_stream = blocking_permission_stream
+        self.empty_permission_response = empty_permission_response
+        self.permission_gate = threading.Event()
         state = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -88,12 +93,21 @@ class FakeWorkBuddy:
                         'data: {"jsonrpc":"2.0","id":' + str(payload.get("id"))
                         + ',"result":{"stopReason":"end_turn"}}\n\n'
                     )
-                    self._sse_body(stream + result_event)
+                    if state.blocking_permission_stream:
+                        permission_end = stream.index("\n\n", stream.index('"session/request_permission"')) + 2
+                        self._blocking_sse_body(stream[:permission_end], result_event)
+                    else:
+                        self._sse_body(stream + result_event)
                     return
                 elif method == "session/cancel":
                     result = {}
                 elif "result" in payload and payload.get("id") == "permission-1":
                     state.permission_response = payload["result"]
+                    state.permission_gate.set()
+                    if state.empty_permission_response:
+                        self.send_response(HTTPStatus.ACCEPTED)
+                        self.end_headers()
+                        return
                     result = {}
                 else:
                     result = {}
@@ -136,6 +150,19 @@ class FakeWorkBuddy:
                 self.end_headers()
                 self.wfile.write(encoded)
 
+            def _blocking_sse_body(self, prefix, suffix):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(prefix.encode("utf-8"))
+                self.wfile.flush()
+                state.permission_gate.wait(timeout=2)
+                try:
+                    self.wfile.write(suffix.encode("utf-8"))
+                    self.wfile.flush()
+                except BrokenPipeError:
+                    return
+
             def log_message(self, format, *args):
                 return
 
@@ -145,6 +172,7 @@ class FakeWorkBuddy:
         self.endpoint = f"http://127.0.0.1:{self.server.server_port}"
 
     def close(self):
+        self.permission_gate.set()
         self.events.put(None)
         self.server.shutdown()
         self.thread.join(timeout=2)
@@ -195,6 +223,27 @@ class WorkBuddyAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "loopback"):
                 WorkBuddyProvider(Path(directory), endpoint="http://example.com:8080")
+
+    def test_approval_accepts_an_empty_http_acknowledgement(self):
+        fake = FakeWorkBuddy(empty_permission_response=True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(workspace, endpoint=fake.endpoint, request_timeout=2)
+                gateway = AgentGateway({"workbuddy": provider})
+                gateway.connect("workbuddy")
+                session = gateway.create_session("workbuddy", workspace)
+                list(gateway.send("workbuddy", session, "hello"))
+
+                gateway.decide_approval("workbuddy", session, "permission-1", False)
+
+                self.assertEqual(
+                    fake.permission_response,
+                    {"outcome": {"outcome": "selected", "optionId": "reject-once"}},
+                )
+                gateway.close()
+        finally:
+            fake.close()
 
     def test_streamable_http_post_responses_are_supported(self):
         fake = FakeWorkBuddy(streamable_posts=True)
@@ -256,6 +305,32 @@ class WorkBuddyAdapterTests(unittest.TestCase):
             self.assertEqual(preview, "codebuddy --serve --model hy3 --port 8765 --session-id session-id")
             self.assertNotIn("yolo", preview)
             self.assertNotIn("dangerously", preview)
+
+    def test_permission_is_yielded_before_blocked_prompt_stream_continues(self):
+        fake = FakeWorkBuddy(blocking_permission_stream=True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(workspace, endpoint=fake.endpoint, request_timeout=2)
+                gateway = AgentGateway({"workbuddy": provider})
+                gateway.connect("workbuddy")
+                session = gateway.create_session("workbuddy", workspace)
+                events = iter(gateway.send("workbuddy", session, "run pwd"))
+
+                self.assertEqual(next(events).kind, "message.delta")
+                self.assertEqual(next(events).kind, "tool.call")
+                delivered = Queue()
+                consumer = threading.Thread(target=lambda: delivered.put(next(events)), daemon=True)
+                consumer.start()
+                approval = delivered.get(timeout=0.5)
+                self.assertEqual(approval.kind, "approval.request")
+
+                gateway.decide_approval("workbuddy", session, "permission-1", True)
+                self.assertEqual(next(events).kind, "turn.completed")
+                consumer.join(timeout=1)
+                gateway.close()
+        finally:
+            fake.close()
 
 
 class WorkBuddyProtocolHelpersTests(unittest.TestCase):

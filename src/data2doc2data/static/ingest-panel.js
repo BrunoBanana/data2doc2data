@@ -1,6 +1,6 @@
 // Side data ingestion: probe local files / API snapshots and map them to metric rows.
 
-import { request } from "./api.js";
+import { agentRequest } from "./api.js";
 import { setMessage } from "./ui.js";
 import { loadProfile, loadSourceProfile } from "./data-panel.js";
 
@@ -134,7 +134,7 @@ async function handlePropose() {
   }
   setMessage(planMessage, "正在请助手理解数据结构并推断映射");
   try {
-    const res = await request("/api/ingest/propose", {
+    const res = await agentRequest("/api/ingest/propose", {
       method: "POST",
       body: JSON.stringify({ path: currentPath }),
     });
@@ -159,12 +159,12 @@ async function handlePropose() {
 async function uploadAndPreview(base64Content, filename, useAgentFlag = false) {
   setMessage(localMessage, "正在上传并解析文件");
   try {
-    const upload = await request("/api/ingest/upload", {
+    const upload = await agentRequest("/api/ingest/upload", {
       method: "POST",
       body: JSON.stringify({ filename, content: base64Content }),
     });
     currentPath = upload.path;
-    const preview = await request("/api/ingest/preview", {
+    const preview = await agentRequest("/api/ingest/preview", {
       method: "POST",
       body: JSON.stringify({ path: currentPath, use_agent: useAgentFlag }),
     });
@@ -200,7 +200,7 @@ async function handleLocalPathUse() {
   }
   setMessage(localPathMessage, "正在解析本机文件");
   try {
-    const preview = await request("/api/ingest/preview", {
+    const preview = await agentRequest("/api/ingest/preview", {
       method: "POST",
       body: JSON.stringify({ path: raw, validate_local: true, use_agent: useAgent.checked }),
     });
@@ -232,7 +232,7 @@ async function handleApiFetch() {
   }
   setMessage(apiMessage, "正在拉取快照（仅 https）");
   try {
-    const snapshot = await request("/api/ingest/api-snapshot", {
+    const snapshot = await agentRequest("/api/ingest/api-snapshot", {
       method: "POST",
       body: JSON.stringify({ url, headers, use_agent: useAgent.checked }),
     });
@@ -283,7 +283,7 @@ async function handlePlanSubmit(event) {
   }
   setMessage(planMessage, "正在转换为标准指标数据");
   try {
-    const applied = await request("/api/ingest/apply", {
+    const applied = await agentRequest("/api/ingest/apply", {
       method: "POST",
       body: JSON.stringify(payload),
     });

@@ -41,6 +41,15 @@ SESSION_INTERRUPT_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,20
 SESSION_APPROVAL_ROUTE = re.compile(
     r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/approvals/([A-Za-z0-9._:-]{1,200})"
 )
+INGEST_MUTATION_ROUTES = frozenset(
+    {
+        "/api/ingest/upload",
+        "/api/ingest/preview",
+        "/api/ingest/apply",
+        "/api/ingest/api-snapshot",
+        "/api/ingest/propose",
+    }
+)
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
@@ -435,6 +444,12 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if interrupt_match:
             self._interrupt_agent(interrupt_match.group(1))
             return
+        if path in INGEST_MUTATION_ROUTES:
+            try:
+                self._authorize_agent_mutation()
+            except AgentApiError as error:
+                self._send_json(error.status, {"error": str(error)})
+                return
         if path == "/api/ingest/upload":
             self._ingest_upload()
             return
@@ -743,4 +758,3 @@ class CompanionHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
-

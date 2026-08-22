@@ -24,6 +24,7 @@ const contextSnapshotId = document.querySelector("#context-snapshot-id");
 const contextContractVersion = document.querySelector("#context-contract-version");
 
 let announceTimer = null;
+const operationStreams = new Map();
 
 export async function loadAgents() {
   try {
@@ -85,6 +86,7 @@ agentConnect.addEventListener("click", async () => {
     agentState.lastEventId = 0;
     conversationLog.replaceChildren();
     operationQueue.replaceChildren();
+    operationStreams.clear();
     agentMessage.disabled = false;
     agentSend.disabled = false;
     permissionMode.disabled = true;
@@ -107,6 +109,7 @@ agentMessageForm.addEventListener("submit", async (event) => {
   agentMessage.value = "";
   const turnId = `turn-${Date.now()}`;
   agentState.currentTurnId = turnId;
+  operationStreams.clear();
   appendMessage("你", message, "user", turnId);
   beginPipeline();
 
@@ -234,10 +237,10 @@ function handleAgentEvent(event) {
       appendAssistantDelta(payload.text || "");
       break;
     case "plan.delta":
-      appendOperation("计划", payload.text || "", "plan-card");
+      appendStreamOperation("plan", "计划", payload.text || "", "plan-card");
       break;
     case "command.output":
-      appendOperation("命令输出", payload.text || "", "output-card");
+      appendStreamOperation("command", "命令输出", payload.text || "", "output-card");
       break;
     case "file.diff":
       appendOperation(`文件差异 · ${payload.path || "未知文件"}`, payload.diff || "", "diff-card");
@@ -246,7 +249,12 @@ function handleAgentEvent(event) {
       appendOperation(`工具调用 · ${payload.name || "工具"}`, formatObject(payload.arguments), "tool-card");
       break;
     case "tool.result":
-      appendOperation(payload.error ? "操作失败" : "操作完成", formatObject(payload.result), "tool-card");
+      appendStreamOperation(
+        `tool-result:${payload.call_id || "current"}`,
+        payload.error ? "操作失败" : "操作完成",
+        normalizeOperationContent(payload.result),
+        "tool-card",
+      );
       break;
     case "approval.request":
       renderApproval(payload);
@@ -275,6 +283,7 @@ function renderContextSummary(payload) {
 }
 
 function appendMessage(author, text, kind, turnId) {
+  const shouldFollow = isNearBottom(conversationLog);
   if (conversationEmpty && conversationEmpty.isConnected) conversationEmpty.remove();
   const article = document.createElement("article");
   article.className = `message-card message-${kind}`;
@@ -296,7 +305,7 @@ function appendMessage(author, text, kind, turnId) {
   copy.textContent = text;
   article.append(label, copy);
   conversationLog.appendChild(article);
-  article.scrollIntoView({ block: "nearest" });
+  if (shouldFollow) followConversation();
   return copy;
 }
 
@@ -313,6 +322,7 @@ function currentTurnAnalysis() {
 }
 
 function appendAssistantDelta(text) {
+  const shouldFollow = isNearBottom(conversationLog);
   if (!agentState.activeAssistant) {
     agentState.activeAssistant = appendMessage("助手", "", "assistant", agentState.currentTurnId);
     agentState.activeAssistantRaw = "";
@@ -320,11 +330,20 @@ function appendAssistantDelta(text) {
   conversationLog.setAttribute("aria-busy", "true");
   agentState.activeAssistantRaw += text;
   renderMarkdown(agentState.activeAssistant, agentState.activeAssistantRaw);
+  if (shouldFollow) followConversation();
   if (announceTimer) clearTimeout(announceTimer);
   announceTimer = setTimeout(() => {
     announceTimer = null;
     conversationLog.setAttribute("aria-busy", "false");
   }, 400);
+}
+
+function isNearBottom(element, threshold = 72) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+}
+
+function followConversation() {
+  conversationLog.scrollTop = conversationLog.scrollHeight;
 }
 
 function appendOperation(title, content, className) {
@@ -339,10 +358,40 @@ function appendOperation(title, content, className) {
   return card;
 }
 
+function appendStreamOperation(key, title, fragment, className) {
+  const streamKey = `${agentState.currentTurnId || "session"}:${key}`;
+  let stream = operationStreams.get(streamKey);
+  if (!stream) {
+    const card = appendOperation(title, "", className);
+    stream = { card, copy: card.querySelector("pre") };
+    operationStreams.set(streamKey, stream);
+  }
+  stream.copy.textContent += fragment;
+  if (!operationQueue.querySelector(".approval-card:not([data-decision])")) {
+    operationQueue.scrollTop = operationQueue.scrollHeight;
+  }
+  return stream.card;
+}
+
+function normalizeOperationContent(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(normalizeOperationContent).join("");
+  if (value && typeof value === "object") {
+    if (value.type === "text" && typeof value.text === "string") return value.text;
+    if (value.type === "content" && value.content != null) {
+      return normalizeOperationContent(value.content);
+    }
+  }
+  return formatObject(value);
+}
+
 function renderApproval(payload) {
   if (operationQueueDetails) operationQueueDetails.open = true;
   if (approvalBadge) approvalBadge.hidden = false;
   const card = appendOperation("等待批准", "", "approval-card");
+  card.setAttribute("role", "alert");
+  operationQueue.prepend(card);
+  operationQueue.scrollTop = 0;
   const details = document.createElement("dl");
   appendApprovalDetail(details, "操作", payload.operation || "未知操作");
   appendApprovalDetail(details, "命令", payload.command || "未提供");
@@ -391,6 +440,9 @@ async function decideApproval(approvalId, approved, card, actions) {
     result.className = "approval-result";
     result.textContent = approved ? "已批准" : "已拒绝";
     actions.replaceChildren(result);
+    if (approvalBadge && !operationQueue.querySelector(".approval-card:not([data-decision])")) {
+      approvalBadge.hidden = true;
+    }
   } catch (error) {
     const result = document.createElement("p");
     result.className = "approval-result error-copy";
