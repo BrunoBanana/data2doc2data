@@ -82,6 +82,11 @@ class ProfileStore:
     def index_cache_path(self) -> Path:
         return self.path.parent / "document-index.json"
 
+    @property
+    def workspace_database_path(self) -> Path:
+        """Keep new task metadata beside, but separate from, the legacy profile JSON."""
+        return self.path.parent / "workbench.sqlite3"
+
     def load(self) -> Profile | None:
         if not self.path.is_file():
             return None
