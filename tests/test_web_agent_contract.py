@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -48,6 +50,49 @@ class WebAgentContractTests(unittest.TestCase):
         self.assertIn('import { agentRequest } from "./api.js"', script)
         self.assertEqual(script.count('agentRequest("/api/ingest/'), 6)
         self.assertNotIn('request("/api/ingest/', script)
+
+    def test_agent_request_renews_an_expired_browser_session_once(self):
+        api_path = STATIC_ROOT / "api.js"
+        node_script = f"""
+import fs from "node:fs";
+
+globalThis.agentState = {{ csrfToken: "expired-token" }};
+const calls = [];
+const responses = [
+  new Response(JSON.stringify({{ error: "agent request authorization failed" }}), {{ status: 403 }}),
+  new Response(JSON.stringify({{ agents: [], csrf_token: "fresh-token" }}), {{ status: 200 }}),
+  new Response(JSON.stringify({{ ok: true }}), {{ status: 200 }}),
+];
+globalThis.fetch = async (path, options = {{}}) => {{
+  calls.push({{ path, token: options.headers?.["X-CSRF-Token"] || null }});
+  return responses.shift();
+}};
+const source = fs.readFileSync({json.dumps(str(api_path))}, "utf8")
+  .replace('import {{ agentState }} from "./state.js";', "const agentState = globalThis.agentState;");
+const encoded = Buffer.from(source).toString("base64");
+const api = await import(`data:text/javascript;base64,${{encoded}}`);
+const payload = await api.agentRequest("/api/ingest/preview", {{ method: "POST", body: "{{}}" }});
+process.stdout.write(JSON.stringify({{ calls, payload, token: agentState.csrfToken }}));
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "--eval", node_script],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["payload"], {"ok": True})
+        self.assertEqual(result["token"], "fresh-token")
+        self.assertEqual(
+            result["calls"],
+            [
+                {"path": "/api/ingest/preview", "token": "expired-token"},
+                {"path": "/api/agents", "token": None},
+                {"path": "/api/ingest/preview", "token": "fresh-token"},
+            ],
+        )
 
     def test_provider_content_is_rendered_as_text_not_markup(self):
         script = read_all_js()
