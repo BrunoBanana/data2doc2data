@@ -85,6 +85,21 @@ class WorkspaceStoreTests(unittest.TestCase):
             self.store.append_event(RunEvent.create("run-1", 4, "run.completed", "finish", {}))
         self.assertEqual(self.store.events_after("run-1", 0), (first, second))
 
+    def test_run_and_initial_event_are_created_atomically(self):
+        task = AnalysisTask.create("task-1", "复盘", "解释变化", now="2026-08-23T08:00:00Z")
+        run = AnalysisRun.create("run-1", "task-1", now="2026-08-23T08:01:00Z")
+        self.store.save_task(task)
+
+        with self.assertRaisesRegex(RunEventError, "sequence"):
+            self.store.create_run(run, RunEvent.create("run-1", 2, "run.started", "setup", {}))
+        self.assertIsNone(self.store.get_run("run-1"))
+
+        event = RunEvent.create("run-1", 1, "run.started", "setup", {})
+        self.store.create_run(run, event)
+
+        self.assertEqual(self.store.get_run("run-1"), run)
+        self.assertEqual(self.store.events_after("run-1"), (event,))
+
     def test_missing_parent_and_corrupt_database_errors_are_clear(self):
         missing_run = AnalysisRun.create("run-1", "missing-task", now="2026-08-23T08:00:00Z")
         with self.assertRaisesRegex(WorkspaceStoreError, "task"):

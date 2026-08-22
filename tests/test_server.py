@@ -32,6 +32,12 @@ class LocalServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"configured": False, "profile": None})
 
+    def test_workbench_routes_require_a_browser_session(self):
+        status, payload = request_json(self.base_url, "GET", "/api/workbench/tasks")
+
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"], "agent request authorization failed")
+
     def test_demo_scenario_api_returns_ordered_metadata_without_paths(self):
         status, payload = request_json(self.base_url, "GET", "/api/demo-scenarios")
 

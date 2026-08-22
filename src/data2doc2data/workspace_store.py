@@ -50,6 +50,45 @@ class WorkspaceStore:
             )
         return task
 
+    def assign_task_owner(self, task_id: str, owner_id: str) -> None:
+        with self._lock, self._connection() as connection:
+            try:
+                connection.execute(
+                    "INSERT INTO task_owners (task_id, owner_id) VALUES (?, ?)", (task_id, owner_id)
+                )
+            except sqlite3.IntegrityError as exc:
+                existing = connection.execute(
+                    "SELECT owner_id FROM task_owners WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if existing is not None and existing[0] == owner_id:
+                    return
+                raise WorkspaceStoreError("task owner cannot be changed") from exc
+
+    def get_task_for_owner(self, task_id: str, owner_id: str) -> AnalysisTask | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT tasks.payload FROM tasks
+                JOIN task_owners USING(task_id)
+                WHERE tasks.task_id = ? AND task_owners.owner_id = ?
+                """,
+                (task_id, owner_id),
+            ).fetchone()
+        return None if row is None else AnalysisTask.from_dict(json.loads(row[0]))
+
+    def list_tasks_for_owner(self, owner_id: str) -> tuple[AnalysisTask, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT tasks.payload FROM tasks
+                JOIN task_owners USING(task_id)
+                WHERE task_owners.owner_id = ?
+                ORDER BY tasks.updated_at DESC, tasks.task_id
+                """,
+                (owner_id,),
+            ).fetchall()
+        return tuple(AnalysisTask.from_dict(json.loads(row[0])) for row in rows)
+
     def get_task(self, task_id: str) -> AnalysisTask | None:
         with self._connection() as connection:
             row = connection.execute("SELECT payload FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
@@ -96,6 +135,42 @@ class WorkspaceStore:
                 raise WorkspaceStoreError(f"cannot save run because its task does not exist: {run.task_id}") from exc
         return run
 
+    def create_run(self, run: AnalysisRun, initial_event: RunEvent) -> AnalysisRun:
+        if initial_event.run_id != run.run_id or initial_event.sequence != 1:
+            raise RunEventError("initial event sequence must be 1 for the same run")
+        if initial_event.kind != "run.started":
+            raise RunEventError("initial event kind must be run.started")
+        snapshot_refs = _json([ref.to_dict() for ref in run.snapshot_refs])
+        with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO runs (run_id, task_id, status, created_at, snapshot_refs, payload)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run.run_id,
+                        run.task_id,
+                        run.status.value,
+                        run.created_at,
+                        snapshot_refs,
+                        _json(run.to_dict()),
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO run_events (run_id, sequence, created_at, payload) VALUES (?, ?, ?, ?)",
+                    (initial_event.run_id, initial_event.sequence, initial_event.created_at, _json(initial_event.to_dict())),
+                )
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise WorkspaceStoreError(f"cannot create run for task: {run.task_id}") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return run
+
     def get_run(self, run_id: str) -> AnalysisRun | None:
         with self._connection() as connection:
             row = connection.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()
@@ -107,6 +182,18 @@ class WorkspaceStore:
                 "SELECT payload FROM runs WHERE task_id = ? ORDER BY created_at DESC, run_id", (task_id,)
             ).fetchall()
         return tuple(AnalysisRun.from_dict(json.loads(row[0])) for row in rows)
+
+    def owner_can_access_run(self, run_id: str, owner_id: str) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM runs
+                JOIN task_owners USING(task_id)
+                WHERE runs.run_id = ? AND task_owners.owner_id = ?
+                """,
+                (run_id, owner_id),
+            ).fetchone()
+        return row is not None
 
     def append_event(self, event: RunEvent) -> RunEvent:
         with self._lock, self._connection() as connection:
@@ -182,6 +269,11 @@ class WorkspaceStore:
                 updated_at TEXT NOT NULL,
                 payload TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS task_owners (
+                task_id TEXT PRIMARY KEY REFERENCES tasks(task_id) ON DELETE CASCADE,
+                owner_id TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS task_owners_owner ON task_owners(owner_id, task_id);
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,

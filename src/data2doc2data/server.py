@@ -31,6 +31,8 @@ from .ingestion import (
     write_standard_csv,
 )
 from .sessions import AuditStore, SessionStore
+from .workbench_api import WorkbenchApiError, WorkbenchService
+from .workspace_store import WorkspaceStore
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -50,6 +52,10 @@ INGEST_MUTATION_ROUTES = frozenset(
         "/api/ingest/propose",
     }
 )
+WORKBENCH_TASK_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})")
+WORKBENCH_TASK_ASSETS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/assets")
+WORKBENCH_TASK_RUNS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/runs")
+WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
@@ -90,6 +96,8 @@ def create_server(
     server = CompanionHTTPServer((host, port), CompanionHandler)
     server.profile_store = store
     server.agent_service = agent_service
+    server.workbench_store = WorkspaceStore(store.workspace_database_path)
+    server.workbench_service = WorkbenchService(server.workbench_store)
     return server
 
 
@@ -356,6 +364,17 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/workbench/tasks":
+            self._list_workbench_tasks()
+            return
+        task_match = WORKBENCH_TASK_ROUTE.fullmatch(path)
+        if task_match:
+            self._get_workbench_task(task_match.group(1))
+            return
+        run_events_match = WORKBENCH_RUN_EVENTS_ROUTE.fullmatch(path)
+        if run_events_match:
+            self._get_workbench_run_events(run_events_match.group(1))
+            return
         events_match = SESSION_EVENTS_ROUTE.fullmatch(path)
         if events_match:
             try:
@@ -412,7 +431,12 @@ class CompanionHandler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802 - HTTP method naming is conventional.
         if not self._allow_local_origin():
             return
-        if urlparse(self.path).path != "/api/profile":
+        path = urlparse(self.path).path
+        task_match = WORKBENCH_TASK_ROUTE.fullmatch(path)
+        if task_match:
+            self._update_workbench_task(task_match.group(1))
+            return
+        if path != "/api/profile":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
             return
         try:
@@ -429,6 +453,17 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if not self._allow_local_origin():
             return
         path = urlparse(self.path).path
+        if path == "/api/workbench/tasks":
+            self._create_workbench_task()
+            return
+        assets_match = WORKBENCH_TASK_ASSETS_ROUTE.fullmatch(path)
+        if assets_match:
+            self._attach_workbench_assets(assets_match.group(1))
+            return
+        runs_match = WORKBENCH_TASK_RUNS_ROUTE.fullmatch(path)
+        if runs_match:
+            self._start_workbench_run(runs_match.group(1))
+            return
         if path == "/api/agent-sessions":
             self._create_agent_session()
             return
@@ -486,6 +521,84 @@ class CompanionHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, result.to_dict())
         except (InputValidationError, ProfileError, ValueError) as error:
             self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+
+    def _list_workbench_tasks(self) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().list_tasks(owner_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _get_workbench_task(self, task_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().get_task(owner_id, task_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _get_workbench_run_events(self, run_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            query = parse_qs(urlparse(self.path).query)
+            payload = self._workbench().events_after(
+                owner_id,
+                run_id,
+                query.get("after", ["0"])[0],
+                query.get("limit", ["1000"])[0],
+            )
+            self._send_json(HTTPStatus.OK, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _create_workbench_task(self) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().create_task(owner_id, self._read_json())
+            self._send_json(HTTPStatus.CREATED, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _update_workbench_task(self, task_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().update_task(owner_id, task_id, self._read_json())
+            self._send_json(HTTPStatus.OK, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _attach_workbench_assets(self, task_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().attach_assets(owner_id, task_id, self._read_json())
+            self._send_json(HTTPStatus.OK, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _start_workbench_run(self, task_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().start_run(owner_id, task_id, self._read_json())
+            self._send_json(HTTPStatus.CREATED, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
 
     def _create_agent_session(self) -> None:
         try:
@@ -628,6 +741,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
 
     def _agents(self) -> AgentWebService:
         return self.server.agent_service
+
+    def _workbench(self) -> WorkbenchService:
+        return self.server.workbench_service
 
     def _authorize_agent_mutation(self) -> str:
         return self._agents().browser_sessions.authorize_mutation(
