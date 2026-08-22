@@ -31,6 +31,7 @@ from .ingestion import (
     write_standard_csv,
 )
 from .sessions import AuditStore, SessionStore
+from .providers import ProviderRegistry, ProviderRegistryError
 from .workbench_api import WorkbenchApiError, WorkbenchService
 from .workspace_store import WorkspaceStore
 
@@ -96,6 +97,7 @@ def create_server(
     server = CompanionHTTPServer((host, port), CompanionHandler)
     server.profile_store = store
     server.agent_service = agent_service
+    server.provider_registry = ProviderRegistry(agent_service.gateway)
     server.workbench_store = WorkspaceStore(store.workspace_database_path)
     server.workbench_service = WorkbenchService(server.workbench_store)
     return server
@@ -364,6 +366,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/workbench/providers":
+            self._list_workbench_providers()
+            return
         if path == "/api/workbench/tasks":
             self._list_workbench_tasks()
             return
@@ -453,6 +458,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if not self._allow_local_origin():
             return
         path = urlparse(self.path).path
+        if path == "/api/workbench/providers/openai-compatible":
+            self._configure_workbench_provider()
+            return
         if path == "/api/workbench/tasks":
             self._create_workbench_task()
             return
@@ -530,6 +538,23 @@ class CompanionHandler(BaseHTTPRequestHandler):
             self._send_json(error.status, {"error": str(error)})
         except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
+
+    def _list_workbench_providers(self) -> None:
+        try:
+            self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, {"providers": self.server.provider_registry.list_connections()})
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _configure_workbench_provider(self) -> None:
+        try:
+            self._authorize_agent_mutation()
+            provider = self.server.provider_registry.configure_openai_compatible(self._read_json())
+            self._send_json(HTTPStatus.OK, {"provider": provider})
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (ProviderRegistryError, ValueError) as error:
+            self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
 
     def _get_workbench_task(self, task_id: str) -> None:
         try:

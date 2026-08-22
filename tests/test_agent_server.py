@@ -119,6 +119,29 @@ class AgentServerTests(unittest.TestCase):
         self.assertIn("SameSite=Strict", set_cookie)
         self.assertIn("Max-Age=600", set_cookie)
 
+    def test_workbench_provider_api_exposes_status_and_redacted_api_config(self):
+        cookie, csrf, _ = self.authenticate()
+
+        status, listed, _ = self.request("GET", "/api/workbench/providers", cookie=cookie)
+        self.assertEqual(status, 200, listed)
+        self.assertEqual(listed["providers"][0]["provider_id"], "fake")
+
+        status, configured, _ = self.request(
+            "POST",
+            "/api/workbench/providers/openai-compatible",
+            {
+                "provider_id": "company-api",
+                "base_url": "https://llm.example.com/v1",
+                "model": "company-model",
+                "secret_ref": "env:MISSING_TEST_KEY",
+            },
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.assertEqual(status, 200, configured)
+        self.assertEqual(configured["provider"]["state"], "auth_required")
+        self.assertNotIn("api_key", json.dumps(configured))
+
     def test_mutating_agent_routes_require_cookie_and_csrf(self):
         cookie, csrf, _ = self.authenticate()
 
