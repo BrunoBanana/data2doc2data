@@ -226,6 +226,28 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertTrue(repeated["replayed"])
         self.assertEqual(len(self.server.workbench_store.list_runs(task["task_id"])), 2)
 
+    def test_task_report_download_is_authenticated_standalone_html(self):
+        task = self.create_task()
+        dataset = Path(self.temporary_directory.name) / "standard.csv"
+        dataset.write_text("date,metric,value\n2026-01-01,收入,10\n2026-02-01,收入,12\n", encoding="utf-8")
+        digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
+        self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
+        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True}, cookie=self.cookie, csrf=self.csrf)
+
+        request = Request(f"{self.base_url}/api/workbench/tasks/{task['task_id']}/report", headers={"Cookie": self.cookie})
+        with urlopen(request, timeout=2) as response:
+            html = response.read().decode("utf-8")
+            self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+            self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
+        self.assertIn("<h2>Executive Summary</h2>", html)
+        self.assertIn("<svg", html)
+        self.assertNotIn("<script", html)
+
+        status, payload, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/report")
+        self.assertEqual(status, 403, payload)
+
     def create_task(self):
         status, payload, _ = self.request(
             "POST",

@@ -14,6 +14,7 @@ from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
 from .orchestrator import AnalysisOrchestrator
+from .reporting import HtmlReportArtifact, build_html_report
 from .text_dashboard import build_text_dashboard
 from .workspace import AnalysisRun, AnalysisTask, RunStatus, SnapshotRef, WorkspaceContractError, _utc_now
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
@@ -266,6 +267,19 @@ class WorkbenchService:
             corpus = build_document_corpus(document_paths, f"corpus-{task.task_id}")
             text_dashboard = build_text_dashboard(corpus).to_dict()
         return {"dashboard": dashboard, "text_dashboard": text_dashboard}
+
+    def task_report(self, owner_id: str, task_id: str) -> HtmlReportArtifact:
+        task = self._owned_task(owner_id, task_id)
+        combined = self.task_dashboard(owner_id, task_id)
+        runs = self.store.list_runs(task_id)
+        graph = self.store.get_run_artifact(runs[0].run_id, "evidence_graph") if runs else None
+        return build_html_report(
+            task,
+            combined.get("dashboard") if isinstance(combined.get("dashboard"), Mapping) else None,
+            combined.get("text_dashboard") if isinstance(combined.get("text_dashboard"), Mapping) else None,
+            graph if isinstance(graph, Mapping) else None,
+            run_count=len(runs),
+        )
 
     def events_after(self, owner_id: str, run_id: str, after: object, limit: object) -> dict[str, object]:
         if not self.store.owner_can_access_run(run_id, owner_id):

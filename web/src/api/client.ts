@@ -147,6 +147,27 @@ export class WorkbenchClient {
     return payload
   }
 
+  async downloadTaskReport(taskId: string): Promise<{ blob: Blob; filename: string }> {
+    await this.ensureSession()
+    const path = `/api/workbench/tasks/${encodeURIComponent(taskId)}/report`
+    let response = await this.fetcher(path, { method: 'GET', credentials: 'same-origin' })
+    if (response.status === 403) {
+      await this.bootstrap()
+      response = await this.fetcher(path, { method: 'GET', credentials: 'same-origin' })
+    }
+    if (!response.ok) {
+      let message = `报告生成失败（${response.status}）`
+      try {
+        const payload = await response.json() as ErrorPayload
+        if (payload.error) message = payload.error
+      } catch { /* keep the bounded fallback */ }
+      throw new HttpError(response.status, message)
+    }
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    const match = /filename="?([A-Za-z0-9._-]{1,180})"?/.exec(disposition)
+    return { blob: await response.blob(), filename: match?.[1] ?? `data2doc2data-${taskId}.html` }
+  }
+
   async createAgentSession(provider: string, permissionMode: AgentSession['permission_mode']): Promise<AgentSession> {
     await this.ensureSession()
     const payload = await this.mutate<{ session: AgentSession }>('/api/agent-sessions', {

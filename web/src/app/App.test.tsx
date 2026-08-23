@@ -21,6 +21,7 @@ function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null
     listTaskRuns: async () => [],
     loadRun: async () => ({ run: { contract_version: 1, run_id: 'run-1', task_id: 'task-1', status: 'completed', snapshot_refs: [], created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z' }, events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-1', nodes: [], edges: [] } }),
     retryRun: async () => ({ run: { contract_version: 1, run_id: 'run-2', task_id: 'task-1', status: 'completed', snapshot_refs: [], created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z' }, events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-2', nodes: [], edges: [] } }),
+    downloadTaskReport: async () => ({ blob: new Blob(['<!doctype html>']), filename: 'report.html' }),
     createAgentSession: async () => ({ id: 'session-1', provider: 'codex', workspace: '/tmp', permission_mode: 'collaborative', resumed: false }),
     sendAgentMessage: async () => undefined,
     interruptAgent: async () => undefined,

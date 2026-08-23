@@ -11,6 +11,7 @@ import { TextDashboard } from '../documents/TextDashboard'
 import { EvidenceGraph } from '../evidence/EvidenceGraph'
 import { HypothesisPanel } from '../evidence/HypothesisPanel'
 import { RunHistory } from '../history/RunHistory'
+import { ReportExport } from '../reports/ReportExport'
 
 const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as const
 const RunPlayback = lazy(() => import('../runs/RunPlayback').then((module) => ({ default: module.RunPlayback })))
@@ -29,6 +30,7 @@ interface TaskShellProps {
   listTaskRuns: () => Promise<RunHistoryItem[]>
   loadRun: (runId: string) => Promise<AnalysisRunResult>
   retryRun: (runId: string, idempotencyKey: string) => Promise<AnalysisRunResult>
+  downloadTaskReport: () => Promise<{ blob: Blob; filename: string }>
   createAgentSession: (provider: string, permissionMode: AgentSession['permission_mode']) => Promise<AgentSession>
   sendAgentMessage: (sessionId: string, message: string, taskId: string) => Promise<void>
   interruptAgent: (sessionId: string) => Promise<void>
@@ -40,7 +42,7 @@ interface TaskShellProps {
 }
 
 export function TaskShell(props: TaskShellProps) {
-  const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, listTaskRuns, loadRun, retryRun, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
+  const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, listTaskRuns, loadRun, retryRun, downloadTaskReport, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('总览')
   const [assistantOpen, setAssistantOpen] = useState(true)
   const [combined, setCombined] = useState<CombinedDashboard | null>(null)
@@ -107,7 +109,7 @@ export function TaskShell(props: TaskShellProps) {
         <div className="rail-section"><h2>任务资产</h2><button type="button" onClick={() => setActiveTab('数据')}><span aria-hidden="true">▦</span> 数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}><span aria-hidden="true">▤</span> 文档 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}><span aria-hidden="true">◇</span> 运行记录 <b>{runs.length}</b></button></div>
       </nav>
       <main className="analysis-canvas">
-        <div className="canvas-heading"><div><p className="eyebrow">任务工作区</p><h1>{task.title}</h1><p>{task.goal}</p></div>{datasets ? <button className="button button--primary" type="button" disabled={running} onClick={() => runAnalysis([])}>{running ? '分析运行中…' : '运行分析'}</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div>
+        <div className="canvas-heading"><div><p className="eyebrow">任务工作区</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{datasets ? <button className="button button--primary" type="button" disabled={running} onClick={() => runAnalysis([])}>{running ? '分析运行中…' : '运行分析'}</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
         <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}
         {loadingDashboard && <section className="dashboard-loading" aria-busy="true">正在基于锁定快照生成 Dashboard…</section>}

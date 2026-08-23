@@ -60,6 +60,7 @@ WORKBENCH_TASK_ASSETS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]
 WORKBENCH_TASK_RUNS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/runs")
 WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/documents")
 WORKBENCH_TASK_DASHBOARD_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/dashboard")
+WORKBENCH_TASK_REPORT_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/report")
 WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
 WORKBENCH_RUN_GRAPH_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/graph")
 WORKBENCH_RUN_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})")
@@ -393,6 +394,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if dashboard_match:
             self._get_workbench_task_dashboard(dashboard_match.group(1))
             return
+        report_match = WORKBENCH_TASK_REPORT_ROUTE.fullmatch(path)
+        if report_match:
+            self._get_workbench_task_report(report_match.group(1))
+            return
         task_match = WORKBENCH_TASK_ROUTE.fullmatch(path)
         if task_match:
             self._get_workbench_task(task_match.group(1))
@@ -606,6 +611,16 @@ class CompanionHandler(BaseHTTPRequestHandler):
         try:
             owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
             self._send_json(HTTPStatus.OK, self._workbench().task_dashboard(owner_id, task_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _get_workbench_task_report(self, task_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            artifact = self._workbench().task_report(owner_id, task_id)
+            self._send_html_download(artifact.html, artifact.filename)
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except WorkbenchApiError as error:
@@ -975,6 +990,17 @@ class CompanionHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         for name, value in (extra_headers or {}).items():
             self.send_header(name, value)
+        self._send_security_headers()
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_html_download(self, html: str, filename: str) -> None:
+        data = html.encode("utf-8")
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)[:180] or "analysis-report.html"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+        self.send_header("Content-Length", str(len(data)))
         self._send_security_headers()
         self.end_headers()
         self.wfile.write(data)
