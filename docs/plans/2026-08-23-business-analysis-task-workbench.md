@@ -237,7 +237,43 @@
 4. Re-run focused tests, typecheck, and build.
 5. Commit with `git commit -m "feat: add analysis history and recovery"`.
 
-### Task 14: Complete accessibility, security, and public release boundaries
+### Task 14: Add event-backed playback and synchronized evidence motion
+
+**Files:**
+- Create: `web/src/features/runs/RunPlayback.tsx`
+- Create: `web/src/features/runs/RunPlayback.test.tsx`
+- Modify: `web/src/features/runs/RunTimeline.tsx`
+- Modify: `web/src/features/evidence/EvidenceGraph.tsx`
+- Modify: `web/src/features/evidence/EvidenceFlowCanvas.tsx`
+- Modify: `web/src/styles/app.css`
+
+**Steps:**
+1. Write failing tests for play/pause/seek/speed/skip, progressive event reveal, synchronized graph-node highlighting, terminal and failed states, truthful replay labeling, keyboard controls, and reduced-motion instant transitions.
+2. Add the locked Motion dependency only for event-backed layout/state transitions; keep React Flow as the graph renderer and avoid displaying hidden chain-of-thought.
+3. Implement a replay controller that progressively reveals persisted events and highlights their artifact references in the evidence graph and hypothesis panel.
+4. Re-run focused tests, typecheck, production build, and a browser performance pass with large bounded graphs.
+5. Commit with `git commit -m "feat: animate observable analysis playback"`.
+
+### Task 15: Generate executive reports and downloadable standalone HTML
+
+**Files:**
+- Create: `src/data2doc2data/reporting.py`
+- Create: `tests/test_reporting.py`
+- Create: `web/src/features/reports/ReportExport.tsx`
+- Create: `web/src/features/reports/ReportExport.test.tsx`
+- Modify: `src/data2doc2data/workbench_api.py`
+- Modify: `src/data2doc2data/server.py`
+- Modify: `web/src/api/client.ts`
+- Modify: `web/src/features/tasks/TaskShell.tsx`
+
+**Steps:**
+1. Write failing tests for answer-first executive structure, KPI and text findings, inline SVG visual evidence, evidence/hypothesis provenance, next steps, further questions, caveats, locked snapshot identifiers, HTML escaping, no raw rows/paths/secrets, no external resources, print styles, and attachment headers.
+2. Implement a host-generated, self-contained semantic HTML artifact with inline CSS/SVG and progressive `<details>` evidence; do not depend on a CDN or execute agent-authored markup.
+3. Add an authenticated task report endpoint and browser download control that names the file safely and works offline after download.
+4. Validate the report in desktop/mobile browsers, print preview, HTML validators, and a no-network browser context.
+5. Commit with `git commit -m "feat: export standalone analysis reports"`.
+
+### Task 16: Complete accessibility, security, and public release boundaries
 
 **Files:**
 - Create: `web/e2e/workbench.spec.ts`
@@ -257,7 +293,7 @@
 5. Build the deterministic public ZIP twice and confirm identical SHA-256 hashes.
 6. Commit with `git commit -m "chore: harden workbench release"`.
 
-### Task 15: Run three end-to-end use-test and optimization rounds
+### Task 17: Run three end-to-end use-test and optimization rounds
 
 **Files:**
 - Create: `docs/testing/2026-08-23-business-analysis-workbench-use-tests.md`

@@ -18,6 +18,11 @@ export interface WorkbenchApi {
   loadTaskDashboard: (taskId: string) => Promise<CombinedDashboard>
   importDocuments: (taskId: string, paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
   startAnalysis: (taskId: string, hypotheses: string[]) => Promise<AnalysisRunResult>
+  createAgentSession: WorkbenchClient['createAgentSession']
+  sendAgentMessage: WorkbenchClient['sendAgentMessage']
+  interruptAgent: WorkbenchClient['interruptAgent']
+  decideAgentApproval: WorkbenchClient['decideAgentApproval']
+  openAgentEventStream: WorkbenchClient['openAgentEventStream']
 }
 
 interface AppProps {
@@ -66,7 +71,7 @@ export function App({ client: suppliedClient }: AppProps) {
       const updated = await client.applyImportToTask(selectedTask.task_id, path, plan)
       updateCurrentTask(updated)
     }
-    return <div className="app-frame"><TaskShell task={selectedTask} providers={workspace.providers} previewLocalPath={client.previewLocalPath.bind(client)} uploadFile={client.uploadFile.bind(client)} previewApi={client.previewApi.bind(client)} applyImport={applyToCurrentTask} loadDashboard={() => client.loadTaskDashboard(selectedTask.task_id)} importDocuments={(paths) => client.importDocuments(selectedTask.task_id, paths)} startAnalysis={(hypotheses) => client.startAnalysis(selectedTask.task_id, hypotheses)} onTaskUpdate={updateCurrentTask} onBack={() => setSelectedTask(null)} onCreateTask={() => setShowOnboarding(true)} /></div>
+    return <div className="app-frame"><TaskShell task={selectedTask} providers={workspace.providers} agents={workspace.agents} previewLocalPath={client.previewLocalPath.bind(client)} uploadFile={client.uploadFile.bind(client)} previewApi={client.previewApi.bind(client)} applyImport={applyToCurrentTask} loadDashboard={() => client.loadTaskDashboard(selectedTask.task_id)} importDocuments={(paths) => client.importDocuments(selectedTask.task_id, paths)} startAnalysis={(hypotheses) => client.startAnalysis(selectedTask.task_id, hypotheses)} createAgentSession={client.createAgentSession.bind(client)} sendAgentMessage={client.sendAgentMessage.bind(client)} interruptAgent={client.interruptAgent.bind(client)} decideAgentApproval={client.decideAgentApproval.bind(client)} openAgentEventStream={client.openAgentEventStream} onTaskUpdate={updateCurrentTask} onBack={() => setSelectedTask(null)} onCreateTask={() => setShowOnboarding(true)} /></div>
   }
   return (
     <div className="app-frame">

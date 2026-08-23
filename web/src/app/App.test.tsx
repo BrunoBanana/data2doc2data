@@ -9,7 +9,7 @@ const task: AnalysisTask = { task_id: 'task-1', title: '业务分析工作台', 
 
 function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null, text_dashboard: null }): WorkbenchApi {
   return {
-    loadWorkspace: async () => ({ providers: [], tasks }),
+    loadWorkspace: async () => ({ providers: [], tasks, agents: [] }),
     createTask: async (title, goal) => ({ ...task, title, goal }),
     previewLocalPath: async () => ({ preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
     uploadFile: async () => ({ source_path: '/tmp/upload.csv', preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
@@ -18,6 +18,11 @@ function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null
     loadTaskDashboard: async () => dashboard,
     importDocuments: async () => ({ task, text_dashboard: { corpus_id: 'corpus-1', document_count: 0, failure_count: 0, duplicate_count: 0, topics: [], entities: [], claims: [] } }),
     startAnalysis: async () => ({ run: { contract_version: 1, run_id: 'run-1', task_id: 'task-1', status: 'completed', snapshot_refs: [], created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z' }, events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-1', nodes: [], edges: [] } }),
+    createAgentSession: async () => ({ id: 'session-1', provider: 'codex', workspace: '/tmp', permission_mode: 'collaborative', resumed: false }),
+    sendAgentMessage: async () => undefined,
+    interruptAgent: async () => undefined,
+    decideAgentApproval: async () => undefined,
+    openAgentEventStream: () => () => undefined,
   }
 }
 
@@ -38,8 +43,8 @@ describe('analysis workbench shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
 
-    expect(screen.getByRole('status')).toHaveTextContent('未连接助手')
-    expect(screen.getByText('仍可使用本地数据画像与确定性 Dashboard')).toBeInTheDocument()
+    expect(screen.getByText('未连接助手')).toBeInTheDocument()
+    expect(screen.getByText('未发现可用助手；确定性分析仍可使用。')).toBeInTheDocument()
   })
 
   it('starts with provider onboarding when there are no tasks', async () => {

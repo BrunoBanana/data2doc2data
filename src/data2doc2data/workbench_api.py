@@ -33,6 +33,20 @@ class WorkbenchService:
     def get_task(self, owner_id: str, task_id: str) -> dict[str, object]:
         return {"task": self._owned_task(owner_id, task_id).to_dict()}
 
+    def agent_context(self, owner_id: str, task_id: str) -> str:
+        """Return bounded task metadata for an agent prompt, never local paths or raw rows."""
+        task = self._owned_task(owner_id, task_id)
+        assets = ", ".join(f"{ref.kind}:{ref.snapshot_id}" for ref in task.snapshot_refs[:50]) or "无"
+        return (
+            "WORKBENCH TASK CONTEXT\n"
+            f"任务: {task.title}\n"
+            f"目标: {task.goal}\n"
+            f"状态: {task.status.value}\n"
+            f"锁定资产: {len(task.snapshot_refs)}\n"
+            f"资产标识: {assets}\n"
+            "边界: 原始数据保留在本机；仅使用服务端提供的统计、证据摘要和锁定资产标识。"
+        )[:4_000]
+
     def create_task(self, owner_id: str, payload: object) -> dict[str, object]:
         body = _body(payload)
         try:

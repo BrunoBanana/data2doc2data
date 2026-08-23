@@ -1,4 +1,4 @@
-import type { AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
+import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
 import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent } from '../contracts/run-events'
 
@@ -6,6 +6,7 @@ type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 
 interface BootstrapResponse {
   csrf_token: string
+  agents: AgentProviderStatus[]
 }
 
 interface ErrorPayload {
@@ -15,10 +16,19 @@ interface ErrorPayload {
 export interface WorkspaceState {
   providers: ProviderConnection[]
   tasks: AnalysisTask[]
+  agents: AgentProviderStatus[]
 }
+
+export type AgentEventStream = (
+  sessionId: string,
+  after: number,
+  onEvent: (event: AgentEvent, eventId: number) => void,
+  onError: () => void,
+) => () => void
 
 export class WorkbenchClient {
   private csrfToken = ''
+  private agents: AgentProviderStatus[] = []
 
   constructor(private readonly fetcher: Fetcher = fetch) {}
 
@@ -26,12 +36,13 @@ export class WorkbenchClient {
     const payload = await this.request<BootstrapResponse>('/api/agents', { method: 'GET' }, false)
     if (!payload.csrf_token) throw new Error('无法建立本地工作台会话。')
     this.csrfToken = payload.csrf_token
+    this.agents = Array.isArray(payload.agents) ? payload.agents : []
   }
 
   async loadWorkspace(): Promise<WorkspaceState> {
     await this.bootstrap()
     const [providers, tasks] = await Promise.all([this.listProviders(), this.listTasks()])
-    return { providers, tasks }
+    return { providers, tasks, agents: this.agents }
   }
 
   async listProviders(): Promise<ProviderConnection[]> {
@@ -118,6 +129,48 @@ export class WorkbenchClient {
   async loadEvidenceGraph(runId: string): Promise<EvidenceGraphSpec> {
     const payload = await this.read<{ evidence_graph: EvidenceGraphSpec }>(`/api/workbench/runs/${encodeURIComponent(runId)}/graph`)
     return payload.evidence_graph
+  }
+
+  async createAgentSession(provider: string, permissionMode: AgentSession['permission_mode']): Promise<AgentSession> {
+    await this.ensureSession()
+    const payload = await this.mutate<{ session: AgentSession }>('/api/agent-sessions', {
+      provider,
+      permission_mode: permissionMode,
+    })
+    return payload.session
+  }
+
+  async sendAgentMessage(sessionId: string, message: string, taskId: string): Promise<void> {
+    await this.ensureSession()
+    await this.mutate(`/api/agent-sessions/${encodeURIComponent(sessionId)}/messages`, {
+      message: message.slice(0, 20_000),
+      task_id: taskId,
+    })
+  }
+
+  async interruptAgent(sessionId: string): Promise<void> {
+    await this.ensureSession()
+    await this.mutate(`/api/agent-sessions/${encodeURIComponent(sessionId)}/interrupt`, {})
+  }
+
+  async decideAgentApproval(sessionId: string, approvalId: string, approved: boolean): Promise<void> {
+    await this.ensureSession()
+    await this.mutate(`/api/agent-sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { approved })
+  }
+
+  openAgentEventStream: AgentEventStream = (sessionId, after, onEvent, onError) => {
+    const source = new EventSource(`/api/agent-sessions/${encodeURIComponent(sessionId)}/events?after=${Math.max(0, after)}`)
+    source.onmessage = (message) => {
+      try {
+        const eventId = Number.parseInt(message.lastEventId, 10)
+        const parsed = JSON.parse(message.data) as AgentEvent
+        onEvent(parsed, Number.isFinite(eventId) ? eventId : after)
+      } catch {
+        onError()
+      }
+    }
+    source.onerror = onError
+    return () => source.close()
   }
 
   private async ensureSession(): Promise<void> {

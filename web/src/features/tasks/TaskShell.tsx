@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 
 import type { CombinedDashboard, TextDashboardSpec } from '../../contracts/dashboard'
 import type { AnalysisRunResult } from '../../contracts/run-events'
-import type { AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
+import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
+import { AssistantDrawer } from '../assistant/AssistantDrawer'
 import { DataImport } from '../assets/DataImport'
 import { DashboardCanvas } from '../dashboard/DashboardCanvas'
 import { DocumentImport } from '../documents/DocumentImport'
@@ -16,6 +17,7 @@ const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as con
 interface TaskShellProps {
   task: AnalysisTask
   providers: ProviderConnection[]
+  agents: AgentProviderStatus[]
   previewLocalPath: (path: string) => Promise<SourcePreview>
   uploadFile: (file: File) => Promise<PreparedSource>
   previewApi: (url: string) => Promise<PreparedSource>
@@ -23,13 +25,18 @@ interface TaskShellProps {
   loadDashboard: () => Promise<CombinedDashboard>
   importDocuments: (paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
   startAnalysis: (hypotheses: string[]) => Promise<AnalysisRunResult>
+  createAgentSession: (provider: string, permissionMode: AgentSession['permission_mode']) => Promise<AgentSession>
+  sendAgentMessage: (sessionId: string, message: string, taskId: string) => Promise<void>
+  interruptAgent: (sessionId: string) => Promise<void>
+  decideAgentApproval: (sessionId: string, approvalId: string, approved: boolean) => Promise<void>
+  openAgentEventStream: (sessionId: string, after: number, onEvent: (event: AgentEvent, eventId: number) => void, onError: () => void) => () => void
   onTaskUpdate: (task: AnalysisTask) => void
   onBack: () => void
   onCreateTask: () => void
 }
 
 export function TaskShell(props: TaskShellProps) {
-  const { task, providers, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, onTaskUpdate, onBack, onCreateTask } = props
+  const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('总览')
   const [assistantOpen, setAssistantOpen] = useState(true)
   const [combined, setCombined] = useState<CombinedDashboard | null>(null)
@@ -99,7 +106,7 @@ export function TaskShell(props: TaskShellProps) {
         {!loadingDashboard && activeTab === '历史' && <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">HISTORY</p><h2 id="view-title">运行历史</h2><p>后续运行会在这里按不可变快照保存和回放。</p></section>}
         {runResult && <div className="run-drawer"><RunTimeline events={runResult.events} /></div>}
       </main>
-      {assistantOpen && <aside className="assistant-drawer" aria-label="AI 助手"><div className="assistant-heading"><div><p className="eyebrow">协作分析</p><h2>AI 助手</h2></div><span className="connection-badge">{readyProvider ? '可用' : '未连接助手'}</span></div><div className="assistant-empty"><div className="assistant-orb" aria-hidden="true" /><strong>{readyProvider ? '等待任务上下文' : '先完成连接，或直接分析'}</strong><p>仍可使用本地数据画像与确定性 Dashboard</p><button className="button button--secondary" type="button">连接 Codex / WorkBuddy</button></div><form className="assistant-composer"><label htmlFor="assistant-message">发送给助手</label><textarea id="assistant-message" rows={3} placeholder="连接助手后，可基于当前任务继续分析…" disabled /><button className="button button--primary" type="submit" disabled>发送</button></form></aside>}
+      {assistantOpen && <AssistantDrawer task={task} agents={agents} createSession={createAgentSession} sendMessage={sendAgentMessage} interrupt={interruptAgent} decideApproval={decideAgentApproval} openEventStream={openAgentEventStream} />}
     </div>
   </>
 }

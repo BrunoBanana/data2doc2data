@@ -200,7 +200,14 @@ class AgentWebService:
         self._audit(web_session, "session", "agent session created", "allowed")
         return _session_payload(web_session)
 
-    def start_turn(self, owner_id: str, session_id: str, payload: object) -> None:
+    def start_turn(
+        self,
+        owner_id: str,
+        session_id: str,
+        payload: object,
+        *,
+        task_context: str | None = None,
+    ) -> None:
         web_session = self._session(owner_id, session_id)
         if not isinstance(payload, dict) or not isinstance(payload.get("message"), str):
             raise AgentApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "agent message is required")
@@ -235,9 +242,12 @@ class AgentWebService:
             ),
             "allowed",
         )
+        prompt = snapshot.render_prompt(message)
+        if task_context:
+            prompt = f"{prompt}\n\n{task_context[:4_000]}"
         threading.Thread(
             target=self._run_turn,
-            args=(web_session, snapshot.render_prompt(message)),
+            args=(web_session, prompt),
             name=f"agent-turn-{session_id[:8]}",
             daemon=True,
         ).start()

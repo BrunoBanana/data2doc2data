@@ -7,6 +7,39 @@ export interface ProviderConnection {
   reconnect_hint: string | null
 }
 
+export interface AgentProviderStatus {
+  name: string
+  available: boolean
+  connected: boolean
+  version: string | null
+  authenticated: boolean
+  compatible: boolean
+  detail: string | null
+}
+
+export interface AgentSession {
+  id: string
+  provider: string
+  workspace: string
+  permission_mode: 'read_only' | 'collaborative' | 'trusted_session'
+  resumed: boolean
+}
+
+export interface AgentEvent {
+  kind: string
+  payload: Record<string, unknown>
+}
+
+export interface AgentApproval {
+  request_id: string
+  operation: string
+  command?: string
+  working_directory?: string
+  target_paths?: string[]
+  diff?: string
+  expires_at?: string
+}
+
 export interface SnapshotRef {
   kind: 'dataset' | 'document'
   snapshot_id: string

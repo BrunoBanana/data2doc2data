@@ -690,9 +690,18 @@ class CompanionHandler(BaseHTTPRequestHandler):
     def _start_agent_turn(self, session_id: str) -> None:
         try:
             owner_id = self._authorize_agent_mutation()
-            self._agents().start_turn(owner_id, session_id, self._read_json())
+            payload = self._read_json()
+            task_context = None
+            if isinstance(payload, dict) and payload.get("task_id") is not None:
+                task_id = payload.get("task_id")
+                if not isinstance(task_id, str) or not task_id:
+                    raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "task_id is invalid")
+                task_context = self._workbench().agent_context(owner_id, task_id)
+            self._agents().start_turn(owner_id, session_id, payload, task_context=task_context)
             self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
         except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except ValueError as error:
             self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})

@@ -234,6 +234,57 @@ class AgentServerTests(unittest.TestCase):
         self.assertIn("日期数: 6", prompt)
         self.assertNotIn("2026-01-05,retention_rate,0.66", prompt)
 
+    def test_agent_turn_receives_bounded_workbench_task_context(self):
+        cookie, csrf, session = self.create_session()
+        status, created, _ = self.request(
+            "POST",
+            "/api/workbench/tasks",
+            {"title": "留存异常调查", "goal": "定位留存下降原因"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.assertEqual(status, 201, created)
+
+        status, payload, _ = self.request(
+            "POST",
+            f"/api/agent-sessions/{session['id']}/messages",
+            {"message": "解释当前证据", "task_id": created["task"]["task_id"]},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.assertEqual(status, 202, payload)
+        self.request("GET", f"/api/agent-sessions/{session['id']}/events", cookie=cookie, raw=True)
+
+        prompt = self.provider.messages[-1]
+        self.assertIn("WORKBENCH TASK CONTEXT", prompt)
+        self.assertIn("任务: 留存异常调查", prompt)
+        self.assertIn("目标: 定位留存下降原因", prompt)
+        self.assertIn("锁定资产: 0", prompt)
+        self.assertNotIn(str(self.workspace), prompt)
+
+    def test_agent_cannot_attach_another_browser_task(self):
+        first_cookie, first_csrf, _ = self.authenticate()
+        status, created, _ = self.request(
+            "POST",
+            "/api/workbench/tasks",
+            {"title": "私有任务", "goal": "仅限当前浏览器"},
+            cookie=first_cookie,
+            csrf=first_csrf,
+        )
+        self.assertEqual(status, 201, created)
+        other_cookie, other_csrf, session = self.create_session()
+
+        status, payload, _ = self.request(
+            "POST",
+            f"/api/agent-sessions/{session['id']}/messages",
+            {"message": "读取任务", "task_id": created["task"]["task_id"]},
+            cookie=other_cookie,
+            csrf=other_csrf,
+        )
+        self.assertEqual(status, 404, payload)
+        self.assertEqual(payload["error"], "task not found")
+        self.assertFalse(self.provider.messages)
+
     def test_browser_owned_analysis_is_attached_to_its_agent_turn(self):
         cookie, csrf, _ = self.authenticate()
         status, analysis, _ = self.request(
