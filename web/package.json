@@ -12,6 +12,7 @@
     "@xyflow/react": "12.11.3",
     "echarts": "6.1.0",
     "flint-chart": "0.5.1",
+    "motion": "13.1.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

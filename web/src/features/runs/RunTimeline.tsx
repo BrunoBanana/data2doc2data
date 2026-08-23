@@ -1,3 +1,4 @@
+import { m } from 'motion/react'
 import type { RunEvent } from '../../contracts/run-events'
 
 const labels: Record<string, string> = {
@@ -13,9 +14,9 @@ const labels: Record<string, string> = {
   'run.failed': '分析失败',
 }
 
-export function RunTimeline({ events }: { events: RunEvent[] }) {
+export function RunTimeline({ events, activeSequence, reducedMotion = false }: { events: RunEvent[]; activeSequence?: number; reducedMotion?: boolean }) {
   const ordered = [...events].sort((left, right) => left.sequence - right.sequence)
-  return <section className="run-timeline" aria-labelledby="run-timeline-title"><div className="dashboard-heading"><div><p className="eyebrow">OBSERVABLE RUN</p><h2 id="run-timeline-title">分析过程</h2></div><span>{ordered.length} 个可观察事件</span></div><ol>{ordered.map((event) => <li key={`${event.run_id}-${event.sequence}`} className={`run-step run-step--${event.kind.endsWith('failed') ? 'failed' : event.kind.endsWith('completed') ? 'completed' : 'active'}`}><span className="run-step__index">{event.sequence}</span><div><strong>{labels[event.kind] ?? event.kind}</strong><small>{event.phase} · {new Date(event.created_at).toLocaleTimeString()}</small><div className="event-summary">{Object.entries(event.summary).map(([key, value]) => <span key={key}><b>{key}</b> {formatValue(value)}</span>)}</div></div></li>)}</ol></section>
+  return <section className="run-timeline" aria-labelledby="run-timeline-title"><div className="dashboard-heading"><div><p className="eyebrow">OBSERVABLE RUN</p><h2 id="run-timeline-title">分析过程</h2></div><span>{ordered.length} 个已展示事件</span></div><ol>{ordered.map((event) => <m.li initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0, scale: event.sequence === activeSequence ? 1.01 : 1 }} transition={{ duration: reducedMotion ? 0 : .22 }} key={`${event.run_id}-${event.sequence}`} data-active={event.sequence === activeSequence || undefined} className={`run-step run-step--${event.kind.endsWith('failed') ? 'failed' : event.kind.endsWith('completed') ? 'completed' : 'active'}`}><span className="run-step__index">{event.sequence}</span><div><strong>{labels[event.kind] ?? event.kind}</strong><small>{event.phase} · {new Date(event.created_at).toLocaleTimeString()}</small><div className="event-summary">{Object.entries(event.summary).map(([key, value]) => <span key={key}><b>{key}</b> {formatValue(value)}</span>)}</div></div></m.li>)}</ol></section>
 }
 
 function formatValue(value: unknown) {
