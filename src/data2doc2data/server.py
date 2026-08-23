@@ -34,7 +34,8 @@ from .ingestion import (
 from .sessions import AuditStore, SessionStore
 from .providers import ProviderRegistry, ProviderRegistryError
 from .workbench_api import WorkbenchApiError, WorkbenchService
-from .workspace_store import WorkspaceStore
+from .workspace import SnapshotRef
+from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -57,6 +58,8 @@ INGEST_MUTATION_ROUTES = frozenset(
 WORKBENCH_TASK_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})")
 WORKBENCH_TASK_ASSETS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/assets")
 WORKBENCH_TASK_RUNS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/runs")
+WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/documents")
+WORKBENCH_TASK_DASHBOARD_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/dashboard")
 WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
 
 
@@ -379,6 +382,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if path == "/api/workbench/tasks":
             self._list_workbench_tasks()
             return
+        dashboard_match = WORKBENCH_TASK_DASHBOARD_ROUTE.fullmatch(path)
+        if dashboard_match:
+            self._get_workbench_task_dashboard(dashboard_match.group(1))
+            return
         task_match = WORKBENCH_TASK_ROUTE.fullmatch(path)
         if task_match:
             self._get_workbench_task(task_match.group(1))
@@ -479,6 +486,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if runs_match:
             self._start_workbench_run(runs_match.group(1))
             return
+        documents_match = WORKBENCH_TASK_DOCUMENTS_ROUTE.fullmatch(path)
+        if documents_match:
+            self._import_workbench_documents(documents_match.group(1))
+            return
         if path == "/api/agent-sessions":
             self._create_agent_session()
             return
@@ -572,6 +583,15 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
 
+    def _get_workbench_task_dashboard(self, task_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().task_dashboard(owner_id, task_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
     def _get_workbench_run_events(self, run_id: str) -> None:
         try:
             owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
@@ -618,6 +638,17 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _import_workbench_documents(self, task_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().import_documents(owner_id, task_id, self._read_json())
+            self._send_json(HTTPStatus.OK, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, WorkspaceStoreError, ValueError) as error:
             status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
             self._send_json(status, {"error": str(error)})
 
@@ -718,8 +749,12 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 payload.get("knowledge_path"),
                 payload.get("api_config"),
             )
+            self.server.workbench_store.register_snapshot(
+                SnapshotRef.from_dict(result["snapshot"]),
+                Path(result["profile"]["data_path"]),
+            )
             self._send_json(HTTPStatus.OK, result)
-        except (ValueError, IngestionError) as error:
+        except (ValueError, IngestionError, WorkspaceStoreError) as error:
             self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
 
     def _ingest_propose(self) -> None:

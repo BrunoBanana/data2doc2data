@@ -2,10 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { App, type WorkbenchApi } from './App'
+import type { CombinedDashboard } from '../contracts/dashboard'
+import type { AnalysisTask } from '../contracts/workbench'
 
-const task = { task_id: 'task-1', title: '业务分析工作台', goal: '查明业务变化', status: 'active', snapshot_refs: [] }
+const task: AnalysisTask = { task_id: 'task-1', title: '业务分析工作台', goal: '查明业务变化', status: 'active', snapshot_refs: [] }
 
-function client(tasks = [task]): WorkbenchApi {
+function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null, text_dashboard: null }): WorkbenchApi {
   return {
     loadWorkspace: async () => ({ providers: [], tasks }),
     createTask: async (title, goal) => ({ ...task, title, goal }),
@@ -13,6 +15,8 @@ function client(tasks = [task]): WorkbenchApi {
     uploadFile: async () => ({ source_path: '/tmp/upload.csv', preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
     previewApi: async () => ({ source_path: '/tmp/api.json', preview: { format: 'json', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
     applyImportToTask: async () => task,
+    loadTaskDashboard: async () => dashboard,
+    importDocuments: async () => ({ task, text_dashboard: { corpus_id: 'corpus-1', document_count: 0, failure_count: 0, duplicate_count: 0, topics: [], entities: [], claims: [] } }),
   }
 }
 
@@ -41,5 +45,16 @@ describe('analysis workbench shell', () => {
     render(<App client={client([])} />)
 
     expect(await screen.findByRole('heading', { name: '先选择你的分析协作者' })).toBeInTheDocument()
+  })
+
+  it('loads the deterministic dashboard for a task snapshot', async () => {
+    const snapshotTask = { ...task, snapshot_refs: [{ kind: 'dataset' as const, snapshot_id: 'dataset-1', sha256: 'a'.repeat(64) }] }
+    const provenance = { snapshot_id: 'dataset-1', sha256: 'a'.repeat(64), expression: 'count rows', fields: ['date'], result_row_count: 1 }
+    render(<App client={client([snapshotTask], { dashboard: { contract_version: 1, dashboard_id: 'dashboard-1', title: '数据概览', blocks: [{ block_id: 'records', kind: 'kpi', title: '记录数', value: 12, data: [], provenance }] }, text_dashboard: null })} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
+
+    expect(await screen.findByRole('heading', { name: '数据概览' })).toBeInTheDocument()
+    expect(screen.getByText('记录数').parentElement).toHaveTextContent('12')
   })
 })

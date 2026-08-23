@@ -11,7 +11,7 @@ import threading
 from typing import Iterator
 
 from .run_events import RunEvent, RunEventError
-from .workspace import AnalysisRun, AnalysisTask, WorkspaceContractError
+from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
 SCHEMA_VERSION = 1
@@ -103,6 +103,33 @@ class WorkspaceStore:
         with self._lock, self._connection() as connection:
             cursor = connection.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
         return cursor.rowcount > 0
+
+    def register_snapshot(self, snapshot: SnapshotRef, path: Path) -> None:
+        resolved = path.expanduser().resolve()
+        with self._lock, self._connection() as connection:
+            existing = connection.execute(
+                "SELECT kind, sha256, path FROM snapshot_assets WHERE snapshot_id = ?",
+                (snapshot.snapshot_id,),
+            ).fetchone()
+            expected = (snapshot.kind, snapshot.sha256, str(resolved))
+            if existing is not None:
+                if tuple(existing) != expected:
+                    raise WorkspaceStoreError("snapshot registration cannot be changed")
+                return
+            if not resolved.is_file():
+                raise WorkspaceStoreError("snapshot path must be an existing file")
+            connection.execute(
+                "INSERT INTO snapshot_assets (snapshot_id, kind, sha256, path) VALUES (?, ?, ?, ?)",
+                (snapshot.snapshot_id, snapshot.kind, snapshot.sha256, str(resolved)),
+            )
+
+    def snapshot_path(self, snapshot: SnapshotRef) -> Path | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT path FROM snapshot_assets WHERE snapshot_id = ? AND kind = ? AND sha256 = ?",
+                (snapshot.snapshot_id, snapshot.kind, snapshot.sha256),
+            ).fetchone()
+        return None if row is None else Path(row[0])
 
     def save_run(self, run: AnalysisRun) -> AnalysisRun:
         payload = _json(run.to_dict())
@@ -274,6 +301,12 @@ class WorkspaceStore:
                 owner_id TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS task_owners_owner ON task_owners(owner_id, task_id);
+            CREATE TABLE IF NOT EXISTS snapshot_assets (
+                snapshot_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                path TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,

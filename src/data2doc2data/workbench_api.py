@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import hashlib
+from pathlib import Path
 import secrets
 from typing import Any, Mapping
 
 from .run_events import RunEvent, RunEventError
+from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
+from .documents import build_document_corpus
+from .text_dashboard import build_text_dashboard
 from .workspace import AnalysisRun, AnalysisTask, RunStatus, SnapshotRef, WorkspaceContractError, _utc_now
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
@@ -102,6 +107,62 @@ class WorkbenchService:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return {"run": run.to_dict()}
 
+    def import_documents(self, owner_id: str, task_id: str, payload: object) -> dict[str, object]:
+        body = _body(payload)
+        raw_paths = body.get("paths")
+        if not isinstance(raw_paths, list) or not raw_paths or any(not isinstance(item, str) for item in raw_paths):
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "paths must be a non-empty list of strings")
+        paths = tuple(Path(item).expanduser() for item in raw_paths)
+        if any(not path.is_absolute() for path in paths):
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "document paths must be absolute")
+        corpus = build_document_corpus(paths, f"corpus-{task_id}")
+        refs: list[SnapshotRef] = []
+        for document in corpus.documents:
+            source = next((path for path in paths if _file_digest(path) == document.sha256), None)
+            if source is None:
+                continue
+            ref = SnapshotRef("document", f"document-{document.sha256[:24]}", document.sha256)
+            self.store.register_snapshot(ref, source)
+            refs.append(ref)
+        updated = self.attach_assets(owner_id, task_id, {"snapshot_refs": [ref.to_dict() for ref in refs]})["task"]
+        return {
+            "task": updated,
+            "text_dashboard": build_text_dashboard(corpus).to_dict(),
+        }
+
+    def task_dashboard(self, owner_id: str, task_id: str) -> dict[str, object]:
+        task = self._owned_task(owner_id, task_id)
+        dataset_refs = [ref for ref in task.snapshot_refs if ref.kind == "dataset"]
+        dashboard = None
+        if dataset_refs:
+            ref = dataset_refs[-1]
+            path = self.store.snapshot_path(ref)
+            if path is None:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "dataset snapshot is not available locally")
+            try:
+                profile = profile_standard_csv(path, ref.snapshot_id)
+            except DataProfileError as exc:
+                raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
+            if profile.sha256 != ref.sha256:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "dataset snapshot content has changed")
+            dashboard = build_default_dashboard(profile).to_dict()
+        document_paths_list: list[Path] = []
+        for ref in task.snapshot_refs:
+            if ref.kind != "document":
+                continue
+            path = self.store.snapshot_path(ref)
+            if path is None:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot is not available locally")
+            if _file_digest(path) != ref.sha256:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot content has changed")
+            document_paths_list.append(path)
+        document_paths = tuple(document_paths_list)
+        text_dashboard = None
+        if document_paths:
+            corpus = build_document_corpus(document_paths, f"corpus-{task.task_id}")
+            text_dashboard = build_text_dashboard(corpus).to_dict()
+        return {"dashboard": dashboard, "text_dashboard": text_dashboard}
+
     def events_after(self, owner_id: str, run_id: str, after: object, limit: object) -> dict[str, object]:
         if not self.store.owner_can_access_run(run_id, owner_id):
             raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
@@ -124,3 +185,10 @@ def _body(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "request must be an object")
     return payload
+
+
+def _file_digest(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None

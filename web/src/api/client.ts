@@ -1,4 +1,5 @@
 import type { AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
+import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -33,12 +34,12 @@ export class WorkbenchClient {
   }
 
   async listProviders(): Promise<ProviderConnection[]> {
-    const payload = await this.request<{ providers: ProviderConnection[] }>('/api/workbench/providers')
+    const payload = await this.read<{ providers: ProviderConnection[] }>('/api/workbench/providers')
     return payload.providers
   }
 
   async listTasks(): Promise<AnalysisTask[]> {
-    const payload = await this.request<{ tasks: AnalysisTask[] }>('/api/workbench/tasks')
+    const payload = await this.read<{ tasks: AnalysisTask[] }>('/api/workbench/tasks')
     return payload.tasks
   }
 
@@ -86,8 +87,27 @@ export class WorkbenchClient {
     return attached.task
   }
 
+  async loadTaskDashboard(taskId: string): Promise<CombinedDashboard> {
+    return this.read<CombinedDashboard>(`/api/workbench/tasks/${encodeURIComponent(taskId)}/dashboard`)
+  }
+
+  async importDocuments(taskId: string, paths: string[]): Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }> {
+    await this.ensureSession()
+    return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/documents`, { paths })
+  }
+
   private async ensureSession(): Promise<void> {
     if (!this.csrfToken) await this.bootstrap()
+  }
+
+  private async read<T>(path: string): Promise<T> {
+    try {
+      return await this.request<T>(path)
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 403 || !this.csrfToken) throw error
+      await this.bootstrap()
+      return this.request<T>(path)
+    }
   }
 
   private async mutate<T = unknown>(path: string, body: object): Promise<T> {

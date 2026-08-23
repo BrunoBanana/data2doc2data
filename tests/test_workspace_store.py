@@ -110,6 +110,17 @@ class WorkspaceStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceStoreError, "database"):
             WorkspaceStore(corrupt_path).list_tasks()
 
+    def test_snapshot_paths_are_registered_immutably(self):
+        source = Path(self.temporary_directory.name) / "snapshot.csv"
+        source.write_text("date,metric,value\n2026-01-01,a,1\n", encoding="utf-8")
+        snapshot = SnapshotRef("dataset", "dataset-1", "a" * 64)
+
+        self.store.register_snapshot(snapshot, source)
+
+        self.assertEqual(self.store.snapshot_path(snapshot), source.resolve())
+        with self.assertRaisesRegex(WorkspaceStoreError, "cannot be changed"):
+            self.store.register_snapshot(snapshot, source.with_name("other.csv"))
+
     def test_profile_json_and_workspace_database_can_coexist(self):
         profile_store = ProfileStore(Path(self.temporary_directory.name) / "config" / "config.json")
 

@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 from data2doc2data.config import ProfileStore
 from data2doc2data.server import create_server
+from data2doc2data.workspace import SnapshotRef
 
 
 def request_json(base_url, method, path, payload=None, headers=None):
@@ -109,6 +110,8 @@ class IngestionHttpTests(unittest.TestCase):
         self.assertEqual(applied["result"]["row_count"], 2)
         self.assertEqual(applied["profile"]["mode"], "local")
         self.assertTrue(Path(applied["profile"]["data_path"]).is_file())
+        snapshot = SnapshotRef.from_dict(applied["snapshot"])
+        self.assertEqual(self.server.workbench_store.snapshot_path(snapshot), Path(applied["profile"]["data_path"]).resolve())
 
         saved = self.store.load()
         self.assertEqual(saved.data_path, applied["profile"]["data_path"])

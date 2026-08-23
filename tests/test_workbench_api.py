@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import threading
@@ -9,6 +10,7 @@ from urllib.request import Request, urlopen
 from data2doc2data.config import ProfileStore
 from data2doc2data.run_events import RunEvent
 from data2doc2data.server import create_server
+from data2doc2data.workspace import SnapshotRef
 
 
 class WorkbenchApiTests(unittest.TestCase):
@@ -143,6 +145,32 @@ class WorkbenchApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 422)
         self.assertIn("limit", payload["error"])
+
+    def test_task_dashboard_and_document_import_use_registered_snapshots(self):
+        task = self.create_task()
+        dataset = Path(self.temporary_directory.name) / "standard.csv"
+        dataset.write_text("date,metric,value\n2026-01-01,收入,10\n2026-02-01,收入,12\n", encoding="utf-8")
+        digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
+        self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
+        status, _, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+        self.assertEqual(status, 200)
+
+        document = Path(self.temporary_directory.name) / "plan.md"
+        document.write_text("# 目标\n主张：收入将持续增长\n", encoding="utf-8")
+        status, imported, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/documents", {"paths": [str(document)]}, cookie=self.cookie, csrf=self.csrf)
+        self.assertEqual(status, 200, imported)
+        self.assertEqual(imported["text_dashboard"]["document_count"], 1)
+
+        status, payload, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie)
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["dashboard"]["blocks"][0]["value"], 2)
+        self.assertEqual(payload["text_dashboard"]["claims"][0]["status"], "pending")
+
+        document.write_text("# altered\n", encoding="utf-8")
+        status, stale, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie)
+        self.assertEqual(status, 409)
+        self.assertIn("document snapshot content has changed", stale["error"])
 
     def create_task(self):
         status, payload, _ = self.request(

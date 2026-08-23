@@ -98,6 +98,21 @@ describe('WorkbenchClient', () => {
     expect(JSON.parse(fetcher.mock.calls[2][1].body as string)).toEqual({ snapshot_refs: [snapshot] })
   })
 
+  it('loads a combined task dashboard and imports document paths', async () => {
+    const task = { task_id: 'task-1', title: '复盘', goal: '找变化', status: 'active', snapshot_refs: [] }
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ dashboard: null, text_dashboard: null }))
+      .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
+      .mockResolvedValueOnce(response({ task, text_dashboard: { corpus_id: 'corpus-1', document_count: 1, failure_count: 0, duplicate_count: 0, topics: [], entities: [], claims: [] } }))
+    const client = new WorkbenchClient(fetcher)
+
+    expect(await client.loadTaskDashboard('task-1')).toEqual({ dashboard: null, text_dashboard: null })
+    const imported = await client.importDocuments('task-1', ['/tmp/plan.md'])
+
+    expect(imported.task.task_id).toBe('task-1')
+    expect(JSON.parse(fetcher.mock.calls[2][1].body as string)).toEqual({ paths: ['/tmp/plan.md'] })
+  })
+
   it('surfaces the backend error message', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(response({ error: '文件不存在' }, 422))
     const client = new WorkbenchClient(fetcher)
