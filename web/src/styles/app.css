@@ -256,6 +256,7 @@
   .canvas-heading > .button { display: none; }
   .task-actions { flex-direction: column-reverse; align-items: stretch; }
   .report-export .button { width: 100%; }
+  .report-export > span { position: static; width: 100%; display: block; margin-top: 7px; }
   .empty-workspace { min-height: 420px; padding: 34px 18px; }
   .empty-actions { width: 100%; flex-direction: column; }
   .onboarding-frame { align-items: start; padding: 16px 12px; }
@@ -286,6 +287,7 @@
 .topbar { height: 56px; padding: 0 16px; border: 0; border-bottom: 2px solid #050505; color: var(--surface-1); background: #050505; backdrop-filter: none; }
 .topbar .brand { color: var(--surface-1); }
 .brand-mark { width: 30px; height: 30px; border: 2px solid var(--accent); border-radius: 2px; color: var(--accent); background: #050505; box-shadow: 3px 3px 0 var(--accent); }
+.brand-mark img { width: 22px; height: 22px; display: block; border-radius: 2px; }
 .topbar-case { min-width: 0; display: flex; align-items: baseline; gap: 8px; padding-left: 18px; border-left: 1px solid #43433e; }
 .topbar-case span { color: #a9a69d; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .topbar-case strong { max-width: 34vw; overflow: hidden; color: #f4f1e8; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -301,8 +303,8 @@
 .button--quiet { color: var(--muted); }
 .icon-button { border-color: var(--line); background: var(--surface-1); }
 .rail-create-button { width: auto; min-width: 44px; padding: 0 9px; }
-.workbench-grid { grid-template-columns: 238px minmax(0, 1fr) 324px; min-height: calc(100vh - 56px); }
-.workbench-grid--assistant-closed { grid-template-columns: 238px minmax(0, 1fr); }
+.workbench-grid { grid-template-columns: 220px minmax(0, 1fr) 280px; min-height: calc(100vh - 56px); }
+.workbench-grid--assistant-closed { grid-template-columns: 220px minmax(0, 1fr); }
 .asset-rail, .assistant-drawer { color: var(--text); background: var(--surface-2); }
 .asset-rail { padding: 18px 14px; border-right: 1px solid var(--line); }
 .assistant-drawer { border-left: 1px solid var(--line); }
@@ -349,6 +351,16 @@
 .claim-card--contradicted { border-left-color: var(--danger); }
 .graph-filters button { border: 1px solid var(--line); border-radius: 2px; color: var(--muted); background: var(--surface-1); }
 .graph-filters button[aria-pressed="true"] { border-color: var(--line); color: var(--text); background: var(--accent); box-shadow: 2px 2px 0 #050505; }
+.evidence-brief { margin-top: 24px; border: 2px solid var(--line); background: var(--surface-1); box-shadow: 4px 4px 0 var(--accent); }
+.evidence-brief__heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 14px 16px; color: var(--surface-1); background: #050505; }
+.evidence-brief__heading h2 { margin: 3px 0 0; color: var(--surface-1); font-size: 20px; }
+.evidence-brief__heading span { color: #c8c4b9; font-size: 11px; }
+.evidence-brief__grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.evidence-brief__grid article { min-width: 0; display: grid; gap: 4px; padding: 14px 12px; border-left: 1px solid var(--line-soft); }
+.evidence-brief__grid article:first-child { border-left: 0; }
+.evidence-brief__grid span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-brief__grid strong { overflow-wrap: anywhere; font-size: 18px; }
+.evidence-brief + .run-playback { margin-top: 24px; }
 .graph-accessible button { position: relative; border: 1px solid var(--line); border-radius: 2px; color: var(--text); background: var(--surface-1); }
 .graph-accessible button > b { position: absolute; top: -1px; left: -1px; padding: 3px 6px; color: var(--accent); background: #050505; font: 700 9px/1.3 ui-monospace, monospace; }
 .graph-accessible button > span { margin-left: 26px; color: var(--muted); }
@@ -436,9 +448,14 @@
   .workbench-grid--mobile-analysis .assistant-drawer, .workbench-grid--mobile-process .assistant-drawer { display: none; }
   .workbench-grid--mobile-assistant .assistant-drawer { position: static; width: 100%; min-height: calc(100vh - 98px); display: flex; box-shadow: none; }
   .analysis-canvas { padding: 20px 14px 48px; }
+  .canvas-heading { flex-direction: column; }
+  .task-actions { width: 100%; }
   .canvas-heading h1 { font-size: 34px; }
   .case-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evidence-brief__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evidence-brief__grid article { border-top: 1px solid var(--line-soft); }
+  .evidence-brief__heading { align-items: start; flex-direction: column; }
   .kpi-card:nth-child(3) { border-left: 0; border-top: 1px solid var(--line-soft); }
   .kpi-card:nth-child(4) { border-top: 1px solid var(--line-soft); }
   .playback-grid { display: flex; flex-direction: column-reverse; }

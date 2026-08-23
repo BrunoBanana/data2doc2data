@@ -77,7 +77,17 @@ def _executive_summary(
     for node in nodes:
         status = str(node.get("status", "pending"))
         statuses[status] = statuses.get(status, 0) + 1
-    status_text = "、".join(f"{escape(key)} {value}" for key, value in sorted(statuses.items())) or "尚未生成"
+    labels = {
+        "verified": "已验证",
+        "supported": "支持",
+        "contradicted": "存在冲突",
+        "insufficient": "证据不足",
+        "pending": "待验证",
+    }
+    status_text = (
+        "、".join(f"{escape(labels.get(key, key))} {value}" for key, value in sorted(statuses.items()))
+        or "尚未生成"
+    )
     third = f"<strong>证据过程可审计。</strong> 已保存 {run_count} 次运行；当前证据状态为 {status_text}。"
     return [first, second, third]
 

@@ -80,7 +80,7 @@ export function App({ client: suppliedClient }: AppProps) {
   }
   return (
     <div className="app-frame">
-      <header className="topbar"><a className="brand" href="/" aria-label="Data2Doc2Data 首页"><span className="brand-mark" aria-hidden="true">D2</span><span>Data2Doc2Data</span></a><div className="topbar-status" role="status">本地工作台已就绪</div></header>
+      <header className="topbar"><a className="brand" href="/" aria-label="Data2Doc2Data 首页"><span className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></span><span>Data2Doc2Data</span></a><div className="topbar-status" role="status">本地工作台已就绪</div></header>
       <main className="task-home-canvas"><TaskHome tasks={workspace.tasks} onOpenTask={(taskId) => setSelectedTask(workspace.tasks.find((task) => task.task_id === taskId) ?? null)} onCreateTask={() => setShowOnboarding(true)} /></main>
     </div>
   )

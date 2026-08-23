@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 
-import type { CombinedDashboard, TextDashboardSpec } from '../../contracts/dashboard'
-import type { AnalysisRunResult, RunHistoryItem } from '../../contracts/run-events'
+import type { CombinedDashboard, DashboardSpec, TextDashboardSpec } from '../../contracts/dashboard'
+import type { AnalysisRunResult, EvidenceGraphSpec, RunHistoryItem } from '../../contracts/run-events'
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
 import { AssistantDrawer } from '../assistant/AssistantDrawer'
 import { DataImport } from '../assets/DataImport'
@@ -99,7 +99,7 @@ export function TaskShell(props: TaskShellProps) {
 
   return <>
     <header className="topbar">
-      <button className="brand brand--button" type="button" onClick={onBack} aria-label="返回任务首页"><span className="brand-mark" aria-hidden="true">D2</span><span>Data2Doc2Data</span></button>
+      <button className="brand brand--button" type="button" onClick={onBack} aria-label="返回任务首页"><span className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></span><span>Data2Doc2Data</span></button>
       <div className="topbar-case"><span>当前案例</span><strong>{task.title}</strong></div>
       <div className="topbar-status" role="status"><span className="status-dot status-dot--ready" aria-hidden="true" />本地计算 <i aria-hidden="true">·</i> {readyProvider ? `${readyProvider.provider_id} 可用` : '助手未连接'}</div>
       <button className="button button--quiet" type="button" onClick={() => setAssistantOpen((open) => !open)}>{assistantOpen ? '收起笔记' : '打开笔记'}</button>
@@ -124,10 +124,20 @@ export function TaskShell(props: TaskShellProps) {
         {!loadingDashboard && activeTab === '数据' && (datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />)}
         {!loadingDashboard && activeTab === '文本' && <><DocumentImport importDocuments={addDocuments} />{combined?.text_dashboard && <TextDashboard dashboard={combined.text_dashboard} />}</>}
         {!loadingDashboard && activeTab === '假设' && <><HypothesisPanel onRun={runAnalysis} disabled={!datasets || running} />{runResult && <EvidenceGraph graph={runResult.evidence_graph} />}</>}
-        {!loadingDashboard && activeTab === '证据' && (runResult ? <Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载过程回放…</section>}><RunPlayback events={runResult.events} graph={runResult.evidence_graph} /></Suspense> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
+        {!loadingDashboard && activeTab === '证据' && (runResult ? <><EvidenceBrief dashboard={combined?.dashboard ?? null} graph={runResult.evidence_graph} /><Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载过程回放…</section>}><RunPlayback events={runResult.events} graph={runResult.evidence_graph} /></Suspense></> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
         {!loadingDashboard && activeTab === '历史' && <RunHistory runs={runs} loadRun={loadRun} retryRun={retryRun} onReplay={async (result) => { setRunResult(result); setActiveTab('证据'); setRuns(await listTaskRuns().catch(() => runs)) }} />}
       </main>
       {assistantOpen && <AssistantDrawer task={task} agents={agents} createSession={createAgentSession} sendMessage={sendAgentMessage} interrupt={interruptAgent} decideApproval={decideAgentApproval} openEventStream={openAgentEventStream} />}
     </div>
   </>
+}
+
+function EvidenceBrief({ dashboard, graph }: { dashboard: DashboardSpec | null; graph: EvidenceGraphSpec }) {
+  const kpis = dashboard?.blocks.filter((block) => block.kind === 'kpi').slice(0, 6) ?? []
+  const verified = graph.nodes.filter((node) => node.status === 'verified' || node.status === 'supported').length
+  const conflicts = graph.nodes.filter((node) => node.status === 'contradicted').length
+  return <section className="evidence-brief" aria-label="数据证据摘要">
+    <div className="evidence-brief__heading"><div><p className="eyebrow">LOCAL SIGNALS</p><h2>数据证据摘要</h2></div><span>{verified} 已验证 · {conflicts} 冲突</span></div>
+    <div className="evidence-brief__grid">{kpis.map((block) => <article key={block.block_id}><span>{block.title}</span><strong>{String(block.value ?? '—')}</strong></article>)}</div>
+  </section>
 }

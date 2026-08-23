@@ -45,22 +45,48 @@ test('completes the model-free task journey and downloads an offline report', as
     if (/^https?:/.test(request.url())) externalRequests.push(request.url())
   })
   await reportPage.goto(pathToFileURL(reportPath).href)
-  await expect(reportPage.getByRole('heading', { name: 'Executive Summary' })).toBeVisible()
+  await expect(reportPage.getByRole('heading', { name: '分析结论' })).toBeVisible()
+  await expect(reportPage.getByLabel('证据验证')).toBeVisible()
   await expect(reportPage.locator('svg').first()).toBeVisible()
   expect(externalRequests).toEqual([])
   await reportPage.close()
   expect(errors).toEqual([])
 })
 
-test('keeps the workbench usable at 390px and honors reduced motion', async ({ page }) => {
+for (const caseName of ['增长提速、留存承压', '大促增收、利润与履约恶化']) {
+  test(`loads and analyzes the complete flagship case: ${caseName}`, async ({ page }) => {
+    const errors: string[] = []
+    page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
+    await page.goto('/')
+    await page.getByRole('button', { name: `加载案例：${caseName}` }).click()
+    await expect(page.getByRole('heading', { name: caseName })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '数据概览' })).toBeVisible()
+    await page.getByRole('tab', { name: '文本' }).click()
+    await expect(page.getByRole('heading', { name: '文本材料分析' })).toBeVisible()
+    await expect(page.locator('.claim-card')).toHaveCount(3)
+    await page.getByRole('button', { name: '运行分析' }).click()
+    await expect(page.getByRole('heading', { name: '数据证据摘要' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '执行轨道' })).toBeVisible()
+    await page.getByRole('button', { name: '跳到结果' }).click()
+    await expect(page.getByText('分析完成')).toBeVisible()
+    await expect(page.getByText(/\d+ 个节点 · \d+ 条关系/)).toBeVisible()
+    expect(errors).toEqual([])
+  })
+}
+
+test('keeps the complete workbench usable at 390px and honors reduced motion', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/')
-  await page.getByRole('button', { name: '暂时跳过' }).click()
-  await page.getByLabel('任务名称').fill('移动端复盘')
-  await page.getByLabel('业务目标').fill('验证窄屏工作台')
-  await page.getByRole('button', { name: '创建分析任务' }).click()
-  await expect(page.getByRole('heading', { name: '移动端复盘' })).toBeVisible()
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  expect(overflow).toBeLessThanOrEqual(1)
+  await page.getByRole('button', { name: '加载案例：增长提速、留存承压' }).click()
+  await expect(page.getByRole('heading', { name: '增长提速、留存承压' })).toBeVisible()
+  await page.getByRole('button', { name: '运行分析' }).click()
+  await expect(page.getByText('已按减少动态效果设置直接展示全部事件')).toBeVisible()
+  await expect(page.getByText('分析完成')).toBeVisible()
+  for (const view of ['分析', '过程', '助手']) {
+    await page.getByRole('button', { name: view, exact: true }).click()
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(1)
+  }
+  await expect(page.getByRole('complementary', { name: '分析员笔记' })).toBeVisible()
 })

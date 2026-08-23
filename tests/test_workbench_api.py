@@ -112,6 +112,7 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual([ref["kind"] for ref in task["snapshot_refs"]].count("document"), 4)
         self.assertEqual(loaded["dashboard"]["dashboard"]["blocks"][0]["value"], 208)
         self.assertEqual(loaded["dashboard"]["text_dashboard"]["document_count"], 4)
+        self.assertGreaterEqual(len(loaded["dashboard"]["text_dashboard"]["claims"]), 3)
 
         artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
         self.assertEqual(artifact["case"]["id"], "saas-growth-retention")

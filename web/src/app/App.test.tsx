@@ -69,5 +69,9 @@ describe('analysis workbench shell', () => {
 
     expect(await screen.findByRole('heading', { name: '数据概览' })).toBeInTheDocument()
     expect(screen.getByText('记录数').parentElement).toHaveTextContent('12')
+
+    fireEvent.click(screen.getByRole('button', { name: '运行分析' }))
+    expect(await screen.findByRole('heading', { name: '数据证据摘要' })).toBeInTheDocument()
+    expect(screen.getByLabelText('数据证据摘要')).toHaveTextContent('记录数12')
   })
 })

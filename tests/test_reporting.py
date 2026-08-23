@@ -38,6 +38,8 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("证据验证", artifact.html)
         self.assertIn("<span>已验证</span><strong>0</strong>", artifact.html)
         self.assertIn("<span>待验证</span><strong>1</strong>", artifact.html)
+        self.assertIn("证据不足 1", artifact.html)
+        self.assertNotIn("insufficient 1", artifact.html)
         self.assertIn("--paper:#f4f1e8", artifact.html)
         self.assertIn("--signal:#08d36c", artifact.html)
         self.assertIn("--ink:#151511", artifact.html)

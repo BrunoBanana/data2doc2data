@@ -138,7 +138,7 @@ export function AssistantDrawer(props: AssistantDrawerProps) {
       {operations.map((operation) => <article className="assistant-operation" key={operation.key}><strong>{operation.title}</strong><pre>{operation.text}</pre></article>)}
     </div>
     <div className="assistant-conversation" role="log" aria-live="polite" aria-busy={turnActive}>
-      {messages.length ? messages.map((item) => <article className={`assistant-message assistant-message--${item.role}`} key={item.id}><span>{item.role === 'user' ? '你' : '助手'}</span><SafeMarkdown text={item.text} /></article>) : <div className="assistant-empty"><div className="assistant-orb" aria-hidden="true" /><strong>{session ? '可以继续分析' : '先连接本地助手'}</strong><p>Dashboard、计算过程和证据链仍是工作台中心。</p></div>}
+      {messages.length ? messages.map((item) => <article className={`assistant-message assistant-message--${item.role}`} key={item.id}><span>{item.role === 'user' ? '你' : '助手'}</span><SafeMarkdown text={item.text} /></article>) : <div className="assistant-empty"><strong>{session ? '可以继续分析' : '先连接本地助手'}</strong><p>Dashboard、计算过程和证据链仍是工作台中心。</p></div>}
     </div>
     <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-message">发送给助手</label><textarea id="assistant-message" rows={3} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="解释证据、提出假设或建议下一步…" disabled={!session || turnActive} maxLength={20_000} /><div><button className="button button--quiet" type="button" aria-label="停止当前任务" disabled={!turnActive} onClick={stop}>停止</button><button className="button button--primary" type="submit" disabled={!session || turnActive || !message.trim()}>发送</button></div></form>
   </aside>
