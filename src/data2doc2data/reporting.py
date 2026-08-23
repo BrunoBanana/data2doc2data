@@ -41,7 +41,8 @@ def build_html_report(
 <title>{escape(task.title)} · Data2Doc2Data 分析报告</title><style>{_STYLES}</style></head>
 <body><main>
 <header class="report-header"><p class="eyebrow">DATA2DOC2DATA · LOCAL ANALYSIS REPORT</p><h1>{escape(task.title)}</h1><p class="goal">{escape(task.goal)}</p><div class="meta"><span>任务 {escape(task.task_id)}</span><span>{len(task.snapshot_refs)} 项锁定资产</span><span>{run_count} 次运行</span></div></header>
-<section class="executive"><h2>Executive Summary</h2><ul>{''.join(f'<li>{item}</li>' for item in summary)}</ul></section>
+<section class="executive"><p class="eyebrow">DECISION BRIEF</p><h2>分析结论</h2><ul>{''.join(f'<li>{item}</li>' for item in summary)}</ul></section>
+{_verification_strip(nodes)}
 {_kpi_strip(kpis)}
 <section><h2>关键发现</h2>{_findings(findings, dashboard is not None)}</section>
 {_text_findings(text_dashboard, claims)}
@@ -91,6 +92,20 @@ def _kpi_strip(kpis: Sequence[Mapping[str, Any]]) -> str:
     return f'<section class="kpi-strip" aria-label="核心指标">{cards}</section>'
 
 
+def _verification_strip(nodes: Sequence[Mapping[str, Any]]) -> str:
+    verified = sum(node.get("status") in {"verified", "supported"} for node in nodes)
+    conflicted = sum(node.get("status") in {"contradicted", "conflicted"} for node in nodes)
+    pending = max(0, len(nodes) - verified - conflicted)
+    return (
+        '<section class="verification" aria-label="证据验证">'
+        '<div><span>证据验证</span><strong>可审计状态</strong></div>'
+        f'<div><span>已验证</span><strong>{verified}</strong></div>'
+        f'<div><span>待验证</span><strong>{pending}</strong></div>'
+        f'<div><span>存在冲突</span><strong>{conflicted}</strong></div>'
+        "</section>"
+    )
+
+
 def _findings(findings: Sequence[Mapping[str, Any]], has_dashboard: bool) -> str:
     if not has_dashboard:
         return '<article class="empty"><strong>当前任务尚未接入可分析的数据快照。</strong><p>导入数据后，这里会展示数据画像、趋势和分布。</p></article>'
@@ -138,7 +153,7 @@ def _chart_svg(block: Mapping[str, Any]) -> str:
     y_values = [point[2] for point in points]
     low, high = min(y_values), max(y_values)
     span = high - low or 1.0
-    palette = ("#4c82f7", "#2eaa7b", "#d9903d", "#b86bd9", "#d95668", "#47a6b8")
+    palette = ("#08a854", "#151511", "#c36b00", "#6c50a3", "#bd3434", "#277d88")
     groups = list(dict.fromkeys(point[1] for point in points))
     lines = []
     legend = []
@@ -254,5 +269,5 @@ def _field(encoding: Mapping[str, Any], channel: str) -> str:
 
 
 _STYLES = """
-:root{color-scheme:light;--ink:#162033;--muted:#5e6879;--line:#dce2ea;--blue:#285fcc;--soft:#f5f7fa;--good:#147858;--warn:#9a671f}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#eef2f7;font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:min(1080px,calc(100% - 32px));margin:32px auto;padding:52px;background:white;box-shadow:0 20px 70px #1d31501a}h1{max-width:850px;margin:8px 0 10px;font-size:42px;line-height:1.08;letter-spacing:-.035em}h2{margin:42px 0 16px;padding-top:12px;border-top:1px solid var(--line);font-size:24px}h3{margin:20px 0 8px;font-size:18px}.eyebrow{margin:0;color:var(--blue);font-size:11px;font-weight:800;letter-spacing:.12em}.goal{max-width:760px;color:var(--muted);font-size:18px}.meta,.legend,.tags{display:flex;flex-wrap:wrap;gap:8px}.meta span,.tags span{padding:5px 9px;border-radius:999px;color:#40506a;background:var(--soft);font-size:12px}.executive{margin-top:32px;padding:24px 28px;border-left:4px solid var(--blue);background:#f5f8ff}.executive h2{margin:0 0 12px;padding:0;border:0}.executive li{margin:9px 0}.kpi-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:20px 0}.kpi{display:grid;gap:5px;padding:16px;border:1px solid var(--line);border-radius:10px}.kpi>span{color:var(--muted);font-size:12px}.kpi>strong{font-size:24px}.finding,.claim,.empty{margin:12px 0;padding:18px;border:1px solid var(--line);border-radius:10px}.finding>p,.empty p{color:var(--muted)}.chart{width:100%;height:auto;margin:12px 0;background:#fbfcfe}.chart line{stroke:#9ca8ba;stroke-width:1}.chart text{fill:#68758a;font-size:10px}.legend i{display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%}.legend span{font-size:11px}.table-wrap{max-width:100%;overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--muted);background:var(--soft)}details{margin-top:10px;color:var(--muted);font-size:11px}summary{cursor:pointer;color:var(--blue)}dl{display:grid;grid-template-columns:90px 1fr;gap:5px;margin:8px 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}.claims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.claim{margin:0}.claim>span{color:var(--warn);font-size:10px;text-transform:uppercase}.claim p{margin:7px 0}.claim small{color:var(--muted)}.sources{font-size:12px}footer{padding:18px;text-align:center;color:#6c7788;font-size:11px}@media(max-width:700px){main{width:100%;margin:0;padding:24px}h1{font-size:32px}.kpi-strip,.claims{grid-template-columns:1fr 1fr}}@media print{body{background:white}main{width:100%;margin:0;padding:12mm;box-shadow:none}details{display:block}section,.finding,.kpi{break-inside:avoid}.report-header{break-after:avoid}footer{display:none}}
+:root{color-scheme:light;--paper:#f4f1e8;--sheet:#fffdf7;--ink:#151511;--muted:#6f6b60;--line:#151511;--line-soft:#d9d3c4;--signal:#08d36c;--signal-dark:#008e47;--warn:#9a5d0c;--danger:#b52e2e}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--paper);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:min(1080px,calc(100% - 32px));margin:32px auto;padding:52px;border:2px solid var(--line);background:var(--sheet);box-shadow:8px 8px 0 var(--signal)}h1{max-width:850px;margin:8px 0 10px;font-size:48px;line-height:1.02;letter-spacing:-.05em}h2{margin:42px 0 16px;padding-top:12px;border-top:2px solid var(--line);font-size:24px}h3{margin:20px 0 8px;font-size:18px}.eyebrow{margin:0;color:var(--signal-dark);font:800 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em}.goal{max-width:760px;color:var(--muted);font-size:18px}.meta,.legend,.tags{display:flex;flex-wrap:wrap;gap:8px}.meta span,.tags span{padding:5px 9px;border:1px solid var(--line);border-radius:2px;color:var(--ink);background:var(--paper);font-size:12px}.executive{margin-top:32px;padding:24px 28px;border:2px solid var(--line);background:#effff4;box-shadow:4px 4px 0 var(--ink)}.executive h2{margin:5px 0 12px;padding:0;border:0;font-size:30px}.executive li{margin:9px 0}.verification{display:grid;grid-template-columns:1.4fr repeat(3,1fr);margin:24px 0;border:2px solid var(--line)}.verification>div{display:grid;gap:4px;padding:14px 16px;border-left:1px solid var(--line)}.verification>div:first-child{border-left:0;background:var(--ink);color:var(--sheet)}.verification span{color:var(--muted);font-size:11px}.verification>div:first-child span{color:#c8c4b9}.verification strong{font-size:20px}.kpi-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:20px 0;border:1px solid var(--line)}.kpi{display:grid;gap:5px;padding:16px;border-left:1px solid var(--line)}.kpi:first-child{border-left:0}.kpi>span{color:var(--muted);font-size:12px}.kpi>strong{font-size:24px}.finding,.claim,.empty{margin:12px 0;padding:18px;border:1px solid var(--line);border-radius:2px;background:var(--sheet)}.finding{border-top:3px solid var(--signal)}.finding>p,.empty p{color:var(--muted)}.chart{width:100%;height:auto;margin:12px 0;background:var(--sheet)}.chart line{stroke:#8e897e;stroke-width:1}.chart text{fill:var(--muted);font-size:10px}.legend i{display:inline-block;width:8px;height:8px;margin-right:5px}.legend span{font-size:11px}.table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line)}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}th{color:var(--muted);background:#ece7db}details{margin-top:10px;color:var(--muted);font-size:11px}summary{cursor:pointer;color:var(--signal-dark);font-weight:700}dl{display:grid;grid-template-columns:90px 1fr;gap:5px;margin:8px 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}.claims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.claim{margin:0}.claim>span{color:var(--warn);font-size:10px;text-transform:uppercase}.claim p{margin:7px 0}.claim small{color:var(--muted)}.sources{font-size:12px}footer{padding:18px;text-align:center;color:var(--muted);font-size:11px}@media(max-width:700px){main{width:100%;margin:0;padding:24px;border-width:0;box-shadow:none}h1{font-size:34px}.verification,.kpi-strip,.claims{grid-template-columns:1fr 1fr}.verification>div:nth-child(3){border-left:0;border-top:1px solid var(--line)}.verification>div:nth-child(4){border-top:1px solid var(--line)}}@media print{body{background:white}main{width:100%;margin:0;padding:12mm;border:0;box-shadow:none}details{display:block}section,.finding,.kpi{break-inside:avoid}.report-header{break-after:avoid}footer{display:none}}
 """
