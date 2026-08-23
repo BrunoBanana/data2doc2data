@@ -10,6 +10,27 @@ from data2doc2data.flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
 
 
 class FlagshipCaseCatalogTest(unittest.TestCase):
+    def test_built_in_catalog_has_two_rich_cases_with_locked_semantics(self):
+        catalog = FlagshipCaseCatalog.load()
+
+        self.assertEqual(
+            [case.id for case in catalog.list()],
+            ["saas-growth-retention", "retail-promotion-fulfillment"],
+        )
+        saas = catalog.package("saas-growth-retention")
+        retail = catalog.package("retail-promotion-fulfillment")
+        self.assertEqual((saas.case.record_count, saas.case.metric_count, saas.case.document_count), (208, 8, 4))
+        self.assertEqual((retail.case.record_count, retail.case.metric_count, retail.case.document_count), (260, 10, 5))
+        self.assertLess(self._value(saas.metrics_path, "retention_8w", "2026-06-29"), self._value(saas.metrics_path, "retention_8w", "2026-01-05"))
+        self.assertGreater(self._value(saas.metrics_path, "trial_signups", "2026-06-29"), self._value(saas.metrics_path, "trial_signups", "2026-01-05"))
+        self.assertGreater(self._value(retail.metrics_path, "gmv", "2026-05-04"), self._value(retail.metrics_path, "gmv", "2026-02-02"))
+        self.assertLess(self._value(retail.metrics_path, "gross_margin_rate", "2026-05-04"), self._value(retail.metrics_path, "gross_margin_rate", "2026-02-02"))
+        for package in (saas, retail):
+            hypotheses = json.loads(package.hypotheses_path.read_text(encoding="utf-8"))
+            expected = json.loads(package.expected_path.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(len(hypotheses["hypotheses"]), 3)
+            self.assertGreaterEqual(len(expected["outcomes"]), 3)
+
     def test_catalog_exposes_a_complete_synthetic_case_package(self):
         catalog = self._catalog_with_valid_package()
 
@@ -69,6 +90,17 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
         with self.assertRaisesRegex(FlagshipCaseError, "hypotheses fields are invalid"):
             FlagshipCaseCatalog.load(root)
 
+    def test_rejects_invalid_declarative_rules(self):
+        root, cleanup = self._valid_root()
+        self.addCleanup(cleanup.cleanup)
+        (root / "complete-case" / "rules.json").write_text(
+            json.dumps({"version": 1, "metrics": {}, "rules": []}),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(FlagshipCaseError, "rules are invalid"):
+            FlagshipCaseCatalog.load(root)
+
     def _catalog_with_valid_package(self) -> FlagshipCaseCatalog:
         root, cleanup = self._valid_root()
         self.addCleanup(cleanup.cleanup)
@@ -115,10 +147,21 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
             "time_range": {"start": "2026-01-01", "end": "2026-03-14", "grain": "week"},
         }
         (case_root / "case.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
-        (case_root / "rules.json").write_text(json.dumps({"version": 1, "metrics": {}, "rules": []}), encoding="utf-8")
+        (case_root / "rules.json").write_text(
+            json.dumps({"version": 1, "metrics": {metric: {} for metric in metrics}, "rules": []}),
+            encoding="utf-8",
+        )
         (case_root / "hypotheses.json").write_text(json.dumps({"version": 1, "hypotheses": []}), encoding="utf-8")
         (case_root / "expected.json").write_text(json.dumps({"version": 1, "outcomes": []}), encoding="utf-8")
         return root, cleanup
+
+    @staticmethod
+    def _value(path: Path, metric: str, when: str) -> float:
+        with path.open(encoding="utf-8", newline="") as stream:
+            for row in csv.DictReader(stream):
+                if row["metric"] == metric and row["date"] == when:
+                    return float(row["value"])
+        raise AssertionError(f"missing {metric} at {when}")
 
 
 if __name__ == "__main__":

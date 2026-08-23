@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "outcomes": [
+    {
+      "id": "E1",
+      "status": "supported",
+      "summary": "活动期GMV上升但毛利率下降。",
+      "evidence": [
+        "metrics.csv:gmv",
+        "metrics.csv:gross_margin_rate",
+        "campaign-plan.md",
+        "finance-review.md"
+      ]
+    },
+    {
+      "id": "E2",
+      "status": "supported",
+      "summary": "活动期缺货和延迟交付显著上升，活动后仍未完全恢复。",
+      "evidence": [
+        "metrics.csv:stockout_rate",
+        "metrics.csv:late_delivery_rate",
+        "fulfillment-incidents.md"
+      ]
+    },
+    {
+      "id": "E3",
+      "status": "supported",
+      "summary": "退款、退货上升并伴随复购率下降。",
+      "evidence": [
+        "metrics.csv:refund_rate",
+        "metrics.csv:return_rate",
+        "metrics.csv:repeat_purchase_rate",
+        "merchandising-note.md"
+      ]
+    }
+  ]
+}

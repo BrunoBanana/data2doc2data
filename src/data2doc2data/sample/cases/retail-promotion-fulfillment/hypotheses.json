@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "hypotheses": [
+    {
+      "id": "H1",
+      "text": "全场券和低毛利引流品推动GMV，但使毛利率显著下降。",
+      "metrics": [
+        "gmv",
+        "gross_margin_rate"
+      ],
+      "document": "campaign-plan.md"
+    },
+    {
+      "id": "H2",
+      "text": "爆款库存不足和拆单使延迟交付上升，进而降低复购。",
+      "metrics": [
+        "stockout_rate",
+        "late_delivery_rate",
+        "repeat_purchase_rate"
+      ],
+      "document": "fulfillment-incidents.md"
+    },
+    {
+      "id": "H3",
+      "text": "替代发货和到货延迟共同推高退款与退货。",
+      "metrics": [
+        "refund_rate",
+        "return_rate",
+        "late_delivery_rate"
+      ],
+      "document": "merchandising-note.md"
+    }
+  ]
+}

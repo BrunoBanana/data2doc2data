@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 from typing import Mapping
 
+from .rules import RulesError, load_ruleset
+
 
 CATALOG_VERSION = 1
 CASE_ID_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -136,6 +138,10 @@ def _load_package(catalog_root: Path, case_id: str) -> FlagshipCasePackage:
     hypotheses_path = _contained_file(case_root, case_root / "hypotheses.json")
     expected_path = _contained_file(case_root, case_root / "expected.json")
     _validate_companion(_read_json(rules_path, "flagship case rules"), "rules", {"version", "metrics", "rules"})
+    try:
+        load_ruleset(rules_path)
+    except RulesError as error:
+        raise FlagshipCaseError(f"flagship case rules are invalid: {error}") from error
     _validate_companion(
         _read_json(hypotheses_path, "flagship case hypotheses"),
         "hypotheses",

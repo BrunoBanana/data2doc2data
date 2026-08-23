@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "hypotheses": [
+    {
+      "id": "H1",
+      "text": "新渠道带来更多试用，但低意向用户拉低8周留存。",
+      "metrics": [
+        "trial_signups",
+        "retention_8w"
+      ],
+      "document": "growth-strategy.md"
+    },
+    {
+      "id": "H2",
+      "text": "四月工作区改版增加配置复杂度，导致激活下降和工单积压。",
+      "metrics": [
+        "activation_rate",
+        "support_backlog"
+      ],
+      "document": "customer-research.md"
+    },
+    {
+      "id": "H3",
+      "text": "低价年付实验推高短期MRR，但未改善扩张收入并抬高CAC。",
+      "metrics": [
+        "mrr",
+        "expansion_revenue",
+        "cac"
+      ],
+      "document": "pricing-experiment.md"
+    }
+  ]
+}
