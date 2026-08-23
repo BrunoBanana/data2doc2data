@@ -29,14 +29,19 @@ class OrchestratorTests(unittest.TestCase):
         kinds = [event.kind for event in result.events]
         self.assertEqual(kinds[0], "run.started")
         self.assertIn("data.profiled", kinds)
+        self.assertIn("compute.plan.created", kinds)
+        self.assertIn("compute.result.created", kinds)
         self.assertIn("chart.spec.created", kinds)
         self.assertIn("document.indexed", kinds)
+        self.assertIn("retrieval.result.created", kinds)
         self.assertIn("claim.extracted", kinds)
         self.assertIn("evidence.linked", kinds)
         self.assertIn("contradicts", [edge.relationship for edge in result.evidence_graph.edges])
         self.assertEqual(kinds[-1], "run.completed")
         self.assertEqual([event.sequence for event in result.events], list(range(1, len(result.events) + 1)))
         self.assertNotIn("chain_of_thought", str([event.to_dict() for event in result.events]))
+        self.assertIn("compute_plan", [node.kind for node in result.evidence_graph.nodes])
+        self.assertIn("document_source", [node.kind for node in result.evidence_graph.nodes])
 
     def test_failed_run_is_persisted_with_a_terminal_event(self):
         with tempfile.TemporaryDirectory() as directory:

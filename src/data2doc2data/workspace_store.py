@@ -203,6 +203,28 @@ class WorkspaceStore:
             row = connection.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         return None if row is None else AnalysisRun.from_dict(json.loads(row[0]))
 
+    def save_run_artifact(self, run_id: str, kind: str, payload: object) -> None:
+        if kind not in {"evidence_graph"}:
+            raise WorkspaceStoreError("unsupported run artifact kind")
+        encoded = _json(payload)
+        if len(encoded.encode("utf-8")) > 2_000_000:
+            raise WorkspaceStoreError("run artifact is too large")
+        with self._lock, self._connection() as connection:
+            try:
+                connection.execute(
+                    "INSERT INTO run_artifacts (run_id, kind, payload) VALUES (?, ?, ?) ON CONFLICT(run_id, kind) DO UPDATE SET payload = excluded.payload",
+                    (run_id, kind, encoded),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("cannot save artifact for unknown run") from exc
+
+    def get_run_artifact(self, run_id: str, kind: str) -> object | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM run_artifacts WHERE run_id = ? AND kind = ?", (run_id, kind)
+            ).fetchone()
+        return None if row is None else json.loads(row[0])
+
     def list_runs(self, task_id: str) -> tuple[AnalysisRun, ...]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -322,6 +344,12 @@ class WorkspaceStore:
                 created_at TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 PRIMARY KEY(run_id, sequence)
+            );
+            CREATE TABLE IF NOT EXISTS run_artifacts (
+                run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY(run_id, kind)
             );
             """
         )

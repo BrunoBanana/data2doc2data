@@ -61,6 +61,7 @@ WORKBENCH_TASK_RUNS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1
 WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/documents")
 WORKBENCH_TASK_DASHBOARD_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/dashboard")
 WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
+WORKBENCH_RUN_GRAPH_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/graph")
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
@@ -394,6 +395,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if run_events_match:
             self._get_workbench_run_events(run_events_match.group(1))
             return
+        run_graph_match = WORKBENCH_RUN_GRAPH_ROUTE.fullmatch(path)
+        if run_graph_match:
+            self._get_workbench_run_graph(run_graph_match.group(1))
+            return
         events_match = SESSION_EVENTS_ROUTE.fullmatch(path)
         if events_match:
             try:
@@ -603,6 +608,15 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 query.get("limit", ["1000"])[0],
             )
             self._send_json(HTTPStatus.OK, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _get_workbench_run_graph(self, run_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().run_graph(owner_id, run_id))
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except WorkbenchApiError as error:

@@ -1,5 +1,6 @@
 import type { AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
+import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent } from '../contracts/run-events'
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -94,6 +95,29 @@ export class WorkbenchClient {
   async importDocuments(taskId: string, paths: string[]): Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }> {
     await this.ensureSession()
     return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/documents`, { paths })
+  }
+
+  async startAnalysis(taskId: string, hypotheses: string[]): Promise<AnalysisRunResult> {
+    await this.ensureSession()
+    return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/runs`, {
+      execute: true,
+      proposal: {
+        hypotheses: hypotheses.slice(0, 20).map((hypothesis, index) => ({
+          hypothesis_id: `hypothesis-${index + 1}`,
+          text: hypothesis.slice(0, 500),
+        })),
+      },
+    })
+  }
+
+  async runEventsAfter(runId: string, after: number): Promise<RunEvent[]> {
+    const payload = await this.read<{ events: RunEvent[] }>(`/api/workbench/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, after)}`)
+    return payload.events
+  }
+
+  async loadEvidenceGraph(runId: string): Promise<EvidenceGraphSpec> {
+    const payload = await this.read<{ evidence_graph: EvidenceGraphSpec }>(`/api/workbench/runs/${encodeURIComponent(runId)}/graph`)
+    return payload.evidence_graph
   }
 
   private async ensureSession(): Promise<void> {

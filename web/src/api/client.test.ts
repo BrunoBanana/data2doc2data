@@ -113,6 +113,19 @@ describe('WorkbenchClient', () => {
     expect(JSON.parse(fetcher.mock.calls[2][1].body as string)).toEqual({ paths: ['/tmp/plan.md'] })
   })
 
+  it('starts a structured observable run without private reasoning fields', async () => {
+    const result = { run: { run_id: 'run-1', status: 'completed' }, events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-1', nodes: [], edges: [] } }
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
+      .mockResolvedValueOnce(response(result, 201))
+    const client = new WorkbenchClient(fetcher)
+
+    await client.startAnalysis('task-1', ['价格调整影响收入'])
+
+    expect(JSON.parse(fetcher.mock.calls[1][1].body as string)).toEqual({ execute: true, proposal: { hypotheses: [{ hypothesis_id: 'hypothesis-1', text: '价格调整影响收入' }] } })
+    expect(fetcher.mock.calls[1][1].body).not.toContain('chain_of_thought')
+  })
+
   it('surfaces the backend error message', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(response({ error: '文件不存在' }, 422))
     const client = new WorkbenchClient(fetcher)

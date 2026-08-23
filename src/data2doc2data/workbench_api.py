@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
+from .orchestrator import AnalysisOrchestrator
 from .text_dashboard import build_text_dashboard
 from .workspace import AnalysisRun, AnalysisTask, RunStatus, SnapshotRef, WorkspaceContractError, _utc_now
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
@@ -91,8 +92,36 @@ class WorkbenchService:
         return {"task": updated.to_dict()}
 
     def start_run(self, owner_id: str, task_id: str, payload: object) -> dict[str, object]:
-        _body(payload)
+        body = _body(payload)
         task = self._owned_task(owner_id, task_id)
+        if body.get("execute") is True:
+            dataset = next((ref for ref in reversed(task.snapshot_refs) if ref.kind == "dataset"), None)
+            if dataset is None:
+                raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "analysis run requires a dataset snapshot")
+            data_path = self.store.snapshot_path(dataset)
+            if data_path is None or _file_digest(data_path) != dataset.sha256:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "dataset snapshot is unavailable or changed")
+            document_paths: list[Path] = []
+            for ref in task.snapshot_refs:
+                if ref.kind != "document":
+                    continue
+                path = self.store.snapshot_path(ref)
+                if path is None or _file_digest(path) != ref.sha256:
+                    raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot is unavailable or changed")
+                document_paths.append(path)
+            try:
+                result = AnalysisOrchestrator(self.store).run(
+                    task, data_path, tuple(document_paths), body.get("proposal")
+                )
+                graph = result.evidence_graph.to_dict()
+                self.store.save_run_artifact(result.run.run_id, "evidence_graph", graph)
+            except (ValueError, WorkspaceStoreError) as exc:
+                raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
+            return {
+                "run": result.run.to_dict(),
+                "events": [event.to_dict() for event in result.events],
+                "evidence_graph": graph,
+            }
         try:
             run = AnalysisRun.create(
                 run_id=f"run-{secrets.token_hex(12)}",
@@ -106,6 +135,14 @@ class WorkbenchService:
         except (WorkspaceContractError, WorkspaceStoreError, RunEventError) as exc:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return {"run": run.to_dict()}
+
+    def run_graph(self, owner_id: str, run_id: str) -> dict[str, object]:
+        if not self.store.owner_can_access_run(run_id, owner_id):
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        graph = self.store.get_run_artifact(run_id, "evidence_graph")
+        if graph is None:
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "evidence graph not found")
+        return {"evidence_graph": graph}
 
     def import_documents(self, owner_id: str, task_id: str, payload: object) -> dict[str, object]:
         body = _body(payload)

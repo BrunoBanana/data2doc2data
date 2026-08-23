@@ -121,6 +121,16 @@ class WorkspaceStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceStoreError, "cannot be changed"):
             self.store.register_snapshot(snapshot, source.with_name("other.csv"))
 
+    def test_run_artifacts_round_trip_as_bounded_json(self):
+        task = AnalysisTask.create("task-1", "复盘", "解释变化")
+        run = AnalysisRun.create("run-1", task.task_id)
+        self.store.save_task(task)
+        self.store.save_run(run)
+
+        self.store.save_run_artifact("run-1", "evidence_graph", {"nodes": [{"id": "n1"}]})
+
+        self.assertEqual(self.store.get_run_artifact("run-1", "evidence_graph"), {"nodes": [{"id": "n1"}]})
+
     def test_profile_json_and_workspace_database_can_coexist(self):
         profile_store = ProfileStore(Path(self.temporary_directory.name) / "config" / "config.json")
 

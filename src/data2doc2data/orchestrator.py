@@ -55,15 +55,53 @@ class AnalysisOrchestrator:
             if dataset is None:
                 raise ValueError("analysis run requires a dataset snapshot")
             hypotheses = _parse_hypotheses(proposal)
+            emit(
+                "compute.plan.created",
+                "compute",
+                {
+                    "operation": "profile and aggregate",
+                    "fields": ["date", "metric", "value"],
+                    "row_limit": 1000,
+                },
+            )
             profile = profile_standard_csv(data_path, dataset.snapshot_id)
             emit("data.profiled", "profile", {"row_count": profile.row_count, "metric_count": len(profile.metrics)})
+            emit(
+                "compute.result.created",
+                "compute",
+                {
+                    "metric_count": len(profile.metrics),
+                    "date_range": list(profile.date_range),
+                    "quality_issue_count": profile.missing_count + profile.duplicate_count,
+                },
+            )
             dashboard = build_default_dashboard(profile)
             emit("chart.spec.created", "dashboard", {"block_count": len(dashboard.blocks)}, (dashboard.dashboard_id,))
             corpus = build_document_corpus(document_paths, f"corpus-{run.run_id}")
             text_dashboard = build_text_dashboard(corpus)
             emit("document.indexed", "documents", {"document_count": text_dashboard.document_count, "failure_count": text_dashboard.failure_count})
+            emit(
+                "retrieval.result.created",
+                "documents",
+                {
+                    "section_count": sum(len(document.sections) for document in corpus.documents),
+                    "claim_count": len(text_dashboard.claims),
+                },
+                (corpus.corpus_id,),
+            )
             for claim in text_dashboard.claims:
-                emit("claim.extracted", "documents", {"claim_id": claim.claim_id, "status": claim.status}, (claim.claim_id,))
+                emit(
+                    "claim.extracted",
+                    "documents",
+                    {
+                        "claim_id": claim.claim_id,
+                        "status": claim.status,
+                        "document": claim.citation.document,
+                        "start_line": claim.citation.start_line,
+                        "end_line": claim.citation.end_line,
+                    },
+                    (claim.claim_id,),
+                )
             for hypothesis_id, text in hypotheses:
                 emit("hypothesis.created", "hypotheses", {"hypothesis_id": hypothesis_id, "status": "pending"}, (hypothesis_id,))
                 emit(
@@ -93,14 +131,24 @@ def _build_graph(
 ) -> EvidenceGraph:
     nodes = [
         EvidenceNode("data-source", "data_source", "数据快照", "verified", dataset_id),
+        EvidenceNode("compute-plan", "compute_plan", "本地画像与聚合计划", "verified", dashboard_id),
         EvidenceNode("data-signal", "data_signal", "数据画像", "verified", dashboard_id),
     ]
-    edges = [EvidenceEdge("edge-data", "data-source", "data-signal", "derived_from")]
+    edges = [
+        EvidenceEdge("edge-data-plan", "data-source", "compute-plan", "derived_from"),
+        EvidenceEdge("edge-plan-signal", "compute-plan", "data-signal", "derived_from"),
+    ]
+    if text.document_count:
+        nodes.append(EvidenceNode("document-source", "document_source", "文本材料", "verified", text.corpus_id))
     claim_nodes = {}
     for index, claim in enumerate(text.claims):
         node_id = f"claim-{index + 1}"
         claim_nodes[claim.claim_id] = node_id
+        excerpt_id = f"excerpt-{index + 1}"
+        nodes.append(EvidenceNode(excerpt_id, "document_excerpt", claim.citation.excerpt[:500], "verified", claim.citation.sha256))
         nodes.append(EvidenceNode(node_id, "claim", claim.text[:500], "pending", claim.claim_id))
+        edges.append(EvidenceEdge(f"edge-excerpt-source-{index + 1}", "document-source", excerpt_id, "derived_from"))
+        edges.append(EvidenceEdge(f"edge-claim-source-{index + 1}", excerpt_id, node_id, "derived_from"))
         edges.append(EvidenceEdge(f"edge-claim-{index + 1}", node_id, "data-signal", "tests"))
     conflict_index = 0
     seen_conflicts = set()

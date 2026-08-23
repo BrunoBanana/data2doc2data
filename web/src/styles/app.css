@@ -138,6 +138,36 @@
 .claim-card--supported { border-left-color: var(--success); }
 .claim-card--contradicted { border-left-color: #ff7785; }
 .claim-card p, .claim-card small { margin: 0; color: var(--muted); font-size: 12px; }
+.hypothesis-panel { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.2fr); gap: 22px; margin-top: 26px; padding: 20px; border: 1px solid #374e77; border-radius: 14px; background: #111b2e; }
+.hypothesis-panel h2 { margin: 5px 0 8px; font-size: 19px; }
+.hypothesis-panel p:not(.eyebrow, .form-notice) { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.hypothesis-panel form, .hypothesis-panel label { display: grid; gap: 8px; }
+.hypothesis-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text); background: var(--surface-1); resize: vertical; }
+.evidence-graph { margin-top: 26px; }
+.graph-filters { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.graph-filters button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface-1); cursor: pointer; }
+.graph-filters button[aria-pressed="true"] { border-color: #527cc5; color: var(--text); background: #1b2c4b; }
+.graph-accessible { display: flex; gap: 8px; padding-bottom: 10px; overflow-x: auto; }
+.graph-accessible button { min-width: 180px; max-width: 260px; display: grid; gap: 6px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface-1); text-align: left; cursor: pointer; }
+.graph-accessible span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.graph-canvas { height: 520px; border: 1px solid var(--line-soft); border-radius: 14px; background: radial-gradient(circle at 50% 40%, #151f35, #0b101c); overflow: hidden; }
+.react-flow__node.evidence-node { width: 190px; padding: 12px; border: 1px solid #48618c; border-radius: 11px; color: var(--text); background: #152139; box-shadow: 0 10px 24px rgb(0 0 0 / 24%); font-size: 12px; }
+.react-flow__node.evidence-node--supported, .react-flow__node.evidence-node--verified { border-color: #3a8d70; }
+.react-flow__node.evidence-node--contradicted { border-color: #b45462; }
+.react-flow__node.evidence-node--insufficient { border-style: dashed; border-color: #6e788b; }
+.react-flow__edge-text { fill: #b9c5d9; font-size: 10px; }
+.react-flow__edge-textbg { fill: #111827; }
+.run-drawer { margin-top: 20px; border-top: 1px solid var(--line-soft); padding-top: 20px; }
+.run-timeline ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.run-step { display: grid; grid-template-columns: 30px 1fr; gap: 10px; padding: 10px; border-radius: 9px; background: rgb(16 23 39 / 66%); }
+.run-step__index { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid #3a527e; border-radius: 50%; color: var(--accent); font-size: 10px; }
+.run-step > div { min-width: 0; display: grid; gap: 4px; }
+.run-step small { color: var(--muted); font-size: 10px; }
+.run-step--completed .run-step__index { border-color: #3a8d70; color: var(--success); }
+.run-step--failed .run-step__index { border-color: #b45462; color: #ff8b98; }
+.event-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.event-summary span { padding: 3px 6px; border-radius: 5px; color: #b8c7df; background: #17243b; font-size: 10px; }
+.event-summary b { color: #7fa9f8; font-weight: 600; }
 
 @media (max-width: 1000px) {
   .workbench-grid, .workbench-grid--assistant-closed { grid-template-columns: 190px minmax(0, 1fr); }
@@ -163,6 +193,7 @@
   .data-import .button { width: 100%; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .document-import, .text-summary { grid-template-columns: 1fr; }
+  .hypothesis-panel { grid-template-columns: 1fr; }
   .dashboard-heading { align-items: flex-start; flex-direction: column; }
 }
 

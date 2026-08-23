@@ -172,6 +172,26 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("document snapshot content has changed", stale["error"])
 
+    def test_executed_run_returns_observable_events_and_evidence_graph(self):
+        task = self.create_task()
+        dataset = Path(self.temporary_directory.name) / "standard.csv"
+        dataset.write_text("date,metric,value\n2026-01-01,收入,10\n2026-02-01,收入,12\n", encoding="utf-8")
+        digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
+        self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
+        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+
+        status, payload, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True, "proposal": {"hypotheses": [{"hypothesis_id": "hypothesis-price", "text": "价格调整影响收入"}]}}, cookie=self.cookie, csrf=self.csrf)
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["run"]["status"], "completed")
+        self.assertEqual(payload["events"][-1]["kind"], "run.completed")
+        self.assertIn("hypothesis-price", [node["node_id"] for node in payload["evidence_graph"]["nodes"]])
+        run_id = payload["run"]["run_id"]
+        status, graph, _ = self.request("GET", f"/api/workbench/runs/{run_id}/graph", cookie=self.cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(graph["evidence_graph"]["graph_id"], payload["evidence_graph"]["graph_id"])
+
     def create_task(self):
         status, payload, _ = self.request(
             "POST",

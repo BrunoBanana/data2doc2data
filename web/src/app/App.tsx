@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { WorkbenchClient, type WorkspaceState } from '../api/client'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
+import type { AnalysisRunResult } from '../contracts/run-events'
 import type { AnalysisTask, PreparedSource, SourcePreview } from '../contracts/workbench'
 import { Onboarding } from '../features/onboarding/Onboarding'
 import { TaskHome } from '../features/tasks/TaskHome'
@@ -16,6 +17,7 @@ export interface WorkbenchApi {
   applyImportToTask: (taskId: string, path: string, plan: Record<string, string>) => Promise<AnalysisTask>
   loadTaskDashboard: (taskId: string) => Promise<CombinedDashboard>
   importDocuments: (taskId: string, paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
+  startAnalysis: (taskId: string, hypotheses: string[]) => Promise<AnalysisRunResult>
 }
 
 interface AppProps {
@@ -64,7 +66,7 @@ export function App({ client: suppliedClient }: AppProps) {
       const updated = await client.applyImportToTask(selectedTask.task_id, path, plan)
       updateCurrentTask(updated)
     }
-    return <div className="app-frame"><TaskShell task={selectedTask} providers={workspace.providers} previewLocalPath={client.previewLocalPath.bind(client)} uploadFile={client.uploadFile.bind(client)} previewApi={client.previewApi.bind(client)} applyImport={applyToCurrentTask} loadDashboard={() => client.loadTaskDashboard(selectedTask.task_id)} importDocuments={(paths) => client.importDocuments(selectedTask.task_id, paths)} onTaskUpdate={updateCurrentTask} onBack={() => setSelectedTask(null)} onCreateTask={() => setShowOnboarding(true)} /></div>
+    return <div className="app-frame"><TaskShell task={selectedTask} providers={workspace.providers} previewLocalPath={client.previewLocalPath.bind(client)} uploadFile={client.uploadFile.bind(client)} previewApi={client.previewApi.bind(client)} applyImport={applyToCurrentTask} loadDashboard={() => client.loadTaskDashboard(selectedTask.task_id)} importDocuments={(paths) => client.importDocuments(selectedTask.task_id, paths)} startAnalysis={(hypotheses) => client.startAnalysis(selectedTask.task_id, hypotheses)} onTaskUpdate={updateCurrentTask} onBack={() => setSelectedTask(null)} onCreateTask={() => setShowOnboarding(true)} /></div>
   }
   return (
     <div className="app-frame">
