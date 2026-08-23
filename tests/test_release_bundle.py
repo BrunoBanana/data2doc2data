@@ -28,16 +28,28 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/cli.py",
         "src/data2doc2data/config.py",
         "src/data2doc2data/demo_scenarios.py",
+        "src/data2doc2data/dashboard.py",
+        "src/data2doc2data/data_profile.py",
+        "src/data2doc2data/documents.py",
         "src/data2doc2data/evidence_context.py",
+        "src/data2doc2data/evidence_graph.py",
         "src/data2doc2data/hypotheses.py",
         "src/data2doc2data/mcp_server.py",
         "src/data2doc2data/metrics.py",
+        "src/data2doc2data/orchestrator.py",
         "src/data2doc2data/permissions.py",
         "src/data2doc2data/provenance.py",
+        "src/data2doc2data/providers.py",
+        "src/data2doc2data/reporting.py",
         "src/data2doc2data/retrieval.py",
+        "src/data2doc2data/run_events.py",
         "src/data2doc2data/rules.py",
         "src/data2doc2data/server.py",
         "src/data2doc2data/sessions.py",
+        "src/data2doc2data/text_dashboard.py",
+        "src/data2doc2data/workbench_api.py",
+        "src/data2doc2data/workspace.py",
+        "src/data2doc2data/workspace_store.py",
     }
     EXPECTED_STATIC_FILES = {
         "src/data2doc2data/static/api.js",
@@ -106,6 +118,7 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertIn("src/data2doc2data/static/dist/index.html", names)
             self.assertTrue(any(name.startswith("src/data2doc2data/static/dist/assets/") for name in names))
             self.assertFalse(any(".egg-info/" in name or "__pycache__/" in name for name in names))
+            self.assertFalse(any(name.endswith(".map") for name in names))
             for forbidden in (
                 ".env",
                 "agent-sessions.json",

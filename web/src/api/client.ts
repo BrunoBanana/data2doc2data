@@ -29,8 +29,11 @@ export type AgentEventStream = (
 export class WorkbenchClient {
   private csrfToken = ''
   private agents: AgentProviderStatus[] = []
+  private readonly fetcher: Fetcher
 
-  constructor(private readonly fetcher: Fetcher = fetch) {}
+  constructor(fetcher?: Fetcher) {
+    this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init))
+  }
 
   async bootstrap(): Promise<void> {
     const payload = await this.request<BootstrapResponse>('/api/agents', { method: 'GET' }, false)

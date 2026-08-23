@@ -20,6 +20,8 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 - User-supplied local CSV data
 - User-supplied local Markdown / text decision documents
 - Three-column evidence workbench for data, deterministic analysis, and assistant collaboration (Chinese)
+- Task-first React workbench with immutable run history, event replay, evidence/hypothesis graphs, and safe retry
+- Standalone, print-ready HTML reports with inline SVG and source provenance; no CDN is required
 - Direct web conversations with a locally installed Codex or Tencent WorkBuddy/CodeBuddy
 - Read-only, per-operation approval, and trusted-session permission modes
 - CLI for configuration, analysis, and status check
@@ -42,6 +44,10 @@ Run `data2doc2data setup` from the project directory you want the agent to inspe
 - Tencent WorkBuddy/CodeBuddy: install and sign in to the Tencent CLI, then confirm `codebuddy --version` works. Data2Doc2Data starts its public loopback service and uses ACP over HTTP/SSE.
 
 Neither agent is required for deterministic analysis. If an agent is missing or unavailable, the evidence workflow remains usable.
+
+The workbench now starts from an analysis task rather than a chat. Import a local file, upload a supported file, or create a locked snapshot from an HTTPS API; optional Markdown/TXT materials are preprocessed into topics, entities, and pending claims. Runs persist calculations, retrievals, claims, validations, and evidence links as observable events. The player can pause, seek, change speed, or skip to the result, but never presents private chain-of-thought as evidence. The right drawer is the only conversational surface.
+
+Use **Download HTML report** in a task to generate one authenticated, self-contained file. It leads with an Executive Summary and includes KPI findings, inline SVG charts, text claims with line citations, evidence/hypothesis status, next steps, open questions, caveats, locked snapshot IDs, and expandable calculation provenance. The downloaded file has no external resources, agent-authored markup, local paths, raw records, or secrets and can be opened offline or printed.
 
 ## Guided Demo
 
@@ -140,6 +146,8 @@ Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档
 - 使用者自有的本地 CSV 数据
 - 使用者自有的本地 Markdown 与文本决策文档
 - 数据、确定性分析、助手协作一体化的三栏工作台
+- 任务优先的 React 工作台：不可变运行历史、事件回放、证据/假设图与安全重试
+- 可下载、可打印的单文件 HTML 报告：内联 SVG 与完整来源口径，无需 CDN
 - 在网页中直接连接本机 Codex 或腾讯 WorkBuddy/CodeBuddy
 - 只读、逐次审批和会话级受限信任三种权限模式
 - 命令行配置、分析与状态检查
@@ -162,6 +170,10 @@ data2doc2data setup
 - **腾讯 WorkBuddy/CodeBuddy**：安装并登录腾讯 CLI，确认 `codebuddy --version` 可用。Data2Doc2Data 启动其公开回环服务，并通过 ACP over HTTP/SSE 连接。
 
 两种助手都不是确定性分析的必需依赖；助手缺失或不可用时，证据分析仍可正常运行。
+
+工作台现在从“业务分析任务”而不是聊天开始。使用者可以接入本地路径、上传文件或 HTTPS API 锁定快照，并可选导入 Markdown/TXT；系统会生成数据画像、主题、实体和待核验主张。每次运行都会把计算、检索、主张、验证与证据连接保存为可观察事件。过程播放器支持暂停、拖动、调速和直达结果，但不会把模型私有思维链伪装成证据；对话只位于右侧助手抽屉。
+
+任务顶部的“下载 HTML 报告”会生成一个经过会话授权的自包含文件。报告依次提供 Executive Summary、KPI 与内联 SVG 图表、带行号引用的文本主张、证据/假设状态、下一步、待回答问题、局限、锁定快照与可展开的计算口径。文件不含外链资源、Agent 生成的 HTML、本地路径、原始数据行或凭据，可离线打开和打印。
 
 ## 三套内置演示
 

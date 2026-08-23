@@ -12,6 +12,19 @@ function response(body: object, status = 200) {
 describe('WorkbenchClient', () => {
   beforeEach(() => vi.restoreAllMocks())
 
+  it('calls the browser fetch function without rebinding its receiver', async () => {
+    const browserFetch = vi.fn(function (this: unknown) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      return Promise.resolve(response({ csrf_token: 'csrf-1', agents: [] }))
+    })
+    vi.stubGlobal('fetch', browserFetch)
+
+    await new WorkbenchClient().bootstrap()
+
+    expect(browserFetch).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+
   it('bootstraps a browser session before loading workbench state', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
