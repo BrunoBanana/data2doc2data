@@ -1,108 +1,69 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as const
+import { WorkbenchClient, type WorkspaceState } from '../api/client'
+import type { AnalysisTask, PreparedSource, SourcePreview } from '../contracts/workbench'
+import { Onboarding } from '../features/onboarding/Onboarding'
+import { TaskHome } from '../features/tasks/TaskHome'
+import { TaskShell } from '../features/tasks/TaskShell'
 
-export function App() {
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('总览')
-  const [assistantOpen, setAssistantOpen] = useState(true)
+export interface WorkbenchApi {
+  loadWorkspace: () => Promise<WorkspaceState>
+  createTask: (title: string, goal: string) => Promise<AnalysisTask>
+  previewLocalPath: (path: string) => Promise<SourcePreview>
+  uploadFile: (file: File) => Promise<PreparedSource>
+  previewApi: (url: string) => Promise<PreparedSource>
+  applyImportToTask: (taskId: string, path: string, plan: Record<string, string>) => Promise<AnalysisTask>
+}
 
+interface AppProps {
+  client?: WorkbenchApi
+}
+
+export function App({ client: suppliedClient }: AppProps) {
+  const client = useMemo(() => suppliedClient ?? new WorkbenchClient(), [suppliedClient])
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null)
+  const [selectedTask, setSelectedTask] = useState<AnalysisTask | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    client.loadWorkspace().then((state) => {
+      if (!active) return
+      setWorkspace(state)
+      setShowOnboarding(state.tasks.length === 0)
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : '无法加载本地工作台。')
+    })
+    return () => { active = false }
+  }, [client])
+
+  if (error) {
+    return <main className="startup-state"><p className="eyebrow">LOCAL SERVICE</p><h1>工作台暂时无法启动</h1><p role="alert">{error}</p><button className="button button--primary" type="button" onClick={() => window.location.reload()}>重新连接</button></main>
+  }
+  if (!workspace) return <main className="startup-state" aria-busy="true"><div className="assistant-orb" aria-hidden="true" /><p>正在连接本地分析服务…</p></main>
+
+  function completeOnboarding(task: AnalysisTask) {
+    setWorkspace((current) => current ? { ...current, tasks: [task, ...current.tasks] } : current)
+    setShowOnboarding(false)
+    setSelectedTask(task)
+  }
+
+  if (showOnboarding) {
+    return <div className="app-frame onboarding-frame"><Onboarding providers={workspace.providers} createTask={client.createTask.bind(client)} onComplete={completeOnboarding} /></div>
+  }
+  if (selectedTask) {
+    const applyToCurrentTask = async (path: string, plan: Record<string, string>) => {
+      const updated = await client.applyImportToTask(selectedTask.task_id, path, plan)
+      setSelectedTask(updated)
+      setWorkspace((current) => current ? { ...current, tasks: current.tasks.map((task) => task.task_id === updated.task_id ? updated : task) } : current)
+    }
+    return <div className="app-frame"><TaskShell task={selectedTask} providers={workspace.providers} previewLocalPath={client.previewLocalPath.bind(client)} uploadFile={client.uploadFile.bind(client)} previewApi={client.previewApi.bind(client)} applyImport={applyToCurrentTask} onBack={() => setSelectedTask(null)} onCreateTask={() => setShowOnboarding(true)} /></div>
+  }
   return (
     <div className="app-frame">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Data2Doc2Data 首页">
-          <span className="brand-mark" aria-hidden="true">D2</span>
-          <span>Data2Doc2Data</span>
-        </a>
-        <div className="topbar-status" role="status">
-          <span className="status-dot status-dot--idle" aria-hidden="true" />
-          未连接助手
-        </div>
-        <button className="button button--quiet" type="button" onClick={() => setAssistantOpen((open) => !open)}>
-          {assistantOpen ? '收起助手' : '打开助手'}
-        </button>
-      </header>
-
-      <div className={`workbench-grid${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
-        <nav className="asset-rail" aria-label="任务与资产">
-          <div className="rail-heading">
-            <span>分析任务</span>
-            <button className="icon-button" type="button" aria-label="新建分析任务">＋</button>
-          </div>
-          <button className="task-card task-card--active" type="button">
-            <span className="task-card__eyebrow">当前任务</span>
-            <strong>业务分析工作台</strong>
-            <span>等待接入数据</span>
-          </button>
-          <div className="rail-section">
-            <h2>任务资产</h2>
-            <button type="button"><span aria-hidden="true">▦</span> 数据集 <b>0</b></button>
-            <button type="button"><span aria-hidden="true">▤</span> 文档 <b>0</b></button>
-            <button type="button"><span aria-hidden="true">◇</span> 运行记录 <b>0</b></button>
-          </div>
-        </nav>
-
-        <main className="analysis-canvas">
-          <div className="canvas-heading">
-            <div>
-              <p className="eyebrow">任务工作区</p>
-              <h1>业务分析工作台</h1>
-              <p>数据、文档与可验证证据会在这里汇合。</p>
-            </div>
-            <button className="button button--primary" type="button">接入数据</button>
-          </div>
-          <div className="tabs" role="tablist" aria-label="分析视图">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab}
-                className={activeTab === tab ? 'tab tab--active' : 'tab'}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-          <section className="empty-workspace" aria-labelledby="empty-title">
-            <div className="empty-visual" aria-hidden="true">
-              <span className="empty-node" />
-              <span className="empty-line" />
-              <span className="empty-node empty-node--accent" />
-            </div>
-            <p className="eyebrow">LOCAL-FIRST ANALYSIS</p>
-            <h2 id="empty-title">从一项真实业务问题开始</h2>
-            <p>接入数据后自动生成数据画像、质量检查和基础 Dashboard；文档可以稍后补充。</p>
-            <div className="empty-actions">
-              <button className="button button--primary" type="button">创建任务并接入数据</button>
-              <button className="button button--secondary" type="button">使用虚拟演示数据</button>
-            </div>
-          </section>
-        </main>
-
-        {assistantOpen && (
-          <aside className="assistant-drawer" aria-label="AI 助手">
-            <div className="assistant-heading">
-              <div>
-                <p className="eyebrow">协作分析</p>
-                <h2>AI 助手</h2>
-              </div>
-              <span className="connection-badge">未连接助手</span>
-            </div>
-            <div className="assistant-empty">
-              <div className="assistant-orb" aria-hidden="true" />
-              <strong>先完成连接，或直接分析</strong>
-              <p>仍可使用本地数据画像与确定性 Dashboard</p>
-              <button className="button button--secondary" type="button">连接 Codex / WorkBuddy</button>
-            </div>
-            <form className="assistant-composer">
-              <label htmlFor="assistant-message">发送给助手</label>
-              <textarea id="assistant-message" rows={3} placeholder="连接助手后，可基于当前任务继续分析…" disabled />
-              <button className="button button--primary" type="submit" disabled>发送</button>
-            </form>
-          </aside>
-        )}
-      </div>
+      <header className="topbar"><a className="brand" href="/" aria-label="Data2Doc2Data 首页"><span className="brand-mark" aria-hidden="true">D2</span><span>Data2Doc2Data</span></a><div className="topbar-status" role="status">本地工作台已就绪</div></header>
+      <main className="task-home-canvas"><TaskHome tasks={workspace.tasks} onOpenTask={(taskId) => setSelectedTask(workspace.tasks.find((task) => task.task_id === taskId) ?? null)} onCreateTask={() => setShowOnboarding(true)} /></main>
     </div>
   )
 }

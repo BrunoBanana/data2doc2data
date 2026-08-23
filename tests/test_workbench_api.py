@@ -64,6 +64,18 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(error["error"], "agent request authorization failed")
 
+    def test_bootstrap_refresh_keeps_the_current_browser_owner(self):
+        task = self.create_task()
+
+        status, payload, headers = self.request("GET", "/api/agents", cookie=self.cookie)
+
+        self.assertEqual(status, 200)
+        self.assertNotEqual(payload["csrf_token"], self.csrf)
+        self.assertEqual(headers["Set-Cookie"].split(";", 1)[0], self.cookie)
+        status, listed, _ = self.request("GET", "/api/workbench/tasks", cookie=self.cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual([item["task_id"] for item in listed["tasks"]], [task["task_id"]])
+
     def test_assets_runs_event_replay_and_browser_ownership(self):
         task = self.create_task()
         snapshot = {"kind": "dataset", "snapshot_id": "dataset-1", "sha256": "a" * 64}

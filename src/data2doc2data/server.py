@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -210,9 +211,15 @@ def ingest_apply(
         api=api_blob,
     )
     store.save(new_profile)
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
     return {
         "result": result.to_dict(),
         "profile": new_profile.to_dict(),
+        "snapshot": {
+            "kind": "dataset",
+            "snapshot_id": f"dataset-{digest[:24]}",
+            "sha256": digest,
+        },
         "needs_knowledge_path": not resolved_knowledge,
         "knowledge_warning": knowledge_warning,
     }
@@ -354,7 +361,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path == "/api/agents":
-            browser_session, csrf_token = self._agents().browser_sessions.issue()
+            browser_session, csrf_token = self._agents().browser_sessions.issue(self.headers.get("Cookie"))
             self._send_json(
                 HTTPStatus.OK,
                 {"agents": self._agents().list_agents(), "csrf_token": csrf_token},

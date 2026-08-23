@@ -42,11 +42,12 @@ class BrowserSessions:
         self._tokens: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
 
-    def issue(self) -> tuple[str, str]:
-        session_id = secrets.token_urlsafe(32)
+    def issue(self, cookie_header: str | None = None) -> tuple[str, str]:
+        current_id = _cookie_value(cookie_header, "d2d2d_session")
         csrf_token = secrets.token_urlsafe(32)
         with self._lock:
             self._expire()
+            session_id = current_id if current_id in self._tokens else secrets.token_urlsafe(32)
             self._tokens[session_id] = (csrf_token, time.monotonic() + self.lifetime_seconds)
         return session_id, csrf_token
 

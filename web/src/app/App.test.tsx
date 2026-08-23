@@ -1,11 +1,26 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { App } from './App'
+import { App, type WorkbenchApi } from './App'
+
+const task = { task_id: 'task-1', title: '业务分析工作台', goal: '查明业务变化', status: 'active', snapshot_refs: [] }
+
+function client(tasks = [task]): WorkbenchApi {
+  return {
+    loadWorkspace: async () => ({ providers: [], tasks }),
+    createTask: async (title, goal) => ({ ...task, title, goal }),
+    previewLocalPath: async () => ({ preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
+    uploadFile: async () => ({ source_path: '/tmp/upload.csv', preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
+    previewApi: async () => ({ source_path: '/tmp/api.json', preview: { format: 'json', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
+    applyImportToTask: async () => task,
+  }
+}
 
 describe('analysis workbench shell', () => {
-  it('keeps tasks and analysis as the primary workspace', () => {
-    render(<App />)
+  it('keeps tasks and analysis as the primary workspace', async () => {
+    render(<App client={client()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
 
     expect(screen.getByRole('banner')).toHaveTextContent('Data2Doc2Data')
     expect(screen.getByRole('navigation', { name: '任务与资产' })).toBeInTheDocument()
@@ -13,10 +28,18 @@ describe('analysis workbench shell', () => {
     expect(screen.getByRole('complementary', { name: 'AI 助手' })).toBeInTheDocument()
   })
 
-  it('offers deterministic analysis when no assistant is connected', () => {
-    render(<App />)
+  it('offers deterministic analysis when no assistant is connected', async () => {
+    render(<App client={client()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
 
     expect(screen.getByRole('status')).toHaveTextContent('未连接助手')
     expect(screen.getByText('仍可使用本地数据画像与确定性 Dashboard')).toBeInTheDocument()
+  })
+
+  it('starts with provider onboarding when there are no tasks', async () => {
+    render(<App client={client([])} />)
+
+    expect(await screen.findByRole('heading', { name: '先选择你的分析协作者' })).toBeInTheDocument()
   })
 })
