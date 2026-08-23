@@ -56,6 +56,7 @@ INGEST_MUTATION_ROUTES = frozenset(
     }
 )
 WORKBENCH_TASK_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})")
+WORKBENCH_CASE_LOAD_ROUTE = re.compile(r"/api/workbench/cases/([a-z0-9-]{1,100})/load")
 WORKBENCH_TASK_ASSETS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/assets")
 WORKBENCH_TASK_RUNS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/runs")
 WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/documents")
@@ -383,6 +384,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if path == "/api/workbench/providers":
             self._list_workbench_providers()
             return
+        if path == "/api/workbench/cases":
+            self._list_flagship_cases()
+            return
         if path == "/api/workbench/tasks":
             self._list_workbench_tasks()
             return
@@ -498,6 +502,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if path == "/api/workbench/tasks":
             self._create_workbench_task()
             return
+        case_match = WORKBENCH_CASE_LOAD_ROUTE.fullmatch(path)
+        if case_match:
+            self._load_flagship_case(case_match.group(1))
+            return
         assets_match = WORKBENCH_TASK_ASSETS_ROUTE.fullmatch(path)
         if assets_match:
             self._attach_workbench_assets(assets_match.group(1))
@@ -580,6 +588,24 @@ class CompanionHandler(BaseHTTPRequestHandler):
             self._send_json(error.status, {"error": str(error)})
         except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
+
+    def _list_flagship_cases(self) -> None:
+        try:
+            self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().list_flagship_cases())
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _load_flagship_case(self, case_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().load_flagship_case(owner_id, case_id)
+            self._send_json(HTTPStatus.CREATED, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, WorkspaceStoreError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
 
     def _list_workbench_providers(self) -> None:
         try:

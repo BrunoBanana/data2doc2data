@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
+import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, FlagshipCaseSummary, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
 import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
 
@@ -17,6 +17,7 @@ export interface WorkspaceState {
   providers: ProviderConnection[]
   tasks: AnalysisTask[]
   agents: AgentProviderStatus[]
+  cases: FlagshipCaseSummary[]
 }
 
 export type AgentEventStream = (
@@ -44,8 +45,8 @@ export class WorkbenchClient {
 
   async loadWorkspace(): Promise<WorkspaceState> {
     await this.bootstrap()
-    const [providers, tasks] = await Promise.all([this.listProviders(), this.listTasks()])
-    return { providers, tasks, agents: this.agents }
+    const [providers, tasks, cases] = await Promise.all([this.listProviders(), this.listTasks(), this.listCases()])
+    return { providers, tasks, cases, agents: this.agents }
   }
 
   async listProviders(): Promise<ProviderConnection[]> {
@@ -61,6 +62,17 @@ export class WorkbenchClient {
   async createTask(title: string, goal: string): Promise<AnalysisTask> {
     await this.ensureSession()
     const payload = await this.mutate<{ task: AnalysisTask }>('/api/workbench/tasks', { title, goal })
+    return payload.task
+  }
+
+  async listCases(): Promise<FlagshipCaseSummary[]> {
+    const payload = await this.read<{ cases: FlagshipCaseSummary[] }>('/api/workbench/cases')
+    return payload.cases
+  }
+
+  async loadCase(caseId: string): Promise<AnalysisTask> {
+    await this.ensureSession()
+    const payload = await this.mutate<{ task: AnalysisTask }>(`/api/workbench/cases/${encodeURIComponent(caseId)}/load`, {})
     return payload.task
   }
 

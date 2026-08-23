@@ -1,16 +1,18 @@
 import { FormEvent, useState } from 'react'
 
-import type { AnalysisTask, ProviderConnection } from '../../contracts/workbench'
+import type { AnalysisTask, FlagshipCaseSummary, ProviderConnection } from '../../contracts/workbench'
 
 interface OnboardingProps {
   providers: ProviderConnection[]
+  cases: FlagshipCaseSummary[]
   createTask: (title: string, goal: string) => Promise<AnalysisTask>
+  loadCase: (caseId: string) => Promise<AnalysisTask>
   onComplete: (task: AnalysisTask) => void
 }
 
 const providerName = (id: string) => id === 'workbuddy' ? '腾讯 WorkBuddy / CodeBuddy' : id === 'codex' ? 'Codex CLI' : id
 
-export function Onboarding({ providers, createTask, onComplete }: OnboardingProps) {
+export function Onboarding({ providers, cases, createTask, loadCase, onComplete }: OnboardingProps) {
   const [step, setStep] = useState<'provider' | 'task'>('provider')
   const [title, setTitle] = useState('')
   const [goal, setGoal] = useState('')
@@ -44,6 +46,20 @@ export function Onboarding({ providers, createTask, onComplete }: OnboardingProp
     }
   }
 
+  async function chooseCase(caseId: string) {
+    setBusy(true)
+    setNotice('正在创建隔离任务并装载数据、文档与规则…')
+    try {
+      const task = await loadCase(caseId)
+      setNotice('完整案例已装载')
+      onComplete(task)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '案例装载失败，请重试。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="onboarding" aria-labelledby="onboarding-title">
       <div className="onboarding-progress" aria-label="接入进度">
@@ -64,6 +80,21 @@ export function Onboarding({ providers, createTask, onComplete }: OnboardingProp
             ))}
           </div>
           <button className="button button--quiet" type="button" onClick={() => setStep('task')}>暂时跳过</button>
+          <section className="case-library" aria-labelledby="case-library-title">
+            <div className="case-library__heading"><div><p className="eyebrow">DEMO CASEBOOK</p><h2 id="case-library-title">完整示例案例</h2></div><span>合成数据 · 一键装载</span></div>
+            <div className="case-grid">
+              {cases.map((item, index) => (
+                <article className="case-card" key={item.id}>
+                  <span className="case-card__number">{String(index + 1).padStart(2, '0')}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.summary}</p>
+                  <strong>{item.record_count} 条指标记录 · {item.metric_count} 个指标 · {item.document_count} 份文档</strong>
+                  <small>{item.time_range.start} — {item.time_range.end}</small>
+                  <button className="button button--secondary" type="button" disabled={busy} aria-label={`加载案例：${item.title}`} onClick={() => chooseCase(item.id)}>加载完整案例</button>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
       ) : (
         <form className="onboarding-panel task-form" onSubmit={submit}>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 import hashlib
+import json
 from pathlib import Path
 import secrets
 import re
@@ -13,6 +14,7 @@ from typing import Any, Mapping
 from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
+from .flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
 from .orchestrator import AnalysisOrchestrator
 from .reporting import HtmlReportArtifact, build_html_report
 from .text_dashboard import build_text_dashboard
@@ -29,7 +31,48 @@ class WorkbenchApiError(ValueError):
 class WorkbenchService:
     def __init__(self, store: WorkspaceStore) -> None:
         self.store = store
+        self.flagship_cases = FlagshipCaseCatalog.load()
         self._retry_lock = threading.Lock()
+
+    def list_flagship_cases(self) -> dict[str, object]:
+        return {"cases": [case.to_summary_dict() for case in self.flagship_cases.list()]}
+
+    def load_flagship_case(self, owner_id: str, case_id: str) -> dict[str, object]:
+        try:
+            package = self.flagship_cases.package(case_id)
+            created = self.create_task(
+                owner_id,
+                {"title": package.case.title, "goal": package.case.business_question},
+            )["task"]
+            task = AnalysisTask.from_dict(created)
+            dataset_digest = _file_digest(package.metrics_path)
+            if dataset_digest is None:
+                raise FlagshipCaseError("flagship case dataset is unavailable")
+            dataset_ref = SnapshotRef(
+                "dataset", f"dataset-{dataset_digest[:24]}", dataset_digest
+            )
+            self.store.register_snapshot(dataset_ref, package.metrics_path)
+            attached = self.attach_assets(
+                owner_id,
+                task.task_id,
+                {"snapshot_refs": [dataset_ref.to_dict()]},
+            )["task"]
+            imported = self.import_documents(
+                owner_id,
+                task.task_id,
+                {"paths": [str(path) for path in package.document_paths]},
+            )
+            artifact = {
+                "case": package.case.to_summary_dict(),
+                "rules": json.loads(package.rules_path.read_text(encoding="utf-8")),
+                "hypotheses": json.loads(package.hypotheses_path.read_text(encoding="utf-8")),
+                "expected": json.loads(package.expected_path.read_text(encoding="utf-8")),
+            }
+            self.store.save_task_artifact(task.task_id, "flagship_case", artifact)
+            dashboard = self.task_dashboard(owner_id, task.task_id)
+        except (FlagshipCaseError, WorkspaceContractError, WorkspaceStoreError, OSError) as exc:
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return {"task": imported.get("task", attached), "dashboard": dashboard, "case": artifact["case"]}
 
     def list_tasks(self, owner_id: str) -> dict[str, object]:
         return {"tasks": [task.to_dict() for task in self.store.list_tasks_for_owner(owner_id)]}
@@ -128,8 +171,9 @@ class WorkbenchService:
                     raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot is unavailable or changed")
                 document_paths.append(path)
             try:
+                proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
                 result = AnalysisOrchestrator(self.store).run(
-                    task, data_path, tuple(document_paths), body.get("proposal")
+                    task, data_path, tuple(document_paths), proposal
                 )
                 graph = result.evidence_graph.to_dict()
                 self.store.save_run_artifact(result.run.run_id, "evidence_graph", graph)
@@ -330,6 +374,25 @@ class WorkbenchService:
         if task is None:
             raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "task not found")
         return task
+
+    def _proposal_with_case_hypotheses(self, task_id: str, proposal: object) -> object:
+        if proposal is not None and not isinstance(proposal, Mapping):
+            return proposal
+        if isinstance(proposal, Mapping) and proposal.get("hypotheses") not in (None, []):
+            return proposal
+        artifact = self.store.get_task_artifact(task_id, "flagship_case")
+        hypotheses = artifact.get("hypotheses") if isinstance(artifact, Mapping) else None
+        raw_items = hypotheses.get("hypotheses") if isinstance(hypotheses, Mapping) else None
+        if not isinstance(raw_items, list):
+            return proposal
+        seeded = [
+            {"hypothesis_id": item.get("id"), "text": item.get("text")}
+            for item in raw_items[:20]
+            if isinstance(item, Mapping)
+            and isinstance(item.get("id"), str)
+            and isinstance(item.get("text"), str)
+        ]
+        return {"hypotheses": seeded}
 
 
 def _body(payload: object) -> dict[str, Any]:

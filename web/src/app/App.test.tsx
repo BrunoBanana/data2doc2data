@@ -9,8 +9,9 @@ const task: AnalysisTask = { task_id: 'task-1', title: '业务分析工作台', 
 
 function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null, text_dashboard: null }): WorkbenchApi {
   return {
-    loadWorkspace: async () => ({ providers: [], tasks, agents: [] }),
+    loadWorkspace: async () => ({ providers: [], tasks, agents: [], cases: [] }),
     createTask: async (title, goal) => ({ ...task, title, goal }),
+    loadCase: async () => task,
     previewLocalPath: async () => ({ preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
     uploadFile: async () => ({ source_path: '/tmp/upload.csv', preview: { format: 'csv', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),
     previewApi: async () => ({ source_path: '/tmp/api.json', preview: { format: 'json', fields: [], row_count: 0, sample_rows: [] }, suggestion: null }),

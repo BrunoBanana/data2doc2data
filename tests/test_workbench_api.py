@@ -78,6 +78,63 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual([item["task_id"] for item in listed["tasks"]], [task["task_id"]])
 
+    def test_flagship_cases_are_safe_and_load_as_complete_owned_tasks(self):
+        status, catalog, _ = self.request("GET", "/api/workbench/cases", cookie=self.cookie)
+
+        self.assertEqual(status, 200, catalog)
+        self.assertEqual(
+            [case["id"] for case in catalog["cases"]],
+            ["saas-growth-retention", "retail-promotion-fulfillment"],
+        )
+        self.assertTrue(all(case["synthetic"] for case in catalog["cases"]))
+        self.assertNotIn("/Users/", json.dumps(catalog))
+        self.assertNotIn("metrics_path", json.dumps(catalog))
+
+        status, unauthorized, _ = self.request(
+            "POST",
+            "/api/workbench/cases/saas-growth-retention/load",
+            {},
+            cookie=self.cookie,
+        )
+        self.assertEqual(status, 403, unauthorized)
+
+        status, loaded, _ = self.request(
+            "POST",
+            "/api/workbench/cases/saas-growth-retention/load",
+            {},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 201, loaded)
+        task = loaded["task"]
+        self.assertEqual(task["title"], "增长提速、留存承压")
+        self.assertEqual([ref["kind"] for ref in task["snapshot_refs"]].count("dataset"), 1)
+        self.assertEqual([ref["kind"] for ref in task["snapshot_refs"]].count("document"), 4)
+        self.assertEqual(loaded["dashboard"]["dashboard"]["blocks"][0]["value"], 208)
+        self.assertEqual(loaded["dashboard"]["text_dashboard"]["document_count"], 4)
+
+        artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
+        self.assertEqual(artifact["case"]["id"], "saas-growth-retention")
+        self.assertEqual(len(artifact["rules"]["rules"]), 3)
+        self.assertEqual(len(artifact["hypotheses"]["hypotheses"]), 3)
+        self.assertNotIn("metrics_path", json.dumps(artifact))
+
+        status, analysis, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True, "proposal": {"hypotheses": []}},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 201, analysis)
+        self.assertIn("H1", [node["node_id"] for node in analysis["evidence_graph"]["nodes"]])
+
+        other_cookie, _ = self.authenticate()
+        status, hidden, _ = self.request(
+            "GET", f"/api/workbench/tasks/{task['task_id']}", cookie=other_cookie
+        )
+        self.assertEqual(status, 404, hidden)
+
     def test_assets_runs_event_replay_and_browser_ownership(self):
         task = self.create_task()
         snapshot = {"kind": "dataset", "snapshot_id": "dataset-1", "sha256": "a" * 64}

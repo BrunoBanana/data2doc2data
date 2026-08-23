@@ -54,6 +54,19 @@ export interface AnalysisTask {
   snapshot_refs: SnapshotRef[]
 }
 
+export interface FlagshipCaseSummary {
+  id: string
+  title: string
+  summary: string
+  business_question: string
+  learning_objective: string
+  metric_count: number
+  record_count: number
+  document_count: number
+  synthetic: true
+  time_range: { start: string; end: string; grain: 'week' }
+}
+
 export interface SourcePreview {
   preview: {
     format: string

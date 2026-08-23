@@ -11,6 +11,7 @@ import { TaskShell } from '../features/tasks/TaskShell'
 export interface WorkbenchApi {
   loadWorkspace: () => Promise<WorkspaceState>
   createTask: (title: string, goal: string) => Promise<AnalysisTask>
+  loadCase: (caseId: string) => Promise<AnalysisTask>
   previewLocalPath: (path: string) => Promise<SourcePreview>
   uploadFile: (file: File) => Promise<PreparedSource>
   previewApi: (url: string) => Promise<PreparedSource>
@@ -64,7 +65,7 @@ export function App({ client: suppliedClient }: AppProps) {
   }
 
   if (showOnboarding) {
-    return <div className="app-frame onboarding-frame"><Onboarding providers={workspace.providers} createTask={client.createTask.bind(client)} onComplete={completeOnboarding} /></div>
+    return <div className="app-frame onboarding-frame"><Onboarding providers={workspace.providers} cases={workspace.cases} createTask={client.createTask.bind(client)} loadCase={client.loadCase.bind(client)} onComplete={completeOnboarding} /></div>
   }
   if (selectedTask) {
     const updateCurrentTask = (updated: AnalysisTask) => {
