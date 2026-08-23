@@ -34,6 +34,7 @@ class ReleaseBundleTests(unittest.TestCase):
         "src/data2doc2data/evidence_context.py",
         "src/data2doc2data/evidence_graph.py",
         "src/data2doc2data/hypotheses.py",
+        "src/data2doc2data/integrations.py",
         "src/data2doc2data/mcp_server.py",
         "src/data2doc2data/metrics.py",
         "src/data2doc2data/orchestrator.py",

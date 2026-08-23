@@ -1,0 +1,3 @@
+[mcp_servers.data2doc2data]
+command = "data2doc2data"
+args = ["mcp"]

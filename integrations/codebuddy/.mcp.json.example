@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "data2doc2data": {
+      "type": "stdio",
+      "command": "data2doc2data",
+      "args": ["mcp"],
+      "description": "Local deterministic business evidence analysis"
+    }
+  }
+}

@@ -43,6 +43,7 @@ data2doc2data = [
   "sample/cases/*/*.json",
   "sample/cases/*/*.csv",
   "sample/cases/*/documents/*.md",
+  "integration_templates/*",
   "static/*",
   "static/dist/*",
   "static/dist/assets/*",

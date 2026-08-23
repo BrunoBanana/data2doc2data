@@ -1,0 +1,7 @@
+- id: mcp-data2doc2data
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: data2doc2data
+    transport: stdio
+    command: data2doc2data
+    args: ['mcp']

@@ -54,6 +54,18 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
 
             serve(store)
             return 0
+        if args.command == "doctor":
+            from .integrations import run_doctor
+
+            report = run_doctor(store)
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False, indent=2), file=output)
+            else:
+                status = "PASS" if report["ok"] else "FAIL"
+                print(f"Data2Doc2Data integration doctor: {status}", file=output)
+                for check in report["checks"]:
+                    print(f"- {check['id']}: {'ok' if check['ok'] else 'failed'}", file=output)
+            return 0 if report["ok"] else 1
         return _run_setup(store, args.port, args.no_browser, output)
     except (InputValidationError, ProfileError, OSError) as error:
         print(json.dumps({"error": str(error)}), file=output)
@@ -78,6 +90,8 @@ def _build_parser() -> argparse.ArgumentParser:
     check_rules.add_argument("--rules", required=True, help="Path to the rules JSON file.")
 
     commands.add_parser("mcp", help="Run the MCP stdio tool server for cross-harness tool calls.")
+    doctor = commands.add_parser("doctor", help="Verify cases, MCP tools, and host templates without spawning agents.")
+    doctor.add_argument("--json", action="store_true", help="Print a machine-readable diagnostic report.")
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser
 

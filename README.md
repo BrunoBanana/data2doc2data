@@ -16,7 +16,7 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 
 ## Capabilities
 
-- Three built-in fictional synthetic scenarios: supported evidence, strategy conflict, and insufficient evidence
+- Two complete flagship case packs (468 metric rows, 9 documents) plus three focused boundary scenarios
 - User-supplied local CSV data
 - User-supplied local Markdown / text decision documents
 - Three-column evidence workbench for data, deterministic analysis, and assistant collaboration (Chinese)
@@ -24,7 +24,7 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 - Standalone, print-ready HTML reports with inline SVG and source provenance; no CDN is required
 - Direct web conversations with a locally installed Codex or Tencent WorkBuddy/CodeBuddy
 - Read-only, per-operation approval, and trusted-session permission modes
-- CLI for configuration, analysis, and status check
+- CLI for configuration, analysis, status, MCP serving, and read-only integration diagnostics
 - Explicit metric specification when a question cannot uniquely identify one
 
 Deterministic evidence analysis reads and computes over source files locally. Raw CSV rows are never placed in the agent prompt. When you explicitly send an agent message, Data2Doc2Data attaches a bounded evidence snapshot containing source counts, local metric summaries, the matching deterministic result, and only document excerpts relevant to that question. The selected Codex or WorkBuddy provider handles that snapshot under its own account and data policy; the workbench shows the snapshot ID, excerpt count, and compression state for every turn.
@@ -47,7 +47,7 @@ Neither agent is required for deterministic analysis. If an agent is missing or 
 
 The workbench now starts from an analysis task rather than a chat. Import a local file, upload a supported file, or create a locked snapshot from an HTTPS API; optional Markdown/TXT materials are preprocessed into topics, entities, and pending claims. Runs persist calculations, retrievals, claims, validations, and evidence links as observable events. The player can pause, seek, change speed, or skip to the result, but never presents private chain-of-thought as evidence. The right drawer is the only conversational surface.
 
-Use **Download HTML report** in a task to generate one authenticated, self-contained file. It leads with an Executive Summary and includes KPI findings, inline SVG charts, text claims with line citations, evidence/hypothesis status, next steps, open questions, caveats, locked snapshot IDs, and expandable calculation provenance. The downloaded file has no external resources, agent-authored markup, local paths, raw records, or secrets and can be opened offline or printed.
+Use **Download HTML report** in a task to generate one authenticated, self-contained file. It leads with an analysis conclusion and evidence-verification scorecard, then includes KPI findings, inline SVG charts, text claims with line citations, evidence/hypothesis status, next steps, open questions, caveats, locked snapshot IDs, and expandable calculation provenance. The downloaded file has no external resources, agent-authored markup, local paths, raw records, or secrets and can be opened offline or printed.
 
 ## Guided Demo
 
@@ -109,6 +109,14 @@ data2doc2data mcp
 ```
 
 It speaks MCP over stdio and exposes three tools: `analyze` (deterministic evidence analysis), `check_rules` (validate a declarative rules JSON file), and `source_profile` (dataset profile without raw rows). Raw CSV rows are never written to the client.
+
+Verify the full local contract before connecting a host:
+
+```bash
+data2doc2data doctor --json
+```
+
+Copy-ready configurations and host-specific instructions are included under [`integrations/`](integrations/README.md): Codex `config.toml`, DeepSeek Harness Cordis overlay, and Tencent CodeBuddy/WorkBuddy project `.mcp.json`.
 
 ## Data Source Roadmap
 
@@ -235,6 +243,14 @@ data2doc2data mcp
 ```
 
 它通过 stdio 传输 MCP 协议，暴露三个工具：`analyze`（确定性证据分析）、`check_rules`（校验声明式规则 JSON 文件）与 `source_profile`（不含原始数据行的数据画像）。原始 CSV 永不写入客户端。
+
+接入宿主前，先运行只读自检：
+
+```bash
+data2doc2data doctor --json
+```
+
+项目的 [`integrations/`](integrations/README.md) 目录提供 Codex `config.toml`、DeepSeek Harness Cordis overlay 和腾讯 CodeBuddy/WorkBuddy 项目级 `.mcp.json` 的可复制配置与说明。
 
 ## 数据源路线图
 

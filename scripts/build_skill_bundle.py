@@ -31,6 +31,7 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/evidence_context.py",
     "src/data2doc2data/evidence_graph.py",
     "src/data2doc2data/hypotheses.py",
+    "src/data2doc2data/integrations.py",
     "src/data2doc2data/mcp_server.py",
     "src/data2doc2data/metrics.py",
     "src/data2doc2data/orchestrator.py",
@@ -67,6 +68,9 @@ PUBLIC_RESOURCE_FILES = (
     "src/data2doc2data/static/ui.js",
 )
 PUBLIC_RESOURCE_DIRECTORIES = (
+    "integrations",
+    "src/data2doc2data/integration_templates",
+    "src/data2doc2data/sample/cases",
     "src/data2doc2data/static/dist",
 )
 SKILLHUB_METADATA = (
