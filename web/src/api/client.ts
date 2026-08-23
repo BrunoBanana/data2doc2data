@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
-import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent } from '../contracts/run-events'
+import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -129,6 +129,22 @@ export class WorkbenchClient {
   async loadEvidenceGraph(runId: string): Promise<EvidenceGraphSpec> {
     const payload = await this.read<{ evidence_graph: EvidenceGraphSpec }>(`/api/workbench/runs/${encodeURIComponent(runId)}/graph`)
     return payload.evidence_graph
+  }
+
+  async listTaskRuns(taskId: string): Promise<RunHistoryItem[]> {
+    const payload = await this.read<{ runs: RunHistoryItem[] }>(`/api/workbench/tasks/${encodeURIComponent(taskId)}/runs`)
+    return payload.runs
+  }
+
+  async loadRun(runId: string): Promise<AnalysisRunResult> {
+    const payload = await this.read<{ run: AnalysisRunResult['run']; events: RunEvent[]; evidence_graph: EvidenceGraphSpec | null }>(`/api/workbench/runs/${encodeURIComponent(runId)}`)
+    return { ...payload, evidence_graph: payload.evidence_graph ?? { contract_version: 1, graph_id: `graph-${runId}-unavailable`, nodes: [], edges: [] } }
+  }
+
+  async retryRun(runId: string, idempotencyKey: string): Promise<AnalysisRunResult> {
+    await this.ensureSession()
+    const payload = await this.mutate<AnalysisRunResult & { replayed: boolean }>(`/api/workbench/runs/${encodeURIComponent(runId)}/retry`, { idempotency_key: idempotencyKey })
+    return payload
   }
 
   async createAgentSession(provider: string, permissionMode: AgentSession['permission_mode']): Promise<AgentSession> {

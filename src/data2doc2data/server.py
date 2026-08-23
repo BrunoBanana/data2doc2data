@@ -62,6 +62,8 @@ WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._
 WORKBENCH_TASK_DASHBOARD_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/dashboard")
 WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
 WORKBENCH_RUN_GRAPH_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/graph")
+WORKBENCH_RUN_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})")
+WORKBENCH_RUN_RETRY_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/retry")
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
@@ -383,6 +385,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if path == "/api/workbench/tasks":
             self._list_workbench_tasks()
             return
+        task_runs_match = WORKBENCH_TASK_RUNS_ROUTE.fullmatch(path)
+        if task_runs_match:
+            self._list_workbench_runs(task_runs_match.group(1))
+            return
         dashboard_match = WORKBENCH_TASK_DASHBOARD_ROUTE.fullmatch(path)
         if dashboard_match:
             self._get_workbench_task_dashboard(dashboard_match.group(1))
@@ -398,6 +404,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         run_graph_match = WORKBENCH_RUN_GRAPH_ROUTE.fullmatch(path)
         if run_graph_match:
             self._get_workbench_run_graph(run_graph_match.group(1))
+            return
+        run_match = WORKBENCH_RUN_ROUTE.fullmatch(path)
+        if run_match:
+            self._get_workbench_run(run_match.group(1))
             return
         events_match = SESSION_EVENTS_ROUTE.fullmatch(path)
         if events_match:
@@ -494,6 +504,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         documents_match = WORKBENCH_TASK_DOCUMENTS_ROUTE.fullmatch(path)
         if documents_match:
             self._import_workbench_documents(documents_match.group(1))
+            return
+        retry_match = WORKBENCH_RUN_RETRY_ROUTE.fullmatch(path)
+        if retry_match:
+            self._retry_workbench_run(retry_match.group(1))
             return
         if path == "/api/agent-sessions":
             self._create_agent_session()
@@ -622,6 +636,24 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
 
+    def _list_workbench_runs(self, task_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().list_runs(owner_id, task_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
+    def _get_workbench_run(self, run_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            self._send_json(HTTPStatus.OK, self._workbench().run_detail(owner_id, run_id))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
     def _create_workbench_task(self) -> None:
         try:
             owner_id = self._authorize_agent_mutation()
@@ -674,6 +706,17 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _retry_workbench_run(self, run_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            payload = self._workbench().retry_run(owner_id, run_id, self._read_json())
+            self._send_json(HTTPStatus.OK if payload.get("replayed") else HTTPStatus.CREATED, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, WorkspaceStoreError, ValueError) as error:
             status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
             self._send_json(status, {"error": str(error)})
 

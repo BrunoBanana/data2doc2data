@@ -203,6 +203,21 @@
 .event-summary { display: flex; flex-wrap: wrap; gap: 6px; }
 .event-summary span { padding: 3px 6px; border-radius: 5px; color: #b8c7df; background: #17243b; font-size: 10px; }
 .event-summary b { color: #7fa9f8; font-weight: 600; }
+.run-history { margin-top: 26px; }
+.run-history-list { display: grid; gap: 10px; }
+.run-history-card { padding: 16px; border: 1px solid var(--line-soft); border-left: 3px solid #527cc5; border-radius: 12px; background: rgb(15 21 36 / 86%); }
+.run-history-card--failed { border-left-color: #b45462; }
+.run-history-card--completed { border-left-color: #3a8d70; }
+.run-history-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.run-history-card header > div { display: grid; gap: 4px; }
+.run-history-card code { color: var(--muted); font-size: 10px; }
+.run-history-card time { color: var(--muted); font-size: 11px; }
+.run-history-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.run-history-meta span { padding: 4px 7px; border-radius: 6px; color: #bdc9db; background: #17243b; font-size: 10px; }
+.run-history-meta .failure-type { color: #ffc2c8; background: #361c24; }
+.run-history-meta .stale-warning { color: #ffdea2; background: #493817; }
+.run-history-card > p { margin: 10px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.run-history-actions { display: flex; gap: 7px; }
 
 @media (max-width: 1000px) {
   .workbench-grid, .workbench-grid--assistant-closed { grid-template-columns: 190px minmax(0, 1fr); }

@@ -6,6 +6,8 @@ from http import HTTPStatus
 import hashlib
 from pathlib import Path
 import secrets
+import re
+import threading
 from typing import Any, Mapping
 
 from .run_events import RunEvent, RunEventError
@@ -26,6 +28,7 @@ class WorkbenchApiError(ValueError):
 class WorkbenchService:
     def __init__(self, store: WorkspaceStore) -> None:
         self.store = store
+        self._retry_lock = threading.Lock()
 
     def list_tasks(self, owner_id: str) -> dict[str, object]:
         return {"tasks": [task.to_dict() for task in self.store.list_tasks_for_owner(owner_id)]}
@@ -157,6 +160,56 @@ class WorkbenchService:
         if graph is None:
             raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "evidence graph not found")
         return {"evidence_graph": graph}
+
+    def list_runs(self, owner_id: str, task_id: str) -> dict[str, object]:
+        task = self._owned_task(owner_id, task_id)
+        items = []
+        for run in self.store.list_runs(task_id):
+            events = self.store.events_after(run.run_id)
+            failed = next((event for event in reversed(events) if event.kind == "run.failed"), None)
+            item = run.to_dict()
+            item.update(
+                {
+                    "stale": run.snapshot_refs != task.snapshot_refs,
+                    "event_count": len(events),
+                    "failure_type": failed.summary.get("error_type") if failed else None,
+                }
+            )
+            items.append(item)
+        return {"runs": items}
+
+    def run_detail(self, owner_id: str, run_id: str) -> dict[str, object]:
+        if not self.store.owner_can_access_run(run_id, owner_id):
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        run = self.store.get_run(run_id)
+        if run is None:
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        graph = self.store.get_run_artifact(run_id, "evidence_graph")
+        return {
+            "run": run.to_dict(),
+            "events": [event.to_dict() for event in self.store.events_after(run_id)],
+            "evidence_graph": graph,
+        }
+
+    def retry_run(self, owner_id: str, run_id: str, payload: object) -> dict[str, object]:
+        body = _body(payload)
+        key = body.get("idempotency_key")
+        if not isinstance(key, str) or re.fullmatch(r"[A-Za-z0-9._:-]{8,120}", key) is None:
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "idempotency_key is invalid")
+        if not self.store.owner_can_access_run(run_id, owner_id):
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        previous = self.store.get_run(run_id)
+        if previous is None:
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        scope = f"retry:{run_id}"
+        with self._retry_lock:
+            cached = self.store.get_idempotent_response(owner_id, scope, key)
+            if isinstance(cached, dict):
+                return {**cached, "replayed": True}
+            result = self.start_run(owner_id, previous.task_id, {"execute": True})
+            response = {**result, "retried_from": run_id, "replayed": False}
+            self.store.save_idempotent_response(owner_id, scope, key, response)
+            return response
 
     def import_documents(self, owner_id: str, task_id: str, payload: object) -> dict[str, object]:
         body = _body(payload)

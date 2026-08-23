@@ -192,6 +192,40 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(graph["evidence_graph"]["graph_id"], payload["evidence_graph"]["graph_id"])
 
+        status, history, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/runs", cookie=self.cookie)
+        self.assertEqual(status, 200, history)
+        self.assertEqual(history["runs"][0]["run_id"], run_id)
+        self.assertFalse(history["runs"][0]["stale"])
+
+        status, detail, _ = self.request("GET", f"/api/workbench/runs/{run_id}", cookie=self.cookie)
+        self.assertEqual(status, 200, detail)
+        self.assertEqual(detail["events"][-1]["kind"], "run.completed")
+        self.assertEqual(detail["evidence_graph"]["graph_id"], payload["evidence_graph"]["graph_id"])
+
+    def test_failed_run_can_be_retried_idempotently_without_mutating_history(self):
+        task = self.create_task()
+        dataset = Path(self.temporary_directory.name) / "standard.csv"
+        dataset.write_text("date,metric,value\n2026-01-01,收入,10\n2026-02-01,收入,12\n", encoding="utf-8")
+        digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
+        self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
+        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+        status, first, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True}, cookie=self.cookie, csrf=self.csrf)
+        self.assertEqual(status, 201, first)
+
+        retry_body = {"idempotency_key": "retry-button-0001"}
+        status, retried, _ = self.request("POST", f"/api/workbench/runs/{first['run']['run_id']}/retry", retry_body, cookie=self.cookie, csrf=self.csrf)
+        self.assertEqual(status, 201, retried)
+        self.assertNotEqual(retried["run"]["run_id"], first["run"]["run_id"])
+        self.assertEqual(retried["retried_from"], first["run"]["run_id"])
+        self.assertFalse(retried["replayed"])
+
+        status, repeated, _ = self.request("POST", f"/api/workbench/runs/{first['run']['run_id']}/retry", retry_body, cookie=self.cookie, csrf=self.csrf)
+        self.assertEqual(status, 200, repeated)
+        self.assertEqual(repeated["run"]["run_id"], retried["run"]["run_id"])
+        self.assertTrue(repeated["replayed"])
+        self.assertEqual(len(self.server.workbench_store.list_runs(task["task_id"])), 2)
+
     def create_task(self):
         status, payload, _ = self.request(
             "POST",

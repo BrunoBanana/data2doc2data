@@ -49,3 +49,9 @@ export interface AnalysisRunResult {
   events: RunEvent[]
   evidence_graph: EvidenceGraphSpec
 }
+
+export interface RunHistoryItem extends AnalysisRun {
+  stale: boolean
+  event_count: number
+  failure_type: string | null
+}

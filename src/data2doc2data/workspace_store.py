@@ -283,6 +283,27 @@ class WorkspaceStore:
             ).fetchall()
         return tuple(RunEvent.from_dict(json.loads(row[0])) for row in rows)
 
+    def get_idempotent_response(self, owner_id: str, scope: str, key: str) -> object | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT response FROM idempotency_requests WHERE owner_id = ? AND scope = ? AND request_key = ?",
+                (owner_id, scope, key),
+            ).fetchone()
+        return None if row is None else json.loads(row[0])
+
+    def save_idempotent_response(self, owner_id: str, scope: str, key: str, response: object) -> None:
+        encoded = _json(response)
+        if len(encoded.encode("utf-8")) > 4_000_000:
+            raise WorkspaceStoreError("idempotent response is too large")
+        with self._lock, self._connection() as connection:
+            try:
+                connection.execute(
+                    "INSERT INTO idempotency_requests (owner_id, scope, request_key, response) VALUES (?, ?, ?, ?)",
+                    (owner_id, scope, key, encoded),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("idempotency key already has a response") from exc
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -350,6 +371,13 @@ class WorkspaceStore:
                 kind TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 PRIMARY KEY(run_id, kind)
+            );
+            CREATE TABLE IF NOT EXISTS idempotency_requests (
+                owner_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                request_key TEXT NOT NULL,
+                response TEXT NOT NULL,
+                PRIMARY KEY(owner_id, scope, request_key)
             );
             """
         )
