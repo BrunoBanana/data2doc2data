@@ -13,7 +13,9 @@ describe('EvidenceGraph', () => {
   it('filters and expands evidence nodes without exposing private reasoning', () => {
     render(<EvidenceGraph graph={graph} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '矛盾' }))
+    expect(screen.getAllByText('已验证').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('存在冲突').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '存在冲突' }))
     expect(screen.getAllByText('收入目标增长').length).toBeGreaterThan(0)
     expect(screen.queryByText('收入下降 8%')).not.toBeInTheDocument()
     fireEvent.click(screen.getAllByText('收入目标增长')[0])

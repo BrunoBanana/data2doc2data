@@ -45,6 +45,7 @@ export function TaskShell(props: TaskShellProps) {
   const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, listTaskRuns, loadRun, retryRun, downloadTaskReport, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('总览')
   const [assistantOpen, setAssistantOpen] = useState(true)
+  const [mobileView, setMobileView] = useState<'analysis' | 'process' | 'assistant'>('analysis')
   const [combined, setCombined] = useState<CombinedDashboard | null>(null)
   const [dashboardError, setDashboardError] = useState('')
   const [loadingDashboard, setLoadingDashboard] = useState(false)
@@ -99,17 +100,23 @@ export function TaskShell(props: TaskShellProps) {
   return <>
     <header className="topbar">
       <button className="brand brand--button" type="button" onClick={onBack} aria-label="返回任务首页"><span className="brand-mark" aria-hidden="true">D2</span><span>Data2Doc2Data</span></button>
-      <div className="topbar-status" role="status"><span className={`status-dot${readyProvider ? ' status-dot--ready' : ' status-dot--idle'}`} aria-hidden="true" />{readyProvider ? `${readyProvider.provider_id} 可用` : '未连接助手'}</div>
-      <button className="button button--quiet" type="button" onClick={() => setAssistantOpen((open) => !open)}>{assistantOpen ? '收起助手' : '打开助手'}</button>
+      <div className="topbar-case"><span>当前案例</span><strong>{task.title}</strong></div>
+      <div className="topbar-status" role="status"><span className="status-dot status-dot--ready" aria-hidden="true" />本地计算 <i aria-hidden="true">·</i> {readyProvider ? `${readyProvider.provider_id} 可用` : '助手未连接'}</div>
+      <button className="button button--quiet" type="button" onClick={() => setAssistantOpen((open) => !open)}>{assistantOpen ? '收起笔记' : '打开笔记'}</button>
     </header>
-    <div className={`workbench-grid${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
-      <nav className="asset-rail" aria-label="任务与资产">
-        <div className="rail-heading"><span>分析任务</span><button className="icon-button" type="button" aria-label="新建分析任务" onClick={onCreateTask}>＋</button></div>
-        <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">当前任务</span><strong>{task.title}</strong><span>{task.goal}</span></button>
-        <div className="rail-section"><h2>任务资产</h2><button type="button" onClick={() => setActiveTab('数据')}><span aria-hidden="true">▦</span> 数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}><span aria-hidden="true">▤</span> 文档 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}><span aria-hidden="true">◇</span> 运行记录 <b>{runs.length}</b></button></div>
+    <nav className="mobile-view-switcher" aria-label="移动工作台视图">
+      <button type="button" aria-pressed={mobileView === 'analysis'} onClick={() => setMobileView('analysis')}>分析</button>
+      <button type="button" aria-pressed={mobileView === 'process'} onClick={() => { setMobileView('process'); setActiveTab('证据') }}>过程</button>
+      <button type="button" aria-pressed={mobileView === 'assistant'} onClick={() => { setAssistantOpen(true); setMobileView('assistant') }}>助手</button>
+    </nav>
+    <div className={`workbench-grid workbench-grid--mobile-${mobileView}${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
+      <nav className="asset-rail" aria-label="案例与资产">
+        <div className="rail-heading"><span>案例与资产</span><button className="icon-button rail-create-button" type="button" aria-label="新建分析任务" onClick={onCreateTask}>新建</button></div>
+        <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">当前案例</span><strong>{task.title}</strong><span>{task.goal}</span></button>
+        <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => setActiveTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
       </nav>
       <main className="analysis-canvas">
-        <div className="canvas-heading"><div><p className="eyebrow">任务工作区</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{datasets ? <button className="button button--primary" type="button" disabled={running} onClick={() => runAnalysis([])}>{running ? '分析运行中…' : '运行分析'}</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
+        <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{datasets ? <button className="button button--primary" type="button" disabled={running} onClick={() => runAnalysis([])}>{running ? '分析运行中…' : '运行分析'}</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
         <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}
         {loadingDashboard && <section className="dashboard-loading" aria-busy="true">正在基于锁定快照生成 Dashboard…</section>}

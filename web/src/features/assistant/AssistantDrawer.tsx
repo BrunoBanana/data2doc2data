@@ -124,8 +124,8 @@ export function AssistantDrawer(props: AssistantDrawerProps) {
     }
   }
 
-  return <aside className="assistant-drawer" aria-label="AI 助手">
-    <div className="assistant-heading"><div><p className="eyebrow">协作分析</p><h2>AI 助手</h2></div><span className={`connection-badge${session ? ' connection-badge--ready' : ''}`}>{session ? '已连接' : '本地'}</span></div>
+  return <aside className="assistant-drawer" aria-label="分析员笔记">
+    <div className="assistant-heading"><div><p className="eyebrow">ANALYST MARGIN</p><h2>分析员笔记</h2></div><span className={`connection-badge${session ? ' connection-badge--ready' : ''}`}>{session ? '已连接' : '本地'}</span></div>
     {!session && <div className="assistant-connect-panel">
       <label>本地助手<select aria-label="本地助手" value={provider} onChange={(event) => setProvider(event.target.value)} disabled={!usable.length}>{usable.length ? usable.map((agent) => <option value={agent.name} key={agent.name}>{providerLabel(agent.name)}</option>) : <option value="">未发现可用助手</option>}</select></label>
       <label>权限模式<select aria-label="权限模式" value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}><option value="read_only">只读</option><option value="collaborative">协作 · 每次变更需批准</option><option value="trusted_session">信任本次会话</option></select></label>

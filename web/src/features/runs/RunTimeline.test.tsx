@@ -15,6 +15,8 @@ describe('RunTimeline', () => {
     expect(steps[0]).toHaveTextContent('开始分析')
     expect(steps[1]).toHaveTextContent('数据画像')
     expect(steps[2]).toHaveTextContent('分析完成')
+    expect(screen.getByRole('heading', { name: '执行轨道' })).toBeInTheDocument()
+    expect(screen.getByText('真实事件 · 可审计')).toBeInTheDocument()
     expect(screen.queryByText(/chain.of.thought/i)).not.toBeInTheDocument()
   })
 })

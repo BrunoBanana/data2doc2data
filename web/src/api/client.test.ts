@@ -30,12 +30,14 @@ describe('WorkbenchClient', () => {
       .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
       .mockResolvedValueOnce(response({ providers: [{ provider_id: 'codex', kind: 'local_cli', state: 'ready', capabilities: [], detail: null, reconnect_hint: null }] }))
       .mockResolvedValueOnce(response({ tasks: [] }))
+      .mockResolvedValueOnce(response({ cases: [] }))
     const client = new WorkbenchClient(fetcher)
 
     const result = await client.loadWorkspace()
 
     expect(result.providers[0].provider_id).toBe('codex')
     expect(result.tasks).toEqual([])
+    expect(result.cases).toEqual([])
     expect(fetcher).toHaveBeenNthCalledWith(1, '/api/agents', expect.objectContaining({ credentials: 'same-origin' }))
   })
 

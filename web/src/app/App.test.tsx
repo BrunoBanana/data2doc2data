@@ -38,9 +38,11 @@ describe('analysis workbench shell', () => {
     fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
 
     expect(screen.getByRole('banner')).toHaveTextContent('Data2Doc2Data')
-    expect(screen.getByRole('navigation', { name: '任务与资产' })).toBeInTheDocument()
+    expect(screen.getByRole('banner')).toHaveTextContent('本地计算')
+    expect(screen.getByRole('navigation', { name: '案例与资产' })).toBeInTheDocument()
     expect(screen.getByRole('main')).toHaveTextContent('业务分析工作台')
-    expect(screen.getByRole('complementary', { name: 'AI 助手' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '分析员笔记' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: '移动工作台视图' })).toHaveTextContent('分析过程助手')
   })
 
   it('offers deterministic analysis when no assistant is connected', async () => {
@@ -48,7 +50,7 @@ describe('analysis workbench shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
 
-    expect(screen.getByText('未连接助手')).toBeInTheDocument()
+    expect(screen.getByText(/助手未连接/)).toBeInTheDocument()
     expect(screen.getByText('未发现可用助手；确定性分析仍可使用。')).toBeInTheDocument()
   })
 
