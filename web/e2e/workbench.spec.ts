@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const dataset = path.resolve('../src/data2doc2data/sample/scenarios/growth-quality-alert/metrics.csv')
 const document = path.resolve('../src/data2doc2data/sample/scenarios/growth-quality-alert/strategy.md')
 
-test('completes the model-free task journey and downloads an offline report', async ({ page }) => {
+test('completes the model-free task journey and downloads an offline report', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto('/')
@@ -21,9 +22,10 @@ test('completes the model-free task journey and downloads an offline report', as
   await expect(page.getByText('记录数').locator('..')).toContainText('12')
 
   await page.getByRole('tab', { name: '文本' }).click()
-  await page.getByLabel('文档路径').fill(document)
+  await page.getByLabel('文档路径').fill(`${document}\n${path.resolve('../missing-synthetic-document.md')}`)
   await page.getByRole('button', { name: '导入文本材料' }).click()
   await expect(page.getByRole('heading', { name: '文本材料分析' })).toBeVisible()
+  await expect(page.getByText('1 份文档 · 1 个失败')).toBeVisible()
 
   await page.getByRole('button', { name: '运行分析' }).click()
   await expect(page.getByRole('heading', { name: '分析过程与证据联动' })).toBeVisible()
@@ -35,6 +37,18 @@ test('completes the model-free task journey and downloads an offline report', as
   await page.getByRole('button', { name: '下载 HTML 报告' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/^data2doc2data-task-.+\.html$/)
+  const reportPath = testInfo.outputPath(download.suggestedFilename())
+  await download.saveAs(reportPath)
+  const reportPage = await page.context().newPage()
+  const externalRequests: string[] = []
+  reportPage.on('request', (request) => {
+    if (/^https?:/.test(request.url())) externalRequests.push(request.url())
+  })
+  await reportPage.goto(pathToFileURL(reportPath).href)
+  await expect(reportPage.getByRole('heading', { name: 'Executive Summary' })).toBeVisible()
+  await expect(reportPage.locator('svg').first()).toBeVisible()
+  expect(externalRequests).toEqual([])
+  await reportPage.close()
   expect(errors).toEqual([])
 })
 

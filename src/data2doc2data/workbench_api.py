@@ -230,9 +230,29 @@ class WorkbenchService:
             self.store.register_snapshot(ref, source)
             refs.append(ref)
         updated = self.attach_assets(owner_id, task_id, {"snapshot_refs": [ref.to_dict() for ref in refs]})["task"]
+        updated_task = AnalysisTask.from_dict(updated)
+        successful_digests = {document.sha256 for document in corpus.documents}
+        failed_paths = [path for path in paths if _file_digest(path) not in successful_digests]
+        registered_paths = [
+            registered
+            for ref in updated_task.snapshot_refs
+            if ref.kind == "document"
+            for registered in (self.store.snapshot_path(ref),)
+            if registered is not None
+        ]
+        combined_paths = tuple(dict.fromkeys([*registered_paths, *failed_paths]))
+        text_dashboard = build_text_dashboard(
+            build_document_corpus(combined_paths, f"corpus-{task_id}")
+        ).to_dict()
+        document_refs = [ref.to_dict() for ref in updated_task.snapshot_refs if ref.kind == "document"]
+        self.store.save_task_artifact(
+            task_id,
+            "text_dashboard",
+            {"document_snapshot_refs": document_refs, "dashboard": text_dashboard},
+        )
         return {
             "task": updated,
-            "text_dashboard": build_text_dashboard(corpus).to_dict(),
+            "text_dashboard": text_dashboard,
         }
 
     def task_dashboard(self, owner_id: str, task_id: str) -> dict[str, object]:
@@ -263,7 +283,15 @@ class WorkbenchService:
             document_paths_list.append(path)
         document_paths = tuple(document_paths_list)
         text_dashboard = None
-        if document_paths:
+        document_refs = [ref.to_dict() for ref in task.snapshot_refs if ref.kind == "document"]
+        artifact = self.store.get_task_artifact(task.task_id, "text_dashboard")
+        if (
+            isinstance(artifact, Mapping)
+            and artifact.get("document_snapshot_refs") == document_refs
+            and isinstance(artifact.get("dashboard"), Mapping)
+        ):
+            text_dashboard = dict(artifact["dashboard"])
+        elif document_paths:
             corpus = build_document_corpus(document_paths, f"corpus-{task.task_id}")
             text_dashboard = build_text_dashboard(corpus).to_dict()
         return {"dashboard": dashboard, "text_dashboard": text_dashboard}
@@ -272,7 +300,12 @@ class WorkbenchService:
         task = self._owned_task(owner_id, task_id)
         combined = self.task_dashboard(owner_id, task_id)
         runs = self.store.list_runs(task_id)
-        graph = self.store.get_run_artifact(runs[0].run_id, "evidence_graph") if runs else None
+        graph = None
+        for run in runs:
+            candidate = self.store.get_run_artifact(run.run_id, "evidence_graph")
+            if isinstance(candidate, Mapping):
+                graph = candidate
+                break
         return build_html_report(
             task,
             combined.get("dashboard") if isinstance(combined.get("dashboard"), Mapping) else None,

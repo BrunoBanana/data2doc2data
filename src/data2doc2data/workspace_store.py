@@ -14,7 +14,7 @@ from .run_events import RunEvent, RunEventError
 from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class WorkspaceStoreError(ValueError):
@@ -225,6 +225,28 @@ class WorkspaceStore:
             ).fetchone()
         return None if row is None else json.loads(row[0])
 
+    def save_task_artifact(self, task_id: str, kind: str, payload: object) -> None:
+        if kind not in {"text_dashboard"}:
+            raise WorkspaceStoreError("unsupported task artifact kind")
+        encoded = _json(payload)
+        if len(encoded.encode("utf-8")) > 2_000_000:
+            raise WorkspaceStoreError("task artifact is too large")
+        with self._lock, self._connection() as connection:
+            try:
+                connection.execute(
+                    "INSERT INTO task_artifacts (task_id, kind, payload) VALUES (?, ?, ?) ON CONFLICT(task_id, kind) DO UPDATE SET payload = excluded.payload",
+                    (task_id, kind, encoded),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("cannot save artifact for unknown task") from exc
+
+    def get_task_artifact(self, task_id: str, kind: str) -> object | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM task_artifacts WHERE task_id = ? AND kind = ?", (task_id, kind)
+            ).fetchone()
+        return None if row is None else json.loads(row[0])
+
     def list_runs(self, task_id: str) -> tuple[AnalysisRun, ...]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -372,6 +394,12 @@ class WorkspaceStore:
                 payload TEXT NOT NULL,
                 PRIMARY KEY(run_id, kind)
             );
+            CREATE TABLE IF NOT EXISTS task_artifacts (
+                task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY(task_id, kind)
+            );
             CREATE TABLE IF NOT EXISTS idempotency_requests (
                 owner_id TEXT NOT NULL,
                 scope TEXT NOT NULL,
@@ -385,6 +413,10 @@ class WorkspaceStore:
         if row is None:
             connection.execute(
                 "INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+            )
+        elif row[0] == "1":
+            connection.execute(
+                "UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),)
             )
         elif row[0] != str(SCHEMA_VERSION):
             raise WorkspaceStoreError(f"unsupported workspace schema version: {row[0]}")

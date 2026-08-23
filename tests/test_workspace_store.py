@@ -25,10 +25,26 @@ class WorkspaceStoreTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection:
             version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
 
-        self.assertEqual(version, "1")
+        self.assertEqual(version, "2")
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_version_one_database_is_upgraded_in_place(self):
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES ('schema_version', '1')")
+
+        self.store.initialize()
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
+            task_artifacts = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_artifacts'"
+            ).fetchone()
+        self.assertEqual(version, "2")
+        self.assertEqual(task_artifacts, ("task_artifacts",))
 
     def test_task_crud_keeps_versioned_contracts(self):
         task = AnalysisTask.create("task-1", "收入复盘", "解释收入下降", now="2026-08-23T08:00:00Z")
@@ -130,6 +146,20 @@ class WorkspaceStoreTests(unittest.TestCase):
         self.store.save_run_artifact("run-1", "evidence_graph", {"nodes": [{"id": "n1"}]})
 
         self.assertEqual(self.store.get_run_artifact("run-1", "evidence_graph"), {"nodes": [{"id": "n1"}]})
+
+    def test_task_artifacts_round_trip_and_follow_task_lifecycle(self):
+        task = AnalysisTask.create("task-1", "复盘", "解释变化")
+        self.store.save_task(task)
+
+        artifact = {
+            "document_snapshot_refs": [],
+            "dashboard": {"document_count": 0, "failure_count": 1},
+        }
+        self.store.save_task_artifact(task.task_id, "text_dashboard", artifact)
+
+        self.assertEqual(self.store.get_task_artifact(task.task_id, "text_dashboard"), artifact)
+        self.assertTrue(self.store.delete_task(task.task_id))
+        self.assertIsNone(self.store.get_task_artifact(task.task_id, "text_dashboard"))
 
     def test_profile_json_and_workspace_database_can_coexist(self):
         profile_store = ProfileStore(Path(self.temporary_directory.name) / "config" / "config.json")

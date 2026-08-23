@@ -172,6 +172,52 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("document snapshot content has changed", stale["error"])
 
+    def test_partial_document_import_diagnostics_survive_dashboard_reload(self):
+        task = self.create_task()
+        document = Path(self.temporary_directory.name) / "plan.md"
+        document.write_text("# 目标\n主张：收入将持续增长\n", encoding="utf-8")
+        missing = Path(self.temporary_directory.name) / "missing.md"
+
+        status, imported, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/documents",
+            {"paths": [str(document), str(missing)]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 200, imported)
+        self.assertEqual(imported["text_dashboard"]["document_count"], 1)
+        self.assertEqual(imported["text_dashboard"]["failure_count"], 1)
+
+        status, reloaded, _ = self.request(
+            "GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie
+        )
+        self.assertEqual(status, 200, reloaded)
+        self.assertEqual(reloaded["text_dashboard"]["document_count"], 1)
+        self.assertEqual(reloaded["text_dashboard"]["failure_count"], 1)
+
+    def test_all_failed_document_import_diagnostics_survive_dashboard_reload(self):
+        task = self.create_task()
+        missing = Path(self.temporary_directory.name) / "missing.md"
+
+        status, imported, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/documents",
+            {"paths": [str(missing)]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 200, imported)
+        self.assertEqual(imported["text_dashboard"]["document_count"], 0)
+        self.assertEqual(imported["text_dashboard"]["failure_count"], 1)
+
+        status, reloaded, _ = self.request(
+            "GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie
+        )
+        self.assertEqual(status, 200, reloaded)
+        self.assertEqual(reloaded["text_dashboard"]["document_count"], 0)
+        self.assertEqual(reloaded["text_dashboard"]["failure_count"], 1)
+
     def test_executed_run_returns_observable_events_and_evidence_graph(self):
         task = self.create_task()
         dataset = Path(self.temporary_directory.name) / "standard.csv"
@@ -235,6 +281,14 @@ class WorkbenchApiTests(unittest.TestCase):
         self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
         self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
         self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True}, cookie=self.cookie, csrf=self.csrf)
+        status, _, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True, "proposal": {"hypotheses": "invalid"}},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 422)
 
         request = Request(f"{self.base_url}/api/workbench/tasks/{task['task_id']}/report", headers={"Cookie": self.cookie})
         with urlopen(request, timeout=2) as response:
@@ -243,6 +297,7 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
         self.assertIn("<h2>Executive Summary</h2>", html)
         self.assertIn("<svg", html)
+        self.assertIn("<td>data_source</td>", html)
         self.assertNotIn("<script", html)
 
         status, payload, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/report")
