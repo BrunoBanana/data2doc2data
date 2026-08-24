@@ -39,6 +39,26 @@ class RunEventContractTests(unittest.TestCase):
 
         self.assertEqual(validate_event_stream(events), events)
 
+    def test_events_cover_persisted_analysis_cycle_lifecycle(self):
+        kinds = (
+            "cycle.started",
+            "round.planned",
+            "round.started",
+            "artifact.created",
+            "round.completed",
+            "cycle.checkpointed",
+            "planner.waiting",
+            "planner.resumed",
+            "cycle.completed",
+        )
+        events = tuple(
+            RunEvent.create("run-cycle", index, kind, "cycle", {"round": min(index, 3)})
+            for index, kind in enumerate(kinds, 1)
+        )
+
+        self.assertEqual(validate_event_stream(events), events)
+        self.assertTrue(all(event.contract_version == 1 for event in events))
+
     def test_event_round_trip_has_stable_sequence_and_artifact_references(self):
         event = RunEvent.create(
             run_id="run-1",
