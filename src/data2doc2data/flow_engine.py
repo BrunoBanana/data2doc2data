@@ -9,13 +9,15 @@ import json
 from pathlib import Path
 import re
 import secrets
+from time import perf_counter
 from typing import Any
 
 from .data_profile import DataProfile, build_default_dashboard, profile_standard_csv
+from .artifacts import ArtifactStore
 from .dashboard import DashboardSpec
 from .documents import build_document_corpus
 from .evidence_graph import EvidenceEdge, EvidenceGraph, EvidenceNode
-from .flow_tools import LocalAnalysisTools, ToolResult
+from .flow_tools import LocalAnalysisTools, REGISTERED_ANALYSIS_TOOLS, ToolResult
 from .knowledge import KnowledgeLedger
 from .reporting import build_html_report
 from .run_events import RunEvent
@@ -55,6 +57,13 @@ class FlowPlan:
     plan_id: str
     steps: tuple[FlowStep, ...]
     runner: str = "connected"
+
+
+@dataclass(frozen=True)
+class FlowHypothesis:
+    hypothesis_id: str
+    text: str
+    tool_payload: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -152,9 +161,7 @@ class DemoFlowRunner:
 class ConnectedFlowRunner:
     """Execute a connected assistant's bounded plan through host-owned tools."""
 
-    REGISTERED_TOOLS = frozenset(
-        {"inspect_sources", "profile_data", "query_data", "extract_claims", "align_evidence", "test_hypothesis"}
-    )
+    REGISTERED_TOOLS = REGISTERED_ANALYSIS_TOOLS
 
     def __init__(self, store: WorkspaceStore) -> None:
         self.store = store
@@ -252,6 +259,28 @@ class AgentFlowEngine:
             emit("edge.added", phase, summary, (edge.edge_id,))
             emit("edge.activated", phase, summary, (edge.edge_id,))
 
+        def update_node(node_id: str, phase: str, *, status: str, label: str | None = None) -> None:
+            for index, node in enumerate(nodes):
+                if node.node_id != node_id:
+                    continue
+                updated = EvidenceNode(
+                    node.node_id,
+                    node.kind,
+                    label if label is not None else node.label,
+                    status,
+                    node.artifact_ref,
+                )
+                nodes[index] = updated
+                self.store.save_run_artifact(run.run_id, "evidence_graph", graph().to_dict())
+                emit(
+                    "node.updated",
+                    phase,
+                    {"node_id": updated.node_id, "status": updated.status, "label": updated.label},
+                    tuple(ref for ref in (updated.node_id, updated.artifact_ref) if ref),
+                )
+                return
+            raise ValueError(f"cannot update unknown evidence node: {node_id}")
+
         def check_cancelled() -> None:
             if cancelled is not None and cancelled():
                 raise FlowCancelled("analysis run was cancelled")
@@ -286,25 +315,29 @@ class AgentFlowEngine:
                     (step.step_id,),
                 )
 
-            tools = LocalAnalysisTools((data_path.parent, *(path.parent for path in document_paths)))
+            tools = LocalAnalysisTools(
+                (data_path.parent, *(path.parent for path in document_paths)),
+                artifact_store=ArtifactStore(self.store.path.parent / "artifacts"),
+            )
             if plan.runner == "connected":
                 for step in _ordered_steps(plan.steps):
                     check_cancelled()
-                    _emit_tool(
+                    _run_tool(
                         emit,
                         step.step_id,
-                        _invoke_connected_tool(
-                            tools,
-                            step,
-                            data_path,
-                            dataset.snapshot_id,
-                            document_paths,
-                            f"corpus-{run.run_id}",
+                        step.tool,
+                        lambda step=step: _invoke_connected_tool(
+                            tools, step, data_path, dataset.snapshot_id, document_paths, f"corpus-{run.run_id}"
                         ),
                     )
             else:
                 check_cancelled()
-                _emit_tool(emit, "inspect", tools.inspect_sources((data_path, *document_paths)))
+                _run_tool(
+                    emit,
+                    "inspect",
+                    "inspect_sources",
+                    lambda: tools.inspect_sources((data_path, *document_paths)),
+                )
 
             check_cancelled()
             emit(
@@ -312,9 +345,13 @@ class AgentFlowEngine:
                 "compute",
                 {"operation": "profile and aggregate", "fields": ["date", "metric", "value"], "row_limit": 1000},
             )
-            profile_result = tools.profile_data(data_path, dataset.snapshot_id)
             if plan.runner == "demo":
-                _emit_tool(emit, "profile", profile_result)
+                _run_tool(
+                    emit,
+                    "profile",
+                    "profile_data",
+                    lambda: tools.profile_data(data_path, dataset.snapshot_id),
+                )
             profile = profile_standard_csv(data_path, dataset.snapshot_id)
             emit("data.profiled", "profile", {"row_count": profile.row_count, "metric_count": len(profile.metrics)})
             emit(
@@ -345,7 +382,12 @@ class AgentFlowEngine:
             corpus = build_document_corpus(document_paths, f"corpus-{run.run_id}")
             text_dashboard = build_text_dashboard(corpus)
             if document_paths and plan.runner == "demo":
-                _emit_tool(emit, "extract", tools.extract_claims(document_paths, corpus.corpus_id))
+                _run_tool(
+                    emit,
+                    "extract",
+                    "extract_claims",
+                    lambda: tools.extract_claims(document_paths, corpus.corpus_id),
+                )
             emit(
                 "document.indexed",
                 "documents",
@@ -401,10 +443,11 @@ class AgentFlowEngine:
                 add_edge(EvidenceEdge(f"edge-claim-{index + 1}", claim_id, "data-signal", "tests"), "cross-reasoning")
 
             if document_paths and plan.runner == "demo":
-                _emit_tool(
+                _run_tool(
                     emit,
                     "align",
-                    tools.align_evidence(data_path, dataset.snapshot_id, document_paths, corpus.corpus_id),
+                    "align_evidence",
+                    lambda: tools.align_evidence(data_path, dataset.snapshot_id, document_paths, corpus.corpus_id),
                 )
             seen_conflicts: set[tuple[str, str]] = set()
             for claim in text_dashboard.claims:
@@ -434,32 +477,117 @@ class AgentFlowEngine:
                     (plan.plan_id,),
                 )
 
-            for index, (hypothesis_id, hypothesis_text) in enumerate(hypotheses):
+            for index, hypothesis in enumerate(hypotheses):
+                hypothesis_id = hypothesis.hypothesis_id
                 emit(
                     "hypothesis.created",
                     "hypotheses",
                     {"hypothesis_id": hypothesis_id, "status": "pending"},
                     (hypothesis_id,),
                 )
-                add_node(EvidenceNode(hypothesis_id, "hypothesis", hypothesis_text, "pending"), "hypotheses")
+                add_node(EvidenceNode(hypothesis_id, "hypothesis", hypothesis.text, "pending"), "hypotheses")
+                verification_status = "insufficient"
+                verification_label = "当前证据不足"
+                if hypothesis.tool_payload is not None:
+                    result = _run_tool(
+                        emit,
+                        "hypotheses",
+                        "test_hypothesis",
+                        lambda payload=hypothesis.tool_payload: tools.test_hypothesis(
+                            data_path, dataset.snapshot_id, payload
+                        ),
+                    )
+                    observed_status = str(result.summary.get("status", "unavailable"))
+                    verification_status = {
+                        "confirmed": "supported",
+                        "contradicted": "contradicted",
+                        "unavailable": "insufficient",
+                    }.get(observed_status, "insufficient")
+                    verification_label = str(result.summary.get("summary", "当前证据不足"))[:500]
                 validation_id = f"validation-{index + 1}"
-                add_node(EvidenceNode(validation_id, "validation", "当前证据不足", "insufficient"), "validation")
+                add_node(
+                    EvidenceNode(validation_id, "validation", verification_label, verification_status), "validation"
+                )
                 add_edge(
                     EvidenceEdge(f"edge-hypothesis-{index + 1}", validation_id, hypothesis_id, "tests"), "validation"
                 )
+                evidence_relationship = {
+                    "supported": "supports",
+                    "contradicted": "contradicts",
+                    "insufficient": "insufficient_for",
+                }[verification_status]
                 add_edge(
-                    EvidenceEdge(f"edge-insufficient-{index + 1}", "data-signal", validation_id, "insufficient_for"),
+                    EvidenceEdge(
+                        f"edge-validation-{index + 1}", "data-signal", validation_id, evidence_relationship
+                    ),
                     "validation",
                 )
+                if hypothesis.tool_payload is not None:
+                    update_node(hypothesis_id, "validation", status=verification_status)
                 emit(
                     "validation.completed",
                     "validation",
-                    {"hypothesis_id": hypothesis_id, "status": "insufficient"},
+                    {"hypothesis_id": hypothesis_id, "status": verification_status},
                     (hypothesis_id,),
                 )
 
-            final_graph = graph()
-            emit("evidence.linked", "evidence", {"node_count": len(nodes), "edge_count": len(edges)}, (graph_id,))
+            hypothesis_nodes = [node for node in nodes if node.kind == "hypothesis"]
+            supported_hypotheses = sum(node.status == "supported" for node in hypothesis_nodes)
+            contradicted_hypotheses = sum(node.status == "contradicted" for node in hypothesis_nodes)
+            insufficient_hypotheses = sum(node.status == "insufficient" for node in hypothesis_nodes)
+            pending_hypotheses = sum(node.status == "pending" for node in hypothesis_nodes)
+            if hypothesis_nodes:
+                conclusion_label = (
+                    f"{supported_hypotheses} 项假设获得数据支持，"
+                    f"{contradicted_hypotheses} 项被反证，{insufficient_hypotheses} 项证据不足，"
+                    f"{pending_hypotheses} 项待结构化。"
+                )
+            elif seen_conflicts:
+                conclusion_label = f"文本材料中存在 {len(seen_conflicts)} 组冲突主张，需要复核口径。"
+            else:
+                conclusion_label = f"本地数据形成 {len(profile.metrics)} 个指标画像，尚未提出结构化业务假设。"
+            add_node(EvidenceNode("analysis-conclusion", "conclusion", conclusion_label, "supported", graph_id), "delivery")
+            add_edge(EvidenceEdge("edge-signal-conclusion", "data-signal", "analysis-conclusion", "supports"), "delivery")
+            for index, validation in enumerate(node for node in nodes if node.kind == "validation"):
+                relationship = {
+                    "supported": "supports",
+                    "contradicted": "contradicts",
+                    "insufficient": "insufficient_for",
+                }.get(validation.status, "derived_from")
+                add_edge(
+                    EvidenceEdge(
+                        f"edge-validation-conclusion-{index + 1}",
+                        validation.node_id,
+                        "analysis-conclusion",
+                        relationship,
+                    ),
+                    "delivery",
+                )
+            emit(
+                "conclusion.created",
+                "delivery",
+                {
+                    "conclusion_id": "analysis-conclusion",
+                    "supported_hypotheses": supported_hypotheses,
+                    "contradicted_hypotheses": contradicted_hypotheses,
+                    "insufficient_hypotheses": insufficient_hypotheses,
+                    "pending_hypotheses": pending_hypotheses,
+                },
+                ("analysis-conclusion", graph_id),
+            )
+            if contradicted_hypotheses or seen_conflicts:
+                action_label = "优先复核被反证假设与冲突文本，再决定业务动作。"
+            elif pending_hypotheses:
+                action_label = "先把自然语言假设转换为指标、方向和时间窗口明确的可执行检验。"
+            elif insufficient_hypotheses:
+                action_label = "补充缺失指标或材料后，再运行证据核验。"
+            else:
+                action_label = "把已支持结论转为负责人、指标与复盘周期明确的行动项。"
+            add_node(EvidenceNode("recommended-action", "action", action_label, "pending", graph_id), "delivery")
+            add_edge(
+                EvidenceEdge("edge-conclusion-action", "analysis-conclusion", "recommended-action", "derived_from"),
+                "delivery",
+            )
             if seen_conflicts:
                 knowledge_statement = f"本次分析在文本材料中检测到 {len(seen_conflicts)} 组相互冲突的主张。"
             elif hypotheses:
@@ -489,9 +617,23 @@ class AgentFlowEngine:
                 task,
                 dashboard.to_dict(),
                 text_dashboard.to_dict(),
+                graph().to_dict(),
+                run_count=len(self.store.list_runs(task.task_id)),
+            )
+            add_node(EvidenceNode("analysis-report", "report", report.filename, "verified", report.filename), "delivery")
+            add_edge(
+                EvidenceEdge("edge-action-report", "recommended-action", "analysis-report", "derived_from"),
+                "delivery",
+            )
+            final_graph = graph()
+            report = build_html_report(
+                task,
+                dashboard.to_dict(),
+                text_dashboard.to_dict(),
                 final_graph.to_dict(),
                 run_count=len(self.store.list_runs(task.task_id)),
             )
+            emit("evidence.linked", "evidence", {"node_count": len(nodes), "edge_count": len(edges)}, (graph_id,))
             emit(
                 "report.generated",
                 "report",
@@ -532,18 +674,48 @@ def _demo_plan(has_documents: bool, has_proposal: bool) -> FlowPlan:
     return FlowPlan("demo-cross-reasoning", tuple(steps), "demo")
 
 
-def _emit_tool(
+def _run_tool(
     emit: Callable[[str, str, Mapping[str, object], tuple[str, ...]], RunEvent],
     step_id: str,
-    result: ToolResult,
-) -> None:
-    emit("tool.started", "tools", {"step_id": step_id, "tool": result.tool}, (step_id,))
+    tool_name: str,
+    invoke: Callable[[], ToolResult],
+) -> ToolResult:
+    emit("step.started", "tools", {"step_id": step_id, "tool": tool_name}, (step_id,))
+    emit("tool.started", "tools", {"step_id": step_id, "tool": tool_name}, (step_id,))
+    started_at = perf_counter()
+    try:
+        result = invoke()
+    except Exception as exc:
+        duration_ms = max(0, round((perf_counter() - started_at) * 1000))
+        failure = {
+            "step_id": step_id,
+            "tool": tool_name,
+            "duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+        }
+        emit("tool.failed", "tools", failure, (step_id,))
+        emit("step.failed", "tools", failure, (step_id,))
+        raise
+    duration_ms = max(0, round((perf_counter() - started_at) * 1000))
     emit(
         "tool.result",
         "tools",
-        {"step_id": step_id, "tool": result.tool, "status": result.status, **dict(result.summary)},
+        {
+            "step_id": step_id,
+            "tool": result.tool,
+            "status": result.status,
+            "duration_ms": duration_ms,
+            **dict(result.summary),
+        },
         result.artifact_refs,
     )
+    emit(
+        "step.completed",
+        "tools",
+        {"step_id": step_id, "tool": result.tool, "status": result.status, "duration_ms": duration_ms},
+        (step_id, *result.artifact_refs),
+    )
+    return result
 
 
 def _invoke_connected_tool(
@@ -572,7 +744,121 @@ def _invoke_connected_tool(
         if not isinstance(hypothesis, Mapping):
             raise FlowPlanError("test_hypothesis requires a structured hypothesis argument")
         return tools.test_hypothesis(data_path, snapshot_id, hypothesis)
+    if step.tool == "compare_periods":
+        return tools.compare_periods(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            split=_optional_int(step, "split"),
+        )
+    if step.tool == "detect_anomalies":
+        return tools.detect_anomalies(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            window=_optional_int(step, "window", 5),
+            threshold=_optional_float(step, "threshold", 6.0),
+        )
+    if step.tool == "detect_change_points":
+        return tools.detect_change_points(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            minimum_window=_optional_int(step, "minimum_window", 4),
+        )
+    if step.tool == "segment_rank":
+        return tools.segment_rank(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            dimension=_required_text(step, "dimension"),
+            split_date=_optional_text(step, "split_date"),
+            minimum_samples=_optional_int(step, "minimum_samples", 1),
+        )
+    if step.tool == "decompose_change":
+        return tools.decompose_change(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            dimension=_required_text(step, "dimension"),
+            split_date=_optional_text(step, "split_date"),
+            numerator_metric=_optional_text(step, "numerator_metric"),
+            denominator_metric=_optional_text(step, "denominator_metric"),
+        )
+    if step.tool == "correlate_metrics":
+        return tools.correlate_metrics(
+            data_path,
+            snapshot_id,
+            leading_metric=_required_text(step, "leading_metric"),
+            lagging_metric=_required_text(step, "lagging_metric"),
+            max_lag=_optional_int(step, "max_lag", 3),
+        )
+    if step.tool == "compare_groups":
+        return tools.compare_groups(
+            data_path,
+            snapshot_id,
+            metric=_required_text(step, "metric"),
+            dimension=_required_text(step, "dimension"),
+            first_group=_required_text(step, "first_group"),
+            second_group=_required_text(step, "second_group"),
+            bootstrap_samples=_optional_int(step, "bootstrap_samples", 2_000),
+        )
+    if step.tool == "analyze_text":
+        return tools.analyze_text(document_paths, corpus_id, seed=_optional_int(step, "seed", 7))
+    if step.tool == "semantic_cluster":
+        return tools.semantic_cluster(
+            document_paths,
+            corpus_id,
+            model_path=_required_text(step, "model_path"),
+            seed=_optional_int(step, "seed", 7),
+        )
+    if step.tool == "compare_topics_with_metrics":
+        return tools.compare_topics_with_metrics(
+            _required_text(step, "topic_ref"), _required_text(step, "metric_ref")
+        )
+    if step.tool == "test_text_metric_lag":
+        return tools.test_text_metric_lag(
+            _required_text(step, "topic_ref"),
+            _required_text(step, "metric_ref"),
+            max_lag=_optional_int(step, "max_lag", 3),
+        )
+    if step.tool == "find_explanatory_segments":
+        return tools.find_explanatory_segments(
+            _required_text(step, "relationship_ref"), _required_text(step, "segment_ref")
+        )
     raise FlowPlanError(f"unsupported registered tool: {step.tool}")
+
+
+def _required_text(step: FlowStep, name: str) -> str:
+    value = step.arguments.get(name)
+    if not isinstance(value, str) or not value.strip() or len(value) > 500:
+        raise FlowPlanError(f"{step.tool} requires a bounded {name} argument")
+    return value.strip()
+
+
+def _optional_text(step: FlowStep, name: str) -> str | None:
+    value = step.arguments.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value) > 500:
+        raise FlowPlanError(f"{step.tool} requires a bounded {name} argument")
+    return value.strip()
+
+
+def _optional_int(step: FlowStep, name: str, default: int | None = None) -> int | None:
+    value = step.arguments.get(name, default)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise FlowPlanError(f"{step.tool} requires an integer {name} argument")
+    return value
+
+
+def _optional_float(step: FlowStep, name: str, default: float) -> float:
+    value = step.arguments.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise FlowPlanError(f"{step.tool} requires a numeric {name} argument")
+    return float(value)
 
 
 def _ordered_steps(steps: tuple[FlowStep, ...]) -> tuple[FlowStep, ...]:
@@ -592,7 +878,7 @@ def _ordered_steps(steps: tuple[FlowStep, ...]) -> tuple[FlowStep, ...]:
     return tuple(ordered)
 
 
-def parse_hypotheses(proposal: dict[str, Any] | None) -> tuple[tuple[str, str], ...]:
+def parse_hypotheses(proposal: dict[str, Any] | None) -> tuple[FlowHypothesis, ...]:
     if proposal is None:
         return ()
     if not isinstance(proposal, dict) or set(proposal) != {"hypotheses"}:
@@ -602,10 +888,15 @@ def parse_hypotheses(proposal: dict[str, Any] | None) -> tuple[tuple[str, str], 
         raise ValueError("agent proposal hypotheses must be a bounded list")
     parsed = []
     for item in raw:
-        if not isinstance(item, dict) or set(item) != {"hypothesis_id", "text"}:
-            raise ValueError("each hypothesis requires only hypothesis_id and text")
+        if not isinstance(item, dict) or set(item) not in (
+            {"hypothesis_id", "text"},
+            {"hypothesis_id", "text", "clauses"},
+        ):
+            raise ValueError("each hypothesis requires hypothesis_id, text, and optional structured clauses")
         node = EvidenceNode(str(item["hypothesis_id"]), "hypothesis", str(item["text"]), "pending")
-        parsed.append((node.node_id, node.label))
+        clauses = item.get("clauses")
+        tool_payload = {"clauses": clauses, "source": "agent_proposed"} if clauses is not None else None
+        parsed.append(FlowHypothesis(node.node_id, node.label, tool_payload))
     return tuple(parsed)
 
 

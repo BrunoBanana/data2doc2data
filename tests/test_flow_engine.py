@@ -2,6 +2,7 @@ from pathlib import Path
 import hashlib
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from data2doc2data.flow_engine import (
     ConnectedFlowRunner,
@@ -11,6 +12,7 @@ from data2doc2data.flow_engine import (
     validate_flow_plan,
 )
 from data2doc2data.knowledge import KnowledgeLedger
+from data2doc2data.flow_tools import LocalAnalysisTools
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
@@ -47,6 +49,8 @@ class FlowEngineTests(unittest.TestCase):
             self.assertEqual(kinds[0], "run.started")
             self.assertIn("plan.created", kinds)
             self.assertIn("step.added", kinds)
+            self.assertIn("step.started", kinds)
+            self.assertIn("step.completed", kinds)
             self.assertIn("tool.started", kinds)
             self.assertIn("tool.result", kinds)
             self.assertIn("node.added", kinds)
@@ -54,6 +58,7 @@ class FlowEngineTests(unittest.TestCase):
             self.assertIn("edge.activated", kinds)
             self.assertTrue({"conflict.detected", "plan.revised"} & set(kinds))
             self.assertIn("knowledge.candidate", kinds)
+            self.assertIn("conclusion.created", kinds)
             self.assertLess(kinds.index("report.generated"), kinds.index("run.completed"))
             self.assertEqual(kinds[-1], "run.completed")
             self.assertEqual(observed, list(result.events))
@@ -63,10 +68,40 @@ class FlowEngineTests(unittest.TestCase):
                 list(range(1, len(observed) + 1)),
             )
             self.assertGreater(len(set(graph_sizes)), 1)
+            node_kinds = {node.kind for node in result.evidence_graph.nodes}
+            self.assertTrue({"conclusion", "action", "report"} <= node_kinds)
             knowledge = KnowledgeLedger(store).latest(task.task_id)
             self.assertEqual(len(knowledge), 1)
             self.assertEqual(knowledge[0].state, "candidate")
             self.assertEqual(KnowledgeLedger(store).verified_facts(task.task_id), ())
+            for event in observed:
+                if event.kind in {"step.completed", "tool.result"}:
+                    self.assertIsInstance(event.summary.get("duration_ms"), int)
+                    self.assertGreaterEqual(event.summary["duration_ms"], 0)
+
+    def test_tool_lifecycle_starts_before_the_local_tool_is_invoked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "metrics.csv"
+            document = root / "notes.md"
+            data.write_text("date,metric,value\n2026-01-01,revenue,10\n", encoding="utf-8")
+            document.write_text("# Notes\n", encoding="utf-8")
+            task = _task(data, document)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+            observed = []
+            lifecycle_at_invocation = []
+            original = LocalAnalysisTools.inspect_sources
+
+            def inspected(tools, sources):
+                lifecycle_at_invocation.append([event.kind for event in observed])
+                return original(tools, sources)
+
+            with patch.object(LocalAnalysisTools, "inspect_sources", inspected):
+                DemoFlowRunner(store).run(task, data, (document,), on_event=observed.append)
+
+            self.assertIn("step.started", lifecycle_at_invocation[0])
+            self.assertIn("tool.started", lifecycle_at_invocation[0])
 
     def test_connected_runner_accepts_only_a_bounded_registered_dag(self):
         payload = {
@@ -93,6 +128,67 @@ class FlowEngineTests(unittest.TestCase):
 
         self.assertEqual(plan.plan_id, "connected-plan")
         self.assertEqual([step.step_id for step in plan.steps], ["inspect", "profile"])
+
+    def test_connected_registry_accepts_deep_diagnostics_and_rejects_arbitrary_tools(self):
+        self.assertIn("detect_anomalies", ConnectedFlowRunner.REGISTERED_TOOLS)
+        payload = {
+            "plan_id": "unsafe-plan",
+            "steps": [
+                {
+                    "step_id": "python-step",
+                    "tool": "python",
+                    "purpose": "run arbitrary code",
+                    "dependencies": [],
+                    "arguments": {},
+                }
+            ],
+        }
+
+        with self.assertRaises(FlowPlanError):
+            validate_flow_plan(payload, ConnectedFlowRunner.REGISTERED_TOOLS)
+
+    def test_demo_runner_executes_structured_hypotheses_and_updates_the_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "metrics.csv"
+            document = root / "notes.md"
+            data.write_text(
+                "date,metric,value\n2026-01-01,revenue,10\n2026-02-01,revenue,12\n",
+                encoding="utf-8",
+            )
+            document.write_text("# Notes\n", encoding="utf-8")
+            task = _task(data, document)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+            proposal = {
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "hypothesis-revenue",
+                        "text": "收入呈上升趋势",
+                        "clauses": [{"metric": "revenue", "direction": "up"}],
+                    }
+                ]
+            }
+
+            result = DemoFlowRunner(store).run(task, data, (document,), proposal)
+
+            nodes = {node.node_id: node for node in result.evidence_graph.nodes}
+            self.assertEqual(nodes["hypothesis-revenue"].status, "supported")
+            self.assertEqual(nodes["validation-1"].status, "supported")
+            self.assertTrue(
+                any(
+                    event.kind == "tool.result" and event.summary.get("tool") == "test_hypothesis"
+                    for event in result.events
+                )
+            )
+            self.assertTrue(
+                any(
+                    event.kind == "node.updated"
+                    and event.summary.get("node_id") == "hypothesis-revenue"
+                    and event.summary.get("status") == "supported"
+                    for event in result.events
+                )
+            )
 
     def test_demo_runner_persists_an_interrupted_terminal_event(self):
         with tempfile.TemporaryDirectory() as directory:
