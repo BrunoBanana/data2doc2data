@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from types import MappingProxyType
 from typing import Any, Mapping
+
+from .analysis_cycle import AnalysisCycle
+from .artifacts import ArtifactStore
 
 
 CONTRACT_VERSION = 1
@@ -228,3 +232,119 @@ class DashboardSpec:
             blocks=tuple(DashboardBlock.from_dict(block) for block in blocks),
             contract_version=payload.get("contract_version"),
         )
+
+
+@dataclass(frozen=True)
+class ArtifactProvenance:
+    artifact_ref: str
+    method: str
+    sample_size: int
+    limitations: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _identifier(self.artifact_ref, "artifact_ref")
+        _text(self.method, "method", 120)
+        if not isinstance(self.sample_size, int) or self.sample_size < 0:
+            raise DashboardContractError("artifact sample size must be non-negative")
+        object.__setattr__(self, "limitations", tuple(self.limitations))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "artifact_ref": self.artifact_ref,
+            "method": self.method,
+            "sample_size": self.sample_size,
+            "limitations": list(self.limitations),
+        }
+
+
+@dataclass(frozen=True)
+class ArtifactDashboardBlock:
+    block_id: str
+    kind: str
+    title: str
+    status: str
+    provenance: ArtifactProvenance
+    observations: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        _identifier(self.block_id, "block_id")
+        _text(self.title, "title", 200)
+        object.__setattr__(self, "observations", MappingProxyType(dict(self.observations)))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "block_id": self.block_id,
+            "kind": self.kind,
+            "title": self.title,
+            "status": self.status,
+            "provenance": self.provenance.to_dict(),
+            "observations": dict(self.observations),
+        }
+
+
+@dataclass(frozen=True)
+class ArtifactDashboardSpec:
+    dashboard_id: str
+    blocks: tuple[ArtifactDashboardBlock, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": 1,
+            "dashboard_id": self.dashboard_id,
+            "blocks": [block.to_dict() for block in self.blocks],
+        }
+
+
+def build_artifact_dashboard(cycle: AnalysisCycle, store: ArtifactStore) -> ArtifactDashboardSpec:
+    blocks = []
+    kind_by_method = {
+        "detect_anomalies": "anomalies",
+        "detect_change_points": "change_point",
+        "decompose_change": "contribution",
+        "segment_rank": "segments",
+        "correlate_metrics": "relationship",
+        "compare_groups": "groups",
+        "compare_periods": "period_comparison",
+        "topic_metric_alignment": "cross_modal",
+        "text_metric_lag": "cross_modal_lag",
+        "explanatory_segments": "cross_modal_segments",
+    }
+    for artifact_ref in cycle.artifact_refs:
+        record = store.load(artifact_ref)
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if record.get("kind") == "analytical":
+            method = str(payload.get("method", "unknown"))
+            blocks.append(
+                ArtifactDashboardBlock(
+                    f"block-{artifact_ref}",
+                    kind_by_method.get(method, "diagnostic"),
+                    str(payload.get("summary", method))[:200],
+                    str(payload.get("status", "completed")),
+                    ArtifactProvenance(
+                        artifact_ref,
+                        method,
+                        int(payload.get("sample_size", 0)),
+                        tuple(str(item) for item in payload.get("limitations", [])),
+                    ),
+                    dict(payload.get("observations", {})),
+                )
+            )
+        elif record.get("kind") == "text_ml":
+            method = str(payload.get("method", "text_ml"))
+            blocks.append(
+                ArtifactDashboardBlock(
+                    f"block-{artifact_ref}",
+                    "text_ml",
+                    "文本主题与聚类",
+                    str(payload.get("status", "completed")),
+                    ArtifactProvenance(artifact_ref, method, len(payload.get("topics", []))),
+                    {
+                        "topics": payload.get("topics", []),
+                        "clusters": payload.get("clusters", []),
+                        "word_cloud_svg": payload.get("word_cloud_svg", ""),
+                    },
+                )
+            )
+    return ArtifactDashboardSpec(f"dashboard-{cycle.cycle_id}", tuple(blocks))

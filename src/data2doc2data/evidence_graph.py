@@ -6,9 +6,12 @@ from dataclasses import dataclass
 import re
 from typing import Any, Mapping
 
+from .analysis_cycle import AnalysisCycle
+from .artifacts import ArtifactStore
+
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-NODE_TYPES = frozenset({"data_source", "compute_plan", "metric", "data_signal", "document_source", "document_excerpt", "claim", "hypothesis", "validation", "conclusion", "action"})
+NODE_TYPES = frozenset({"data_source", "compute_plan", "metric", "data_signal", "document_source", "document_excerpt", "claim", "hypothesis", "validation", "conclusion", "action", "report", "analytical_artifact", "text_theme"})
 RELATIONSHIPS = frozenset({"derived_from", "supports", "contradicts", "tests", "insufficient_for"})
 STATUSES = frozenset({"pending", "verified", "supported", "contradicted", "insufficient"})
 
@@ -90,3 +93,28 @@ class EvidenceGraph:
             tuple(EvidenceEdge(**item) for item in payload.get("edges", ())),
             payload.get("contract_version"),
         )
+
+
+def build_cycle_evidence_graph(cycle: AnalysisCycle, store: ArtifactStore) -> EvidenceGraph:
+    nodes = []
+    edges = []
+    for artifact_ref in cycle.artifact_refs:
+        record = store.load(artifact_ref)
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        kind = "text_theme" if record.get("kind") == "text_ml" else "analytical_artifact"
+        label = str(payload.get("summary") or payload.get("method") or kind)[:500]
+        status = str(payload.get("status", "completed"))
+        node_status = "verified" if status == "completed" else "insufficient"
+        nodes.append(EvidenceNode(artifact_ref, kind, label, node_status, artifact_ref))
+    node_ids = {node.node_id for node in nodes}
+    edge_index = 0
+    for analysis_round in cycle.rounds:
+        for source in analysis_round.decision.prior_artifact_refs:
+            for target in analysis_round.artifact_refs:
+                if source not in node_ids or target not in node_ids:
+                    continue
+                edge_index += 1
+                edges.append(EvidenceEdge(f"edge-cycle-{edge_index}", source, target, "derived_from"))
+    return EvidenceGraph(f"graph-{cycle.cycle_id}", tuple(nodes), tuple(edges))

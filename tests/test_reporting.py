@@ -1,7 +1,12 @@
 from html.parser import HTMLParser
+from pathlib import Path
+import tempfile
 import unittest
 
-from data2doc2data.reporting import build_html_report
+from data2doc2data.analysis_cycle import AnalysisCycle, AnalysisRound, RoundDecision
+from data2doc2data.artifacts import ArtifactStore
+from data2doc2data.diagnostics import AnalyticalArtifact
+from data2doc2data.reporting import build_html_report, build_html_report_from_cycle
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 
 
@@ -65,6 +70,35 @@ class ReportingTests(unittest.TestCase):
         self.assertNotIn("/Users/", artifact.html)
         self.assertNotIn("sample_rows", artifact.html)
         self.assertIn("当前任务尚未接入可分析的数据快照", artifact.html)
+
+    def test_cycle_report_contains_methods_limits_and_no_external_assets(self):
+        task = AnalysisTask.create("task-cycle-report", "异常复盘", "解释 GMV 异常")
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory) / "artifacts")
+            artifact = AnalyticalArtifact(
+                "artifact-report",
+                "detect_anomalies",
+                "completed",
+                "检测到 1 个异常点。",
+                {"anomaly_count": 1},
+                10,
+                {"method": "rolling_median_mad", "window": 5},
+                limitations=("异常关联不代表因果。",),
+            )
+            store.save_analytical(artifact)
+            cycle = AnalysisCycle.start("cycle-report").complete_round(
+                AnalysisRound.completed(
+                    RoundDecision(1, "continue", "detect_anomalies", {"metric": "gmv"}, "检查异常"),
+                    (artifact.artifact_id,),
+                )
+            )
+
+            report = build_html_report_from_cycle(task, cycle, store)
+
+        self.assertIn("rolling_median_mad", report.html)
+        self.assertIn("异常关联不代表因果", report.html)
+        self.assertNotIn("https://", report.html)
+        self.assertNotIn("src=\"http", report.html)
 
 
 if __name__ == "__main__":

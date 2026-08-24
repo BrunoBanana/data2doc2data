@@ -1,11 +1,12 @@
 from io import StringIO
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
 
 from data2doc2data.cli import main
-from data2doc2data.workspace import AnalysisTask
+from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
 
@@ -87,6 +88,40 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["task_id"], "task-report")
             self.assertEqual(payload["output"], str(report_path.resolve()))
             self.assertEqual(len(payload["sha256"]), 64)
+
+    def test_cli_runs_lists_and_reports_a_model_free_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = root / "config.json"
+            data = root / "metrics.csv"
+            data.write_text(
+                "date,metric,value\n"
+                + "".join(f"2026-01-{index:02d},gmv,{value}\n" for index, value in enumerate([10, 10, 11, 10, 50, 20, 20, 21], 1)),
+                encoding="utf-8",
+            )
+            snapshot = SnapshotRef("dataset", "dataset-cli-cycle", hashlib.sha256(data.read_bytes()).hexdigest())
+            workspace = WorkspaceStore(root / "workbench.sqlite3")
+            workspace.save_task(AnalysisTask.create("task-cli-cycle", "循环复盘", "解释异常", (snapshot,)))
+            output = StringIO()
+
+            exit_code = main(
+                ["--config", str(config_path), "cycle-run", "--task", "task-cli-cycle", "--data", str(data)],
+                stdout=output,
+            )
+            cycle_id = json.loads(output.getvalue())["cycle"]["cycle_id"]
+            artifacts_output = StringIO()
+            main(["--config", str(config_path), "cycle-artifacts", "--cycle", cycle_id], stdout=artifacts_output)
+            report_path = root / "cycle-report.html"
+            report_output = StringIO()
+            report_exit = main(
+                ["--config", str(config_path), "cycle-report", "--cycle", cycle_id, "--output", str(report_path)],
+                stdout=report_output,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(report_exit, 0)
+            self.assertTrue(json.loads(artifacts_output.getvalue())["artifact_refs"])
+            self.assertIn("分析方法、产物与限制", report_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

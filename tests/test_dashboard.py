@@ -1,12 +1,18 @@
+from pathlib import Path
+import tempfile
 import unittest
 
+from data2doc2data.analysis_cycle import AnalysisCycle, AnalysisRound, RoundDecision
+from data2doc2data.artifacts import ArtifactStore
 from data2doc2data.dashboard import (
     DashboardBlock,
     DashboardContractError,
     DashboardSpec,
     FlintChartSpec,
     QueryProvenance,
+    build_artifact_dashboard,
 )
+from data2doc2data.diagnostics import AnalyticalArtifact
 
 
 class DashboardContractTests(unittest.TestCase):
@@ -63,6 +69,34 @@ class DashboardContractTests(unittest.TestCase):
             DashboardBlock("block-1", "chart", "Trend", provenance)
         with self.assertRaisesRegex(DashboardContractError, "block_id"):
             DashboardBlock("bad/id", "kpi", "Rows", provenance, value=12)
+
+    def test_cycle_artifact_becomes_a_provenance_backed_diagnostic_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory) / "artifacts")
+            artifact = AnalyticalArtifact(
+                "artifact-anomaly",
+                "detect_anomalies",
+                "completed",
+                "检测到 1 个异常点。",
+                {"anomalies": [{"date": "2026-01-05", "value": 50}], "anomaly_count": 1},
+                10,
+                {"method": "rolling_median_mad", "window": 5},
+                limitations=("异常不代表因果。",),
+                source_refs=("dataset-1",),
+            )
+            store.save_analytical(artifact)
+            decision = RoundDecision(1, "continue", "detect_anomalies", {"metric": "gmv"}, "检查异常")
+            cycle = AnalysisCycle.start("cycle-dashboard").complete_round(
+                AnalysisRound.completed(decision, (artifact.artifact_id,))
+            )
+
+            dashboard = build_artifact_dashboard(cycle, store)
+
+        block = dashboard.blocks[0]
+        self.assertEqual(block.kind, "anomalies")
+        self.assertEqual(block.provenance.artifact_ref, artifact.artifact_id)
+        self.assertEqual(block.provenance.method, "detect_anomalies")
+        self.assertIn("异常不代表因果。", block.provenance.limitations)
 
 
 if __name__ == "__main__":

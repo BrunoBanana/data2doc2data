@@ -41,7 +41,18 @@ class McpProtocolTests(unittest.TestCase):
 
         names = {tool["name"] for tool in response["result"]["tools"]}
         self.assertEqual(names, TOOL_NAMES)
-        self.assertEqual(TOOL_NAMES, {"analyze", "check_rules", "source_profile", "generate_html_report"})
+        self.assertEqual(
+            TOOL_NAMES,
+            {
+                "analyze",
+                "check_rules",
+                "source_profile",
+                "generate_html_report",
+                "run_analysis_cycle",
+                "list_cycle_artifacts",
+                "generate_cycle_html_report",
+            },
+        )
         for tool in response["result"]["tools"]:
             self.assertTrue(tool["description"])
             self.assertIn("type", tool["inputSchema"])
@@ -205,6 +216,52 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(report_path.name, "report.html")
         self.assertIn("利润与履约复盘", report_path.read_text(encoding="utf-8"))
 
+    def test_mcp_runs_and_reports_the_same_local_cycle_contract(self):
+        store, tmp = make_store()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        data = root / "metrics.csv"
+        data.write_text(
+            "date,metric,value\n"
+            + "".join(f"2026-01-{index:02d},gmv,{value}\n" for index, value in enumerate([10, 10, 11, 10, 50, 20, 20, 21], 1)),
+            encoding="utf-8",
+        )
+        import hashlib
+
+        from data2doc2data.workspace import SnapshotRef
+
+        snapshot = SnapshotRef("dataset", "dataset-mcp-cycle", hashlib.sha256(data.read_bytes()).hexdigest())
+        WorkspaceStore(store.workspace_database_path).save_task(
+            AnalysisTask.create("task-mcp-cycle", "MCP 循环", "解释异常", (snapshot,))
+        )
+
+        run = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "run_analysis_cycle",
+                    "arguments": {"task_id": "task-mcp-cycle", "data_path": str(data)},
+                },
+            },
+            store,
+        )
+        cycle_id = json.loads(run["result"]["content"][0]["text"])["cycle"]["cycle_id"]
+        report = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "generate_cycle_html_report", "arguments": {"cycle_id": cycle_id}},
+            },
+            store,
+        )
+
+        self.assertNotEqual(run["result"].get("isError"), True)
+        self.assertEqual(report["result"]["content"][1]["type"], "resource_link")
+        self.assertNotIn(str(data), run["result"]["content"][0]["text"])
+
 
 class McpServeTests(unittest.TestCase):
     def test_serve_processes_a_stream_and_emits_newline_json(self):
@@ -219,7 +276,7 @@ class McpServeTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         response = json.loads(lines[0])
         self.assertEqual(response["id"], 1)
-        self.assertEqual(len(response["result"]["tools"]), 4)
+        self.assertEqual(len(response["result"]["tools"]), 7)
 
     def test_serve_skips_invalid_json_with_a_parse_error(self):
         store, tmp = make_store()

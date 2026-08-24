@@ -12,6 +12,9 @@ import tempfile
 import unicodedata
 from typing import Any, Mapping, Sequence
 
+from .analysis_cycle import AnalysisCycle
+from .artifacts import ArtifactStore
+from .evidence_graph import build_cycle_evidence_graph
 from .workspace import AnalysisTask
 
 
@@ -90,6 +93,62 @@ def build_html_report(
 <section class="sources"><h2>来源与计算口径</h2>{_sources(task, blocks, claims)}</section>
 </main><footer>由 Data2Doc2Data 本地工作台生成 · 单文件 HTML · 可离线打开与打印</footer></body></html>"""
     return HtmlReportArtifact(f"data2doc2data-{task.task_id}.html", body)
+
+
+def build_html_report_from_cycle(
+    task: AnalysisTask,
+    cycle: AnalysisCycle,
+    artifact_store: ArtifactStore,
+    *,
+    run_count: int = 1,
+) -> HtmlReportArtifact:
+    """Build the same standalone report contract directly from persisted artifacts."""
+    graph = build_cycle_evidence_graph(cycle, artifact_store)
+    base = build_html_report(task, None, None, graph.to_dict(), run_count=run_count)
+    cards = []
+    for index, artifact_ref in enumerate(cycle.artifact_refs, 1):
+        record = artifact_store.load(artifact_ref)
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        method = escape(str(payload.get("method", record.get("kind", "artifact"))))
+        status = escape(str(payload.get("status", "completed")))
+        summary = escape(str(payload.get("summary", "已生成本地产物。")))
+        sample_size = escape(str(payload.get("sample_size", len(payload.get("topics", [])))))
+        parameters = payload.get("parameters", {})
+        parameter_text = escape(
+            ", ".join(f"{key}={value}" for key, value in parameters.items())
+            if isinstance(parameters, Mapping)
+            else ""
+        )
+        limitations = payload.get("limitations", [])
+        limitation_html = "".join(f"<li>{escape(str(item))}</li>" for item in limitations if str(item).strip())
+        word_cloud = _safe_embedded_svg(payload.get("word_cloud_svg"))
+        cards.append(
+            f'<article class="finding"><p class="eyebrow">ROUND ARTIFACT {index}</p>'
+            f"<h3>{method}</h3><p>{summary}</p>"
+            f'<div class="meta"><span>状态 {status}</span><span>样本 {sample_size}</span>'
+            f"<span>产物 {escape(artifact_ref)}</span></div>"
+            f"<p><strong>参数与方法：</strong>{parameter_text or method}</p>"
+            f"{word_cloud}<ul>{limitation_html or '<li>未声明额外限制。</li>'}</ul></article>"
+        )
+    section = (
+        '<section><p class="eyebrow">AUDITABLE METHODS</p><h2>分析方法、产物与限制</h2>'
+        + ("".join(cards) or "<p>当前循环尚未形成可交付产物。</p>")
+        + "</section>"
+    )
+    marker = "<section><h2>推荐下一步</h2>"
+    html = base.html.replace(marker, section + marker, 1)
+    return HtmlReportArtifact(base.filename, html)
+
+
+def _safe_embedded_svg(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    lowered = value.lower()
+    if not value.lstrip().startswith("<svg") or "<script" in lowered or "http" in lowered or "javascript:" in lowered:
+        return ""
+    return value
 
 
 def _executive_summary(

@@ -17,10 +17,12 @@ import sys
 from typing import TextIO
 
 from .analysis import InputValidationError, analyze
+from .artifacts import ArtifactStore
 from .config import Profile, ProfileError, ProfileStore
+from .cycle_runner import DemoCycleRunner
 from .evidence_context import build_source_profile
 from .rules import load_ruleset
-from .reporting import safe_report_filename, write_html_report
+from .reporting import build_html_report_from_cycle, safe_report_filename, write_html_report
 from .workbench_api import WorkbenchApiError, WorkbenchService
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
@@ -80,6 +82,37 @@ TOOL_DEFS = (
                 "filename": {"type": "string", "description": "可选的报告文件名；目录部分会被忽略。"},
             },
             "required": ["task_id"],
+        },
+    },
+    {
+        "name": "run_analysis_cycle",
+        "description": "运行最多三轮的本地业务诊断循环；原始数据不进入 MCP 返回值。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string"},
+                "data_path": {"type": "string"},
+                "document_paths": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["task_id", "data_path"],
+        },
+    },
+    {
+        "name": "list_cycle_artifacts",
+        "description": "列出分析循环的本地产物标识与方法摘要，不返回原始记录或本地路径。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"cycle_id": {"type": "string"}},
+            "required": ["cycle_id"],
+        },
+    },
+    {
+        "name": "generate_cycle_html_report",
+        "description": "从持久化分析循环生成单文件离线 HTML 报告。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"cycle_id": {"type": "string"}, "filename": {"type": "string"}},
+            "required": ["cycle_id"],
         },
     },
 )
@@ -165,8 +198,14 @@ def _call_tool(params: dict[str, object], store: ProfileStore) -> dict[str, obje
             return _check_rules_tool(arguments)
         if name == "generate_html_report":
             return _generate_html_report_tool(arguments, store)
+        if name == "run_analysis_cycle":
+            return _run_analysis_cycle_tool(arguments, store)
+        if name == "list_cycle_artifacts":
+            return _list_cycle_artifacts_tool(arguments, store)
+        if name == "generate_cycle_html_report":
+            return _generate_cycle_html_report_tool(arguments, store)
         return _source_profile_tool(store)
-    except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError) as error:
+    except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError, ValueError) as error:
         return {"content": [{"type": "text", "text": str(error)}], "isError": True}
 
 
@@ -234,6 +273,90 @@ def _generate_html_report_tool(arguments: dict[str, object], store: ProfileStore
                 "type": "resource_link",
                 "name": path.name,
                 "title": "Data2Doc2Data HTML report",
+                "uri": path.as_uri(),
+                "mimeType": "text/html",
+                "size": path.stat().st_size,
+            },
+        ]
+    }
+
+
+def _run_analysis_cycle_tool(arguments: dict[str, object], store: ProfileStore) -> dict[str, object]:
+    task_id = arguments.get("task_id")
+    data_path = arguments.get("data_path")
+    document_paths = arguments.get("document_paths", [])
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ProtocolError(-32602, "task_id must be a non-empty string")
+    if not isinstance(data_path, str) or not data_path.strip():
+        raise ProtocolError(-32602, "data_path must be a non-empty string")
+    if not isinstance(document_paths, list) or any(not isinstance(path, str) for path in document_paths):
+        raise ProtocolError(-32602, "document_paths must be a list of strings")
+    workspace = WorkspaceStore(store.workspace_database_path)
+    task = workspace.get_task(task_id.strip())
+    if task is None:
+        raise WorkspaceStoreError("task not found")
+    result = DemoCycleRunner(workspace).run(task, Path(data_path), tuple(Path(path) for path in document_paths))
+    payload = {"cycle": result.cycle.to_dict(), "artifact_refs": list(result.cycle.artifact_refs)}
+    return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
+
+
+def _list_cycle_artifacts_tool(arguments: dict[str, object], store: ProfileStore) -> dict[str, object]:
+    cycle_id = arguments.get("cycle_id")
+    if not isinstance(cycle_id, str) or not cycle_id.strip():
+        raise ProtocolError(-32602, "cycle_id must be a non-empty string")
+    workspace = WorkspaceStore(store.workspace_database_path)
+    cycle = workspace.get_analysis_cycle(cycle_id.strip())
+    if cycle is None:
+        raise WorkspaceStoreError("analysis cycle not found")
+    artifacts = ArtifactStore(workspace.path.parent / "artifacts")
+    items = []
+    for artifact_ref in cycle.artifact_refs:
+        record = artifacts.load(artifact_ref)
+        payload = record.get("payload", {})
+        items.append(
+            {
+                "artifact_ref": artifact_ref,
+                "kind": record.get("kind"),
+                "method": payload.get("method") if isinstance(payload, dict) else None,
+                "status": payload.get("status") if isinstance(payload, dict) else None,
+            }
+        )
+    return {"content": [{"type": "text", "text": json.dumps({"artifacts": items}, ensure_ascii=False, indent=2)}]}
+
+
+def _generate_cycle_html_report_tool(arguments: dict[str, object], store: ProfileStore) -> dict[str, object]:
+    cycle_id = arguments.get("cycle_id")
+    filename = arguments.get("filename")
+    if not isinstance(cycle_id, str) or not cycle_id.strip():
+        raise ProtocolError(-32602, "cycle_id must be a non-empty string")
+    if filename is not None and not isinstance(filename, str):
+        raise ProtocolError(-32602, "filename must be a string")
+    workspace = WorkspaceStore(store.workspace_database_path)
+    cycle = workspace.get_analysis_cycle(cycle_id.strip())
+    if cycle is None:
+        raise WorkspaceStoreError("analysis cycle not found")
+    context = workspace.get_analysis_cycle_context(cycle.cycle_id)
+    task = workspace.get_task(str(context.get("task_id", "")))
+    if task is None:
+        raise WorkspaceStoreError("analysis cycle task not found")
+    artifact = build_html_report_from_cycle(task, cycle, ArtifactStore(workspace.path.parent / "artifacts"))
+    approved_root = store.path.parent.expanduser().resolve() / "reports"
+    safe_name = safe_report_filename(filename or artifact.filename, artifact.filename)
+    path, digest = write_html_report(artifact, approved_root / safe_name)
+    payload = {
+        "cycle_id": cycle.cycle_id,
+        "filename": path.name,
+        "mime_type": "text/html; charset=utf-8",
+        "byte_count": path.stat().st_size,
+        "sha256": digest,
+    }
+    return {
+        "content": [
+            {"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)},
+            {
+                "type": "resource_link",
+                "name": path.name,
+                "title": "Data2Doc2Data cycle HTML report",
                 "uri": path.as_uri(),
                 "mimeType": "text/html",
                 "size": path.stat().st_size,

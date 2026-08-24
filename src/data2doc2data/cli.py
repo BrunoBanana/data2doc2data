@@ -13,10 +13,12 @@ from .agents.codex import CodexProvider
 from .agents.gateway import AgentGateway
 from .agents.workbuddy import WorkBuddyProvider
 from .analysis import InputValidationError, analyze, load_profile_ruleset
+from .artifacts import ArtifactStore
 from .config import Profile, ProfileError, ProfileStore, default_store
+from .cycle_runner import DemoCycleRunner
 from .rules import load_ruleset
 from .server import create_server
-from .reporting import write_html_report
+from .reporting import build_html_report_from_cycle, write_html_report
 from .workbench_api import WorkbenchApiError, WorkbenchService
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
@@ -89,6 +91,55 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
                 file=output,
             )
             return 0
+        if args.command == "cycle-run":
+            workspace = WorkspaceStore(store.workspace_database_path)
+            task = workspace.get_task(args.task)
+            if task is None:
+                raise WorkspaceStoreError("task not found")
+            result = DemoCycleRunner(workspace).run(
+                task,
+                Path(args.data),
+                tuple(Path(path) for path in args.documents),
+            )
+            print(
+                json.dumps(
+                    {"cycle": result.cycle.to_dict(), "artifact_refs": list(result.cycle.artifact_refs)},
+                    ensure_ascii=False,
+                ),
+                file=output,
+            )
+            return 0
+        if args.command == "cycle-artifacts":
+            workspace = WorkspaceStore(store.workspace_database_path)
+            cycle = workspace.get_analysis_cycle(args.cycle)
+            if cycle is None:
+                raise WorkspaceStoreError("analysis cycle not found")
+            print(
+                json.dumps({"cycle_id": cycle.cycle_id, "artifact_refs": list(cycle.artifact_refs)}, ensure_ascii=False),
+                file=output,
+            )
+            return 0
+        if args.command == "cycle-report":
+            workspace = WorkspaceStore(store.workspace_database_path)
+            cycle = workspace.get_analysis_cycle(args.cycle)
+            if cycle is None:
+                raise WorkspaceStoreError("analysis cycle not found")
+            context = workspace.get_analysis_cycle_context(cycle.cycle_id)
+            task = workspace.get_task(str(context.get("task_id", "")))
+            if task is None:
+                raise WorkspaceStoreError("analysis cycle task not found")
+            artifact = build_html_report_from_cycle(
+                task,
+                cycle,
+                ArtifactStore(workspace.path.parent / "artifacts"),
+                run_count=len(workspace.list_runs(task.task_id)),
+            )
+            path, digest = write_html_report(artifact, Path(args.output))
+            print(
+                json.dumps({"cycle_id": cycle.cycle_id, "output": str(path), "sha256": digest}, ensure_ascii=False),
+                file=output,
+            )
+            return 0
         return _run_setup(store, args.port, args.no_browser, output)
     except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError) as error:
         print(json.dumps({"error": str(error)}), file=output)
@@ -118,6 +169,15 @@ def _build_parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report", help="Generate a standalone HTML report for a workbench task.")
     report.add_argument("--task", required=True, help="Workbench task ID.")
     report.add_argument("--output", required=True, help="Destination .html file.")
+    cycle_run = commands.add_parser("cycle-run", help="Run a persisted model-free local analysis cycle.")
+    cycle_run.add_argument("--task", required=True, help="Workbench task ID.")
+    cycle_run.add_argument("--data", required=True, help="Local analytical CSV path.")
+    cycle_run.add_argument("--documents", nargs="*", default=[], help="Optional local document paths.")
+    cycle_artifacts = commands.add_parser("cycle-artifacts", help="List opaque artifact IDs for a cycle.")
+    cycle_artifacts.add_argument("--cycle", required=True, help="Analysis cycle ID.")
+    cycle_report = commands.add_parser("cycle-report", help="Generate a standalone report from a persisted cycle.")
+    cycle_report.add_argument("--cycle", required=True, help="Analysis cycle ID.")
+    cycle_report.add_argument("--output", required=True, help="Destination .html file.")
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser
 
