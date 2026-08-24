@@ -122,4 +122,27 @@ describe('analysis workbench shell', () => {
     expect(await screen.findByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
     expect(screen.getByText('detect_anomalies')).toBeInTheDocument()
   })
+
+  it('restores the latest completed run when reopening a task', async () => {
+    const snapshotTask = { ...task, snapshot_refs: [{ kind: 'dataset' as const, snapshot_id: 'dataset-1', sha256: 'a'.repeat(64) }] }
+    const api = client([snapshotTask])
+    api.listTaskRuns = async () => [{
+      contract_version: 1, run_id: 'run-latest', task_id: task.task_id, status: 'completed', snapshot_refs: snapshotTask.snapshot_refs,
+      created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z', stale: false, event_count: 12, failure_type: null,
+    }]
+    api.loadRun = async () => ({
+      run: { contract_version: 1, run_id: 'run-latest', task_id: task.task_id, status: 'completed', snapshot_refs: snapshotTask.snapshot_refs, created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z' },
+      events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-latest', nodes: [], edges: [] },
+      artifact_dashboard: { contract_version: 1, dashboard_id: 'dashboard-latest', blocks: [{
+        block_id: 'block-latest', kind: 'period_comparison', title: '最近一次周期比较', status: 'completed',
+        provenance: { artifact_ref: 'artifact-latest', method: 'compare_periods', sample_size: 12, limitations: [] }, observations: {},
+      }] },
+    })
+
+    render(<App client={api} />)
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
+
+    expect(await screen.findByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
+    expect(screen.getByText('最近一次周期比较')).toBeInTheDocument()
+  })
 })

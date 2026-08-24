@@ -19,6 +19,7 @@ describe('DiagnosticBlocks', () => {
     render(<DiagnosticBlocks dashboard={dashboard} />)
 
     expect(screen.getByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
+    expect(screen.getByText('稳健异常检测')).toBeInTheDocument()
     expect(screen.getByText('detect_anomalies')).toBeInTheDocument()
     expect(screen.getByText('样本 10')).toBeInTheDocument()
     expect(screen.getByText('2026-04-13')).toBeInTheDocument()
@@ -63,5 +64,19 @@ describe('DiagnosticBlocks', () => {
 
     expect(screen.getByRole('table', { name: '贡献分解明细' })).toHaveTextContent('华东800680-120100%')
     expect(screen.getByRole('list', { name: '文本聚类' })).toHaveTextContent('履约延迟延迟 · 缺货1 份材料')
+  })
+
+  it('surfaces bounded scalar findings instead of hiding them in artifact json', () => {
+    const dashboard: ArtifactDashboardSpec = {
+      contract_version: 1, dashboard_id: 'dashboard-cycle-4', blocks: [{
+        block_id: 'block-period', kind: 'period_comparison', title: '当前期下降', status: 'completed',
+        provenance: { artifact_ref: 'artifact-period', method: 'compare_periods', sample_size: 20, limitations: [] },
+        observations: { baseline: 0.72, current: 0.64, absolute_change: -0.08, change_percent: -11.11, baseline_count: 10, current_count: 10 },
+      }],
+    }
+
+    render(<DiagnosticBlocks dashboard={dashboard} />)
+
+    expect(screen.getByLabelText('关键计算结果')).toHaveTextContent('基准值0.72当前值0.64绝对变化-0.08变化率-11.11%')
   })
 })

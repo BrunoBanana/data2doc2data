@@ -339,7 +339,7 @@ def build_artifact_dashboard(cycle: AnalysisCycle, store: ArtifactStore) -> Arti
                     "text_ml",
                     "文本主题与聚类",
                     str(payload.get("status", "completed")),
-                    ArtifactProvenance(artifact_ref, method, len(payload.get("topics", []))),
+                    ArtifactProvenance(artifact_ref, method, int(payload.get("document_count", 0))),
                     {
                         "topics": payload.get("topics", []),
                         "clusters": payload.get("clusters", []),

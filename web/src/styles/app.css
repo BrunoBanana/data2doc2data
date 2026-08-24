@@ -399,6 +399,14 @@
 .diagnostic-card dl div:first-child { border-left: 0; }
 .diagnostic-card dt { color: var(--muted); font-size: 9px; }
 .diagnostic-card dd { min-width: 0; margin: 0; overflow: hidden; font: 700 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.diagnostic-card dd strong, .diagnostic-card dd code { display: block; overflow: hidden; text-overflow: ellipsis; }
+.diagnostic-card dd strong { font: 750 10px/1.35 Inter, ui-sans-serif, system-ui, sans-serif; }
+.diagnostic-card dd code { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.diagnostic-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); border: 1px solid var(--line-soft); }
+.diagnostic-facts span { min-width: 0; display: grid; gap: 3px; padding: 9px; border-left: 1px solid var(--line-soft); }
+.diagnostic-facts span:first-child { border-left: 0; }
+.diagnostic-facts small { color: var(--muted); font-size: 9px; }
+.diagnostic-facts strong { font: 750 13px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .diagnostic-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--line-soft); }
 .diagnostic-table-wrap table { width: 100%; border-collapse: collapse; font-size: 10px; }
 .diagnostic-table-wrap caption { padding: 8px; border-bottom: 1px solid var(--line-soft); font-weight: 800; text-align: left; }

@@ -98,6 +98,30 @@ class DashboardContractTests(unittest.TestCase):
         self.assertEqual(block.provenance.method, "detect_anomalies")
         self.assertIn("异常不代表因果。", block.provenance.limitations)
 
+    def test_text_dashboard_counts_source_documents_not_topics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory) / "artifacts")
+            store.save(
+                "artifact-text",
+                "text_ml",
+                {
+                    "status": "completed",
+                    "method": "tfidf_nmf_kmeans",
+                    "document_count": 5,
+                    "topics": [{"topic_id": "topic-1"}, {"topic_id": "topic-2"}],
+                    "clusters": [],
+                    "word_cloud_svg": "<svg></svg>",
+                },
+            )
+            decision = RoundDecision(1, "finish", "analyze_text", {}, "检查文本主题")
+            cycle = AnalysisCycle.start("cycle-text-dashboard").complete_round(
+                AnalysisRound.completed(decision, ("artifact-text",))
+            )
+
+            dashboard = build_artifact_dashboard(cycle, store)
+
+        self.assertEqual(dashboard.blocks[0].provenance.sample_size, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

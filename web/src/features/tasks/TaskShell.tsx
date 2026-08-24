@@ -82,15 +82,16 @@ export function TaskShell(props: TaskShellProps) {
       if (!active) return
       setRuns(items)
       const unfinished = items.find((item) => item.status === 'running' || item.status === 'queued')
-      if (unfinished) {
-        loadRun(unfinished.run_id).then((result) => {
+      const restorable = unfinished ?? items[0]
+      if (restorable) {
+        loadRun(restorable.run_id).then((result) => {
           if (!active) return
           setRunResult(result)
           const stillRunning = result.run.status === 'running' || result.run.status === 'queued'
           setRunning(stillRunning)
           setActiveTab('证据')
           if (stillRunning) {
-            attachRunStream(unfinished.run_id, Math.max(0, ...result.events.map((event) => event.sequence)))
+            attachRunStream(restorable.run_id, Math.max(0, ...result.events.map((event) => event.sequence)))
           } else {
             listTaskRuns().then((latest) => { if (active) setRuns(latest) }).catch(() => undefined)
           }

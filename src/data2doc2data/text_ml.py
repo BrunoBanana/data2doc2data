@@ -100,6 +100,7 @@ class TextMLResult:
     model_versions: Mapping[str, str]
     diagnostics: tuple[Mapping[str, object], ...] = ()
     seed: int = 0
+    document_count: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "keyword_weights", MappingProxyType(dict(self.keyword_weights)))
@@ -140,6 +141,7 @@ def analyze_text_corpus(
             versions,
             ({"code": "empty_corpus", "message": "文本语料为空。"},),
             seed,
+            len(corpus.documents),
         )
 
     vectorizer = TfidfVectorizer(
@@ -163,6 +165,7 @@ def analyze_text_corpus(
             versions,
             ({"code": "empty_vocabulary", "message": "文本没有可分析的有效词项。"},),
             seed,
+            len(corpus.documents),
         )
     terms = np.asarray(vectorizer.get_feature_names_out())
     totals = np.asarray(matrix.sum(axis=0)).ravel()
@@ -187,6 +190,7 @@ def analyze_text_corpus(
             versions,
             ({"code": "small_corpus_fallback", "message": "语料过小，使用单主题 TF-IDF 回退。"},),
             seed,
+            len(corpus.documents),
         )
 
     cluster_count, labels, centroids, distances = _cluster(matrix, seed, max_clusters)
@@ -206,6 +210,7 @@ def analyze_text_corpus(
         versions,
         (),
         seed,
+        len(corpus.documents),
     )
 
 

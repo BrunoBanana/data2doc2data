@@ -481,6 +481,7 @@ def _text_payload(result: TextMLResult) -> dict[str, object]:
         "status": result.status,
         "method": result.method,
         "seed": result.seed,
+        "document_count": result.document_count,
         "model_versions": dict(result.model_versions),
         "keyword_weights": dict(result.keyword_weights),
         "topics": [

@@ -1,5 +1,19 @@
 import type { ArtifactDashboardBlock, ArtifactDashboardSpec } from '../../contracts/dashboard'
 
+const methodLabels: Record<string, string> = {
+  detect_anomalies: '稳健异常检测', detect_change_points: '结构变化点检测', compare_periods: '前后周期比较',
+  segment_rank: '分组差异排名', decompose_change: '变化贡献分解', correlate_metrics: '指标时滞关联',
+  compare_groups: '组间效应比较', tfidf_nmf_kmeans: '文本主题与聚类', tfidf_fallback: '小样本文本主题',
+  local_embeddings: '本地语义聚类', topic_metric_alignment: '文本—指标对齐', text_metric_lag: '文本领先指标检验',
+  explanatory_segments: '解释分组候选',
+}
+const findingLabels: Record<string, string> = {
+  baseline: '基准值', current: '当前值', absolute_change: '绝对变化', change_percent: '变化率',
+  change_date: '变化日期', before_mean: '变化前均值', after_mean: '变化后均值', effect_size: '效应量',
+  best_lag: '最佳滞后', correlation: '相关系数', overlap: '重叠周期', difference: '组间差异',
+  first_mean: '第一组均值', second_mean: '第二组均值', total_delta: '总变化', anomaly_count: '异常点数',
+}
+
 export function DiagnosticBlocks({ dashboard }: { dashboard: ArtifactDashboardSpec }) {
   if (dashboard.blocks.length === 0) return null
   return <section className="diagnostic-dashboard" aria-labelledby="diagnostic-title">
@@ -14,9 +28,14 @@ function DiagnosticBlock({ block }: { block: ArtifactDashboardBlock }) {
   const topics = Array.isArray(block.observations.topics) ? block.observations.topics : []
   const clusters = Array.isArray(block.observations.clusters) ? block.observations.clusters : []
   const svg = safeSvg(block.observations.word_cloud_svg)
+  const findings = Object.entries(findingLabels).flatMap(([key, label]) => {
+    const value = block.observations[key]
+    return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ? [{ key, label, value }] : []
+  }).slice(0, 8)
   return <article className="diagnostic-card" data-kind={block.kind}>
     <div className="diagnostic-card__heading"><div><span>{block.kind.replaceAll('_', ' ')}</span><h3>{block.title}</h3></div><b>{block.status === 'completed' ? '已完成' : '证据不足'}</b></div>
-    <dl><div><dt>方法</dt><dd>{block.provenance.method}</dd></div><div><dt>范围</dt><dd>样本 {block.provenance.sample_size}</dd></div><div><dt>产物</dt><dd>{block.provenance.artifact_ref}</dd></div></dl>
+    <dl><div><dt>方法</dt><dd><strong>{methodLabels[block.provenance.method] ?? '本地诊断'}</strong><code>{block.provenance.method}</code></dd></div><div><dt>范围</dt><dd>样本 {block.provenance.sample_size}</dd></div><div><dt>产物</dt><dd>{block.provenance.artifact_ref}</dd></div></dl>
+    {findings.length > 0 && <div className="diagnostic-facts" aria-label="关键计算结果">{findings.map((finding) => <span key={finding.key}><small>{finding.label}</small><strong>{finding.key === 'change_percent' ? formatPercent(finding.value) : formatValue(finding.value)}</strong></span>)}</div>}
     {anomalies.length > 0 && <div className="diagnostic-table-wrap"><table><caption>异常点明细</caption><thead><tr><th>日期</th><th>数值</th><th>稳健分数</th></tr></thead><tbody>{anomalies.map((item, index) => {
       const row = item as Record<string, unknown>
       return <tr key={`${String(row.date)}-${index}`}><td>{String(row.date ?? '—')}</td><td>{String(row.value ?? '—')}</td><td>{String(row.robust_score ?? '—')}</td></tr>

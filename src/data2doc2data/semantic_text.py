@@ -104,6 +104,7 @@ def semantic_cluster(
             versions,
             lexical.diagnostics,
             seed,
+            lexical.document_count,
         )
     except Exception as exc:
         diagnostic = {
@@ -121,6 +122,7 @@ def semantic_cluster(
             lexical.model_versions,
             (diagnostic, *lexical.diagnostics),
             seed,
+            lexical.document_count,
         )
 
 
