@@ -29,6 +29,9 @@ dev = [
 documents = [
   "markitdown[pdf,docx,xlsx]",
 ]
+semantic = [
+  "sentence-transformers>=3,<6",
+]
 
 [project.urls]
 Homepage = "https://github.com/BrunoBanana/data2doc2data"
