@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from types import MappingProxyType
 from typing import Iterable, Mapping
 
 from .data_profile import profile_standard_csv
+from .analytical_table import load_analytical_table
 from .documents import build_document_corpus
 from .hypotheses import validate_hypothesis_payload, verify_hypothesis
 from .metrics import MetricRow
@@ -59,6 +58,7 @@ class LocalAnalysisTools:
                 "row_count": profile.row_count,
                 "metric_count": len(profile.metrics),
                 "metrics": list(profile.metrics),
+                "dimensions": list(profile.dimensions),
                 "date_range": list(profile.date_range),
                 "quality_issue_count": profile.missing_count + profile.duplicate_count,
             },
@@ -171,9 +171,5 @@ class LocalAnalysisTools:
 
 
 def _load_metric_rows(path: Path) -> list[MetricRow]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        return [
-            MetricRow(date.fromisoformat(str(row["date"])), str(row["metric"]), float(str(row["value"])), index)
-            for index, row in enumerate(reader, start=2)
-        ]
+    table = load_analytical_table(path, "local-tool")
+    return [MetricRow(row.date, row.metric, row.value, row.source_row) for row in table.rows]

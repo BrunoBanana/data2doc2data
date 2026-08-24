@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
-from datetime import date
-import hashlib
-import math
 from pathlib import Path
 from statistics import fmean
 
-from .analysis import MAX_CSV_BYTES
+from .analytical_table import AnalyticalTableError, load_analytical_table
 from .dashboard import DashboardBlock, DashboardSpec, FlintChartSpec, QueryProvenance
 
 
@@ -34,6 +30,7 @@ class DataProfile:
     field_count: int
     date_range: tuple[str, str]
     metrics: tuple[str, ...]
+    dimensions: tuple[str, ...]
     missing_count: int
     duplicate_count: int
     metric_summaries: dict[str, MetricSummary]
@@ -42,63 +39,38 @@ class DataProfile:
 
 def profile_standard_csv(path: Path, snapshot_id: str) -> DataProfile:
     try:
-        content = path.read_bytes()
-        if not content or len(content) > MAX_CSV_BYTES:
-            raise DataProfileError("CSV source is empty or oversized")
-        digest = hashlib.sha256(content).hexdigest()
-        text = content.decode("utf-8")
-        reader = csv.DictReader(text.splitlines())
-        required = {"date", "metric", "value"}
-        if not reader.fieldnames or not required.issubset(reader.fieldnames):
-            raise DataProfileError("CSV must include date, metric, value columns")
-        rows = list(reader)
-    except (OSError, UnicodeDecodeError, csv.Error) as exc:
-        raise DataProfileError(f"cannot profile CSV: {exc}") from exc
-    if not rows:
-        raise DataProfileError("CSV has no data rows")
+        table = load_analytical_table(path, snapshot_id)
+    except AnalyticalTableError as exc:
+        raise DataProfileError(str(exc)) from exc
 
-    missing_count = 0
-    parsed: list[tuple[str, str, float]] = []
-    for row in rows:
-        raw_date = (row.get("date") or "").strip()
-        metric = (row.get("metric") or "").strip()
-        raw_value = (row.get("value") or "").strip()
-        if not raw_date or not metric or not raw_value:
-            missing_count += sum(not value for value in (raw_date, metric, raw_value))
-            continue
-        try:
-            parsed_date = date.fromisoformat(raw_date).isoformat()
-            value = float(raw_value)
-        except ValueError as exc:
-            raise DataProfileError(f"CSV contains an invalid date or value: {exc}") from exc
-        if not math.isfinite(value):
-            raise DataProfileError("CSV values must be finite")
-        parsed.append((parsed_date, metric, value))
-    if not parsed:
-        raise DataProfileError("CSV has no valid metric rows")
-
-    duplicates = len(parsed) - len(set(parsed))
-    dates = sorted({item[0] for item in parsed})
-    metric_names = sorted({item[1] for item in parsed})
+    duplicates = len(table.rows) - len(
+        {
+            (row.date, row.metric, row.value, tuple(row.dimensions.items()))
+            for row in table.rows
+        }
+    )
+    dates = sorted({row.date.isoformat() for row in table.rows})
+    metric_names = sorted({row.metric for row in table.rows})
     summaries = {}
     for metric in metric_names:
-        values = [item[2] for item in parsed if item[1] == metric]
+        values = [row.value for row in table.rows if row.metric == metric]
         summaries[metric] = MetricSummary(len(values), min(values), max(values), fmean(values))
     aggregates: dict[tuple[str, str], list[float]] = {}
-    for item_date, metric, value in parsed:
-        aggregates.setdefault((item_date, metric), []).append(value)
+    for row in table.rows:
+        aggregates.setdefault((row.date.isoformat(), row.metric), []).append(row.value)
     points = tuple(
         {"date": item_date, "metric": metric, "value": fmean(values)}
         for (item_date, metric), values in sorted(aggregates.items())[:1000]
     )
     return DataProfile(
         snapshot_id=snapshot_id,
-        sha256=digest,
-        row_count=len(rows),
-        field_count=len(reader.fieldnames),
+        sha256=table.sha256,
+        row_count=table.source_row_count,
+        field_count=len(table.fields),
         date_range=(dates[0], dates[-1]),
         metrics=tuple(metric_names),
-        missing_count=missing_count,
+        dimensions=table.dimensions,
+        missing_count=table.missing_required_count,
         duplicate_count=duplicates,
         metric_summaries=summaries,
         trend_points=points,
