@@ -149,11 +149,7 @@ def _load_package(catalog_root: Path, case_id: str) -> FlagshipCasePackage:
         "hypotheses",
         {"version", "hypotheses"},
     )
-    _validate_companion(
-        _read_json(expected_path, "flagship case expected outcomes"),
-        "expected outcomes",
-        {"version", "outcomes"},
-    )
+    _validate_expected(_read_json(expected_path, "flagship case expected outcomes"))
     demo_flow = _read_json(demo_flow_path, "flagship case demo flow")
     _validate_companion(
         demo_flow,
@@ -267,6 +263,30 @@ def _read_json(path: Path, label: str) -> dict[str, object]:
 def _validate_companion(value: Mapping[str, object], label: str, fields: set[str]) -> None:
     if set(value) != fields or value.get("version") != 1:
         raise FlagshipCaseError(f"flagship case {label} fields are invalid")
+
+
+def _validate_expected(value: Mapping[str, object]) -> None:
+    allowed = ({"version", "outcomes"}, {"version", "outcomes", "analysis_truth"})
+    if set(value) not in allowed or value.get("version") != 1 or not isinstance(value.get("outcomes"), list):
+        raise FlagshipCaseError("flagship case expected outcomes fields are invalid")
+    truth = value.get("analysis_truth")
+    if truth is None:
+        return
+    fields = {
+        "primary_metric",
+        "anomaly_dates",
+        "change_date",
+        "topic_keywords",
+        "representative_documents",
+        "cycle_tools",
+    }
+    if not isinstance(truth, Mapping) or set(truth) != fields:
+        raise FlagshipCaseError("flagship case analysis truth fields are invalid")
+    if not isinstance(truth.get("primary_metric"), str) or not isinstance(truth.get("change_date"), str):
+        raise FlagshipCaseError("flagship case analysis truth metrics or dates are invalid")
+    for field in ("anomaly_dates", "topic_keywords", "representative_documents", "cycle_tools"):
+        if not isinstance(truth.get(field), list) or any(not isinstance(item, str) for item in truth[field]):
+            raise FlagshipCaseError(f"flagship case analysis truth {field} is invalid")
 
 
 def _contained(root: Path, candidate: Path) -> Path:

@@ -1,5 +1,13 @@
 {
   "version": 1,
+  "analysis_truth": {
+    "primary_metric": "gmv",
+    "anomaly_dates": ["2026-04-13", "2026-04-20", "2026-04-27"],
+    "change_date": "2026-04-13",
+    "topic_keywords": ["活动", "订单", "退款"],
+    "representative_documents": ["merchandising-note.md", "finance-review.md"],
+    "cycle_tools": ["detect_anomalies", "detect_change_points", "segment_rank"]
+  },
   "outcomes": [
     {
       "id": "E1",

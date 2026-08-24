@@ -1,5 +1,13 @@
 {
   "version": 1,
+  "analysis_truth": {
+    "primary_metric": "mrr",
+    "anomaly_dates": [],
+    "change_date": "2026-04-20",
+    "topic_keywords": ["团队", "收入", "留存"],
+    "representative_documents": ["pricing-experiment.md"],
+    "cycle_tools": ["detect_anomalies", "compare_periods", "segment_rank"]
+  },
   "outcomes": [
     {
       "id": "E1",

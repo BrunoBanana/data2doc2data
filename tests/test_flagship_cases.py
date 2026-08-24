@@ -6,7 +6,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from data2doc2data.analytical_table import load_analytical_table
+from data2doc2data.diagnostics import SeriesPoint, detect_anomalies, detect_change_points
+from data2doc2data.documents import build_document_corpus
 from data2doc2data.flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
+from data2doc2data.text_ml import analyze_text_corpus
 
 
 class FlagshipCaseCatalogTest(unittest.TestCase):
@@ -61,6 +65,36 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
             manifest = json.loads(package.demo_flow_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["runner"], "demo")
             self.assertTrue(manifest["use_bundled_hypotheses"])
+
+    def test_built_in_cases_lock_numeric_and_text_ml_ground_truth(self):
+        catalog = FlagshipCaseCatalog.load()
+        for case_id in ("saas-growth-retention", "retail-promotion-fulfillment"):
+            with self.subTest(case_id=case_id):
+                package = catalog.package(case_id)
+                expected = json.loads(package.expected_path.read_text(encoding="utf-8"))
+                truth = expected["analysis_truth"]
+                table = load_analytical_table(package.metrics_path, f"snapshot-{case_id}")
+                points = tuple(
+                    SeriesPoint(row.date, row.value)
+                    for row in table.rows
+                    if row.metric == truth["primary_metric"]
+                )
+                anomalies = detect_anomalies(points, window=5, threshold=4)
+                change = detect_change_points(points, minimum_window=4)
+                text = analyze_text_corpus(build_document_corpus(package.document_paths, f"corpus-{case_id}"), seed=7)
+
+                self.assertEqual(
+                    [item["date"] for item in anomalies.observations["anomalies"]],
+                    truth["anomaly_dates"],
+                )
+                self.assertEqual(change.observations["change_date"], truth["change_date"])
+                discovered = {keyword for topic in text.topics for keyword in topic.keywords}
+                self.assertLessEqual(set(truth["topic_keywords"]), discovered)
+                cited_documents = {
+                    representative.citation.document for topic in text.topics for representative in topic.representatives
+                }
+                self.assertLessEqual(set(truth["representative_documents"]), cited_documents)
+                self.assertEqual(len(truth["cycle_tools"]), 3)
 
     def test_rejects_unknown_or_malformed_case_ids(self):
         catalog = self._catalog_with_valid_package()
