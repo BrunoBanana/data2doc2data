@@ -298,6 +298,9 @@ class WorkbenchService:
 
     def task_dashboard(self, owner_id: str, task_id: str) -> dict[str, object]:
         task = self._owned_task(owner_id, task_id)
+        return self._task_dashboard(task)
+
+    def _task_dashboard(self, task: AnalysisTask) -> dict[str, object]:
         dataset_refs = [ref for ref in task.snapshot_refs if ref.kind == "dataset"]
         dashboard = None
         if dataset_refs:
@@ -339,8 +342,18 @@ class WorkbenchService:
 
     def task_report(self, owner_id: str, task_id: str) -> HtmlReportArtifact:
         task = self._owned_task(owner_id, task_id)
-        combined = self.task_dashboard(owner_id, task_id)
-        runs = self.store.list_runs(task_id)
+        return self._task_report(task)
+
+    def local_task_report(self, task_id: str) -> HtmlReportArtifact:
+        """Generate a report for a local CLI/MCP caller with direct workspace access."""
+        task = self.store.get_task(task_id)
+        if task is None:
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "task not found")
+        return self._task_report(task)
+
+    def _task_report(self, task: AnalysisTask) -> HtmlReportArtifact:
+        combined = self._task_dashboard(task)
+        runs = self.store.list_runs(task.task_id)
         graph = None
         for run in runs:
             candidate = self.store.get_run_artifact(run.run_id, "evidence_graph")

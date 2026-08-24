@@ -3,7 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const dataset = path.resolve('../src/data2doc2data/sample/scenarios/growth-quality-alert/metrics.csv')
-const document = path.resolve('../src/data2doc2data/sample/scenarios/growth-quality-alert/strategy.md')
+const document = path.resolve('../src/data2doc2data/sample/cases/saas-growth-retention/documents/customer-research.md')
 
 test('completes the model-free task journey and downloads an offline report', async ({ page }, testInfo) => {
   const errors: string[] = []
@@ -45,8 +45,13 @@ test('completes the model-free task journey and downloads an offline report', as
     if (/^https?:/.test(request.url())) externalRequests.push(request.url())
   })
   await reportPage.goto(pathToFileURL(reportPath).href)
+  await expect(reportPage).toHaveTitle('增长质量复盘 · Data2Doc2Data 分析报告')
   await expect(reportPage.getByRole('heading', { name: '分析结论' })).toBeVisible()
   await expect(reportPage.getByLabel('证据验证')).toBeVisible()
+  await expect(reportPage.getByRole('heading', { name: '证据与假设' })).toBeVisible()
+  await expect(reportPage.getByRole('heading', { name: '来源与计算口径' })).toBeVisible()
+  await expect(reportPage.getByText(/customer-research\.md · 第/).first()).toBeVisible()
+  await expect(reportPage.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute('content', /default-src 'none'/)
   await expect(reportPage.locator('svg').first()).toBeVisible()
   expect(externalRequests).toEqual([])
   await reportPage.close()

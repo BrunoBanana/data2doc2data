@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from http import HTTPStatus
 import json
 from pathlib import Path
 import sys
@@ -15,6 +16,9 @@ from .analysis import InputValidationError, analyze, load_profile_ruleset
 from .config import Profile, ProfileError, ProfileStore, default_store
 from .rules import load_ruleset
 from .server import create_server
+from .reporting import write_html_report
+from .workbench_api import WorkbenchApiError, WorkbenchService
+from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
 
 def main(argv: list[str] | None = None, stdout=None) -> int:
@@ -26,7 +30,9 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
     try:
         if args.command == "status":
             profile = store.load()
-            print(json.dumps({"configured": profile is not None, "mode": profile.mode if profile else None}), file=output)
+            print(
+                json.dumps({"configured": profile is not None, "mode": profile.mode if profile else None}), file=output
+            )
             return 0
         if args.command == "analyze":
             profile = store.load() or Profile.demo()
@@ -66,10 +72,27 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
                 for check in report["checks"]:
                     print(f"- {check['id']}: {'ok' if check['ok'] else 'failed'}", file=output)
             return 0 if report["ok"] else 1
+        if args.command == "report":
+            service = WorkbenchService(WorkspaceStore(store.workspace_database_path))
+            artifact = service.local_task_report(args.task)
+            path, digest = write_html_report(artifact, Path(args.output))
+            print(
+                json.dumps(
+                    {
+                        "task_id": args.task,
+                        "output": str(path),
+                        "mime_type": "text/html; charset=utf-8",
+                        "sha256": digest,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=output,
+            )
+            return 0
         return _run_setup(store, args.port, args.no_browser, output)
-    except (InputValidationError, ProfileError, OSError) as error:
+    except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError) as error:
         print(json.dumps({"error": str(error)}), file=output)
-        return 2
+        return 4 if isinstance(error, WorkbenchApiError) and error.status == HTTPStatus.NOT_FOUND else 2
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -92,6 +115,9 @@ def _build_parser() -> argparse.ArgumentParser:
     commands.add_parser("mcp", help="Run the MCP stdio tool server for cross-harness tool calls.")
     doctor = commands.add_parser("doctor", help="Verify cases, MCP tools, and host templates without spawning agents.")
     doctor.add_argument("--json", action="store_true", help="Print a machine-readable diagnostic report.")
+    report = commands.add_parser("report", help="Generate a standalone HTML report for a workbench task.")
+    report.add_argument("--task", required=True, help="Workbench task ID.")
+    report.add_argument("--output", required=True, help="Destination .html file.")
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser
 

@@ -20,6 +20,9 @@ from .analysis import InputValidationError, analyze
 from .config import Profile, ProfileError, ProfileStore
 from .evidence_context import build_source_profile
 from .rules import load_ruleset
+from .reporting import safe_report_filename, write_html_report
+from .workbench_api import WorkbenchApiError, WorkbenchService
+from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "data2doc2data"
@@ -61,10 +64,23 @@ TOOL_DEFS = (
     },
     {
         "name": "source_profile",
-        "description": (
-            "返回当前工作区的本地数据画像（记录数、指标、日期范围、文档数），不含任何原始数据行。"
-        ),
+        "description": ("返回当前工作区的本地数据画像（记录数、指标、日期范围、文档数），不含任何原始数据行。"),
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "generate_html_report",
+        "description": (
+            "为本地工作台任务生成可离线打开的单文件 HTML 报告。报告写入受控 reports 目录，"
+            "返回 SHA-256、MIME 类型与本地资源链接。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "要交付的工作台任务 ID。"},
+                "filename": {"type": "string", "description": "可选的报告文件名；目录部分会被忽略。"},
+            },
+            "required": ["task_id"],
+        },
     },
 )
 TOOL_NAMES = {tool["name"] for tool in TOOL_DEFS}
@@ -147,8 +163,10 @@ def _call_tool(params: dict[str, object], store: ProfileStore) -> dict[str, obje
             return _analyze_tool(arguments, store)
         if name == "check_rules":
             return _check_rules_tool(arguments)
+        if name == "generate_html_report":
+            return _generate_html_report_tool(arguments, store)
         return _source_profile_tool(store)
-    except (InputValidationError, ProfileError, OSError) as error:
+    except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError) as error:
         return {"content": [{"type": "text", "text": str(error)}], "isError": True}
 
 
@@ -188,6 +206,40 @@ def _source_profile_tool(store: ProfileStore) -> dict[str, object]:
     source_profile = build_source_profile(profile)
     text = json.dumps(source_profile.to_dict(), ensure_ascii=False, indent=2)
     return {"content": [{"type": "text", "text": text}]}
+
+
+def _generate_html_report_tool(arguments: dict[str, object], store: ProfileStore) -> dict[str, object]:
+    task_id = arguments.get("task_id")
+    filename = arguments.get("filename")
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ProtocolError(-32602, "task_id must be a non-empty string")
+    if filename is not None and not isinstance(filename, str):
+        raise ProtocolError(-32602, "filename must be a string")
+    workspace = WorkspaceStore(store.workspace_database_path)
+    artifact = WorkbenchService(workspace).local_task_report(task_id.strip())
+    approved_root = store.path.parent.expanduser().resolve() / "reports"
+    safe_name = safe_report_filename(filename or artifact.filename, artifact.filename)
+    path, digest = write_html_report(artifact, approved_root / safe_name)
+    payload = {
+        "task_id": task_id.strip(),
+        "filename": path.name,
+        "mime_type": "text/html; charset=utf-8",
+        "byte_count": path.stat().st_size,
+        "sha256": digest,
+    }
+    return {
+        "content": [
+            {"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)},
+            {
+                "type": "resource_link",
+                "name": path.name,
+                "title": "Data2Doc2Data HTML report",
+                "uri": path.as_uri(),
+                "mimeType": "text/html",
+                "size": path.stat().st_size,
+            },
+        ]
+    }
 
 
 def _response(request_id: object, result: object) -> dict[str, object]:

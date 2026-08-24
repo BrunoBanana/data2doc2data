@@ -52,7 +52,8 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         checks = {item["id"]: item for item in report["checks"]}
         self.assertEqual(checks["flagship_cases"]["case_count"], 2)
-        self.assertEqual(checks["mcp_protocol"]["tool_count"], 3)
+        self.assertEqual(checks["mcp_protocol"]["tool_count"], 4)
+        self.assertIn("generate_html_report", checks["mcp_protocol"]["tools"])
         self.assertGreater(checks["source_profile"]["record_count"], 0)
         self.assertEqual(checks["host_templates"]["host_count"], 3)
         self.assertNotIn("/Users/", json.dumps(report))

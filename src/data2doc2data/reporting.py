@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import escape
 import math
+import os
+from pathlib import Path
+import re
+import tempfile
+import unicodedata
 from typing import Any, Mapping, Sequence
 
 from .workspace import AnalysisTask
@@ -14,6 +19,38 @@ from .workspace import AnalysisTask
 class HtmlReportArtifact:
     filename: str
     html: str
+
+
+def safe_report_filename(value: str, fallback: str = "analysis-report.html") -> str:
+    """Return a bounded leaf filename suitable for an approved report directory."""
+    leaf = Path(value).name
+    normalized = unicodedata.normalize("NFKD", leaf).encode("ascii", "ignore").decode("ascii")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", normalized).strip("-._")[:100]
+    if not stem:
+        stem = Path(fallback).stem
+    if stem.lower().endswith(".html"):
+        return stem
+    return f"{stem}.html"
+
+
+def write_html_report(artifact: HtmlReportArtifact, output: Path) -> tuple[Path, str]:
+    """Atomically write a standalone report and return its path and SHA-256 digest."""
+    import hashlib
+
+    target = output.expanduser().resolve()
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    encoded = artifact.html.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
+    ) as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    os.chmod(temporary, 0o600)
+    temporary.replace(target)
+    return target, digest
 
 
 def build_html_report(
@@ -41,7 +78,7 @@ def build_html_report(
 <title>{escape(task.title)} · Data2Doc2Data 分析报告</title><style>{_STYLES}</style></head>
 <body><main>
 <header class="report-header"><p class="eyebrow">DATA2DOC2DATA · LOCAL ANALYSIS REPORT</p><h1>{escape(task.title)}</h1><p class="goal">{escape(task.goal)}</p><div class="meta"><span>任务 {escape(task.task_id)}</span><span>{len(task.snapshot_refs)} 项锁定资产</span><span>{run_count} 次运行</span></div></header>
-<section class="executive"><p class="eyebrow">DECISION BRIEF</p><h2>分析结论</h2><ul>{''.join(f'<li>{item}</li>' for item in summary)}</ul></section>
+<section class="executive"><p class="eyebrow">DECISION BRIEF</p><h2>分析结论</h2><ul>{"".join(f"<li>{item}</li>" for item in summary)}</ul></section>
 {_verification_strip(nodes)}
 {_kpi_strip(kpis)}
 <section><h2>关键发现</h2>{_findings(findings, dashboard is not None)}</section>
@@ -64,7 +101,9 @@ def _executive_summary(
 ) -> list[str]:
     values = {str(block.get("title")): block.get("value") for block in kpis}
     if values:
-        headline = "，".join(f"{escape(label)}为 <strong>{escape(str(value))}</strong>" for label, value in list(values.items())[:4])
+        headline = "，".join(
+            f"{escape(label)}为 <strong>{escape(str(value))}</strong>" for label, value in list(values.items())[:4]
+        )
         first = f"<strong>当前数据底盘已形成。</strong> {headline}。"
     else:
         first = "<strong>尚无可量化结论。</strong> 当前任务尚未接入可分析的数据快照。"
@@ -85,8 +124,7 @@ def _executive_summary(
         "pending": "待验证",
     }
     status_text = (
-        "、".join(f"{escape(labels.get(key, key))} {value}" for key, value in sorted(statuses.items()))
-        or "尚未生成"
+        "、".join(f"{escape(labels.get(key, key))} {value}" for key, value in sorted(statuses.items())) or "尚未生成"
     )
     third = f"<strong>证据过程可审计。</strong> 已保存 {run_count} 次运行；当前证据状态为 {status_text}。"
     return [first, second, third]
@@ -108,10 +146,10 @@ def _verification_strip(nodes: Sequence[Mapping[str, Any]]) -> str:
     pending = max(0, len(nodes) - verified - conflicted)
     return (
         '<section class="verification" aria-label="证据验证">'
-        '<div><span>证据验证</span><strong>可审计状态</strong></div>'
-        f'<div><span>已验证</span><strong>{verified}</strong></div>'
-        f'<div><span>待验证</span><strong>{pending}</strong></div>'
-        f'<div><span>存在冲突</span><strong>{conflicted}</strong></div>'
+        "<div><span>证据验证</span><strong>可审计状态</strong></div>"
+        f"<div><span>已验证</span><strong>{verified}</strong></div>"
+        f"<div><span>待验证</span><strong>{pending}</strong></div>"
+        f"<div><span>存在冲突</span><strong>{conflicted}</strong></div>"
         "</section>"
     )
 
@@ -156,7 +194,9 @@ def _chart_svg(block: Mapping[str, Any]) -> str:
         except (TypeError, ValueError):
             continue
         if math.isfinite(value):
-            points.append((str(row.get(x_field, "")), str(row.get(color_field, "全部")) if color_field else "全部", value))
+            points.append(
+                (str(row.get(x_field, "")), str(row.get(color_field, "全部")) if color_field else "全部", value)
+            )
     if not points:
         return _table(data)
     x_values = list(dict.fromkeys(point[0] for point in points))
@@ -177,7 +217,9 @@ def _chart_svg(block: Mapping[str, Any]) -> str:
             coords.append((x, y))
         color = palette[group_index % len(palette)]
         polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
-        lines.append(f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>')
+        lines.append(
+            f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+        )
         lines.extend(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}"/>' for x, y in coords)
         legend.append(f'<span><i style="background:{color}"></i>{escape(group)}</span>')
     labels = "".join(
@@ -194,21 +236,28 @@ def _table(value: object) -> str:
         return '<p class="empty">没有可展示的聚合记录</p>'
     fields = list(rows[0])[:12]
     head = "".join(f"<th>{escape(str(field))}</th>" for field in fields)
-    body = "".join("<tr>" + "".join(f"<td>{escape(str(row.get(field, '')))}</td>" for field in fields) + "</tr>" for row in rows)
+    body = "".join(
+        "<tr>" + "".join(f"<td>{escape(str(row.get(field, '')))}</td>" for field in fields) + "</tr>" for row in rows
+    )
     return f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def _text_findings(text: Mapping[str, Any] | None, claims: Sequence[Mapping[str, Any]]) -> str:
     if not text:
         return '<section><h2>文本材料与主张</h2><article class="empty"><strong>未导入文本材料。</strong><p>这不会影响数据画像和确定性 Dashboard。</p></article></section>'
-    topics = "".join(f"<span>{escape(str(item))}</span>" for item in _values(text.get("topics"))) or "<span>未识别主题</span>"
+    topics = (
+        "".join(f"<span>{escape(str(item))}</span>" for item in _values(text.get("topics")))
+        or "<span>未识别主题</span>"
+    )
     items = []
     for claim in claims[:100]:
         citation = claim.get("citation") if isinstance(claim.get("citation"), Mapping) else {}
         document = escape(str(citation.get("document", "未知文档")))
         start = escape(str(citation.get("start_line", "—")))
         end = escape(str(citation.get("end_line", "—")))
-        items.append(f'<article class="claim"><span>{escape(str(claim.get("status", "pending")))}</span><p>{escape(str(claim.get("text", "")))}</p><small>{document} · 第 {start}–{end} 行</small></article>')
+        items.append(
+            f'<article class="claim"><span>{escape(str(claim.get("status", "pending")))}</span><p>{escape(str(claim.get("text", "")))}</p><small>{document} · 第 {start}–{end} 行</small></article>'
+        )
     claims_html = "".join(items) or '<p class="empty">未抽取到显式主张</p>'
     return f'<section><h2>文本材料与主张</h2><div class="tags">{topics}</div><div class="claims">{claims_html}</div></section>'
 
@@ -216,7 +265,10 @@ def _text_findings(text: Mapping[str, Any] | None, claims: Sequence[Mapping[str,
 def _evidence_findings(nodes: Sequence[Mapping[str, Any]], graph: Mapping[str, Any] | None) -> str:
     if not graph:
         return '<section><h2>证据与假设</h2><article class="empty"><strong>尚未运行可观察分析。</strong></article></section>'
-    rows = "".join(f'<tr><td>{escape(str(node.get("kind", "")))}</td><td>{escape(str(node.get("label", "")))}</td><td>{escape(str(node.get("status", "")))}</td><td>{escape(str(node.get("artifact_ref") or "—"))}</td></tr>' for node in nodes[:200])
+    rows = "".join(
+        f"<tr><td>{escape(str(node.get('kind', '')))}</td><td>{escape(str(node.get('label', '')))}</td><td>{escape(str(node.get('status', '')))}</td><td>{escape(str(node.get('artifact_ref') or '—'))}</td></tr>"
+        for node in nodes[:200]
+    )
     return f'<section><h2>证据与假设</h2><p>图谱包含 {len(nodes)} 个节点与 {len(_list(graph, "edges"))} 条显式关系；下表只显示可审计状态。</p><div class="table-wrap"><table><thead><tr><th>类型</th><th>内容</th><th>状态</th><th>制品</th></tr></thead><tbody>{rows}</tbody></table></div></section>'
 
 
@@ -245,10 +297,20 @@ def _questions(claims: Sequence[Mapping[str, Any]], nodes: Sequence[Mapping[str,
 
 
 def _sources(task: AnalysisTask, blocks: Sequence[Mapping[str, Any]], claims: Sequence[Mapping[str, Any]]) -> str:
-    assets = "".join(f'<li><strong>{escape(ref.kind)}</strong> · {escape(ref.snapshot_id)} · SHA-256 {escape(ref.sha256)}</li>' for ref in task.snapshot_refs) or "<li>暂无锁定资产</li>"
+    assets = (
+        "".join(
+            f"<li><strong>{escape(ref.kind)}</strong> · {escape(ref.snapshot_id)} · SHA-256 {escape(ref.sha256)}</li>"
+            for ref in task.snapshot_refs
+        )
+        or "<li>暂无锁定资产</li>"
+    )
     calculations = "".join(_provenance(block, expanded=False) for block in blocks)
-    documents = "".join(f'<li>{escape(str((claim.get("citation") or {}).get("document", "未知文档")))}</li>' for claim in claims if isinstance(claim.get("citation"), Mapping))
-    return f'<h3>锁定资产</h3><ul>{assets}</ul><h3>计算口径</h3>{calculations or "<p>暂无计算口径</p>"}<h3>文档引用</h3><ul>{documents or "<li>暂无文档引用</li>"}</ul>'
+    documents = "".join(
+        f"<li>{escape(str((claim.get('citation') or {}).get('document', '未知文档')))}</li>"
+        for claim in claims
+        if isinstance(claim.get("citation"), Mapping)
+    )
+    return f"<h3>锁定资产</h3><ul>{assets}</ul><h3>计算口径</h3>{calculations or '<p>暂无计算口径</p>'}<h3>文档引用</h3><ul>{documents or '<li>暂无文档引用</li>'}</ul>"
 
 
 def _provenance(block: Mapping[str, Any], expanded: bool = False) -> str:
@@ -256,7 +318,7 @@ def _provenance(block: Mapping[str, Any], expanded: bool = False) -> str:
     if not isinstance(provenance, Mapping):
         return ""
     open_attr = " open" if expanded else ""
-    return f'<details{open_attr}><summary>查看计算依据</summary><dl><dt>表达式</dt><dd>{escape(str(provenance.get("expression", "")))}</dd><dt>字段</dt><dd>{escape("、".join(str(item) for item in _values(provenance.get("fields"))))}</dd><dt>快照</dt><dd>{escape(str(provenance.get("snapshot_id", "")))}</dd><dt>结果行数</dt><dd>{escape(str(provenance.get("result_row_count", "")))}</dd></dl></details>'
+    return f"<details{open_attr}><summary>查看计算依据</summary><dl><dt>表达式</dt><dd>{escape(str(provenance.get('expression', '')))}</dd><dt>字段</dt><dd>{escape('、'.join(str(item) for item in _values(provenance.get('fields'))))}</dd><dt>快照</dt><dd>{escape(str(provenance.get('snapshot_id', '')))}</dd><dt>结果行数</dt><dd>{escape(str(provenance.get('result_row_count', '')))}</dd></dl></details>"
 
 
 def _list(value: Mapping[str, Any] | None, key: str) -> list[Mapping[str, Any]]:

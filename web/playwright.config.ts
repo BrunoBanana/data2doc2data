@@ -1,19 +1,21 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const port = process.env.E2E_PORT ?? '8766'
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   timeout: 45_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: 'http://127.0.0.1:8766',
+    baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'PYTHONPATH=../src python -m data2doc2data.cli --config /tmp/data2doc2data-playwright/config-$PPID.json setup --port 8766 --no-browser',
-    url: 'http://127.0.0.1:8766',
+    command: `PYTHONPATH=../src python -m data2doc2data.cli --config /tmp/data2doc2data-playwright/config-$PPID.json setup --port ${port} --no-browser`,
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 30_000,
   },

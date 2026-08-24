@@ -17,8 +17,10 @@ export function ReportExport({ download }: ReportExportProps) {
       const anchor = document.createElement('a')
       anchor.href = url
       anchor.download = artifact.filename
+      document.body.appendChild(anchor)
       anchor.click()
-      URL.revokeObjectURL(url)
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 100)
       setNotice('HTML 报告已生成，可离线打开或打印。')
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '报告生成失败。')

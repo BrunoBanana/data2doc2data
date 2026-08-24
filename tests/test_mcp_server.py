@@ -11,6 +11,8 @@ from data2doc2data.mcp_server import (
     handle_message,
     serve,
 )
+from data2doc2data.workspace import AnalysisTask
+from data2doc2data.workspace_store import WorkspaceStore
 
 
 def make_store():
@@ -32,14 +34,14 @@ class McpProtocolTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {"listChanged": False}})
         self.assertEqual(response["result"]["serverInfo"]["name"], "data2doc2data")
 
-    def test_tools_list_exposes_the_three_evidence_tools(self):
+    def test_tools_list_exposes_evidence_and_report_tools(self):
         store, tmp = make_store()
         self.addCleanup(tmp.cleanup)
         response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, store)
 
         names = {tool["name"] for tool in response["result"]["tools"]}
         self.assertEqual(names, TOOL_NAMES)
-        self.assertEqual(TOOL_NAMES, {"analyze", "check_rules", "source_profile"})
+        self.assertEqual(TOOL_NAMES, {"analyze", "check_rules", "source_profile", "generate_html_report"})
         for tool in response["result"]["tools"]:
             self.assertTrue(tool["description"])
             self.assertIn("type", tool["inputSchema"])
@@ -169,6 +171,40 @@ class McpToolTests(unittest.TestCase):
         text = response["result"]["content"][0]["text"]
         self.assertNotIn("0.66", text)
 
+    def test_generate_html_report_returns_metadata_and_a_local_resource_link(self):
+        store, tmp = make_store()
+        self.addCleanup(tmp.cleanup)
+        WorkspaceStore(store.workspace_database_path).save_task(
+            AnalysisTask.create("task-report", "利润与履约复盘", "判断促销是否值得延续")
+        )
+
+        response = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "generate_html_report",
+                    "arguments": {"task_id": "task-report", "filename": "利润 report.html"},
+                },
+            },
+            store,
+        )
+
+        result = response["result"]
+        payload = json.loads(result["content"][0]["text"])
+        self.assertEqual(payload["task_id"], "task-report")
+        self.assertEqual(payload["mime_type"], "text/html; charset=utf-8")
+        self.assertEqual(len(payload["sha256"]), 64)
+        resource = result["content"][1]
+        self.assertEqual(resource["type"], "resource_link")
+        self.assertEqual(resource["mimeType"], "text/html")
+        self.assertTrue(resource["uri"].startswith("file://"))
+        report_path = Path(resource["uri"].removeprefix("file://"))
+        self.assertEqual(report_path.parent, (store.path.parent / "reports").resolve())
+        self.assertEqual(report_path.name, "report.html")
+        self.assertIn("利润与履约复盘", report_path.read_text(encoding="utf-8"))
+
 
 class McpServeTests(unittest.TestCase):
     def test_serve_processes_a_stream_and_emits_newline_json(self):
@@ -183,7 +219,7 @@ class McpServeTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         response = json.loads(lines[0])
         self.assertEqual(response["id"], 1)
-        self.assertEqual(len(response["result"]["tools"]), 3)
+        self.assertEqual(len(response["result"]["tools"]), 4)
 
     def test_serve_skips_invalid_json_with_a_parse_error(self):
         store, tmp = make_store()

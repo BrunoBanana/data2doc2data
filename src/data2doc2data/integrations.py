@@ -88,7 +88,7 @@ def run_doctor(store: ProfileStore) -> dict[str, object]:
         checks.append(
             {
                 "id": "mcp_protocol",
-                "ok": init_result.get("protocolVersion") == PROTOCOL_VERSION and len(tools) == 3,
+                "ok": init_result.get("protocolVersion") == PROTOCOL_VERSION and len(tools) == 4,
                 "protocol_version": init_result.get("protocolVersion"),
                 "tool_count": len(tools),
                 "tools": [tool.get("name") for tool in tools if isinstance(tool, dict)],
