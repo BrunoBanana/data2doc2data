@@ -35,6 +35,30 @@ class TextDashboardTests(unittest.TestCase):
         self.assertEqual(dashboard.claims[0].status, "pending")
         self.assertNotIn("conclusion", dashboard.to_dict())
 
+    def test_extracts_structured_claim_from_ordinary_business_prose(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.md"
+            path.write_text("五月直播渠道退款率明显上升。", encoding="utf-8")
+            dashboard = build_text_dashboard(build_document_corpus((path,), "corpus-structured"))
+
+        self.assertEqual(len(dashboard.claims), 1)
+        claim = dashboard.claims[0]
+        self.assertEqual(claim.metric_refs, ("refund_rate",))
+        self.assertEqual(claim.direction, "up")
+        self.assertEqual(claim.time_refs, ("五月",))
+        self.assertIn("直播", claim.entities)
+        self.assertEqual(claim.citation.start_line, 1)
+
+    def test_negated_direction_is_marked_ambiguous_instead_of_inverted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.md"
+            path.write_text("六月留存率并未下降。", encoding="utf-8")
+            dashboard = build_text_dashboard(build_document_corpus((path,), "corpus-negated"))
+
+        self.assertEqual(dashboard.claims[0].metric_refs, ("retention_rate",))
+        self.assertEqual(dashboard.claims[0].direction, "ambiguous")
+        self.assertTrue(dashboard.claims[0].negated)
+
 
 if __name__ == "__main__":
     unittest.main()
