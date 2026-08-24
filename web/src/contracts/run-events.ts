@@ -1,7 +1,7 @@
 import type { SnapshotRef } from './workbench'
 
 export type RunEventKind =
-  | 'run.started' | 'run.completed' | 'run.failed'
+  | 'run.started' | 'run.completed' | 'run.failed' | 'run.interrupted'
   | 'step.started' | 'step.completed' | 'step.failed' | 'step.added'
   | 'data.profiled' | 'compute.plan.created' | 'compute.result.created'
   | 'chart.spec.created' | 'chart.rendered' | 'dashboard.updated'
@@ -63,6 +63,12 @@ export interface AnalysisRunResult {
   run: AnalysisRun
   events: RunEvent[]
   evidence_graph: EvidenceGraphSpec
+}
+
+export interface AnalysisRunStart {
+  accepted: true
+  run: AnalysisRun
+  stream_url: string
 }
 
 export interface RunHistoryItem extends AnalysisRun {

@@ -15,6 +15,7 @@ from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
 from .flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
+from .flow_engine import DemoFlowRunner, FlowCancelled
 from .orchestrator import AnalysisOrchestrator
 from .reporting import HtmlReportArtifact, build_html_report
 from .text_dashboard import build_text_dashboard
@@ -33,6 +34,9 @@ class WorkbenchService:
         self.store = store
         self.flagship_cases = FlagshipCaseCatalog.load()
         self._retry_lock = threading.Lock()
+        self._run_lock = threading.Lock()
+        self._run_controls: dict[str, threading.Event] = {}
+        self._run_threads: dict[str, threading.Thread] = {}
 
     def list_flagship_cases(self) -> dict[str, object]:
         return {"cases": [case.to_summary_dict() for case in self.flagship_cases.list()]}
@@ -48,9 +52,7 @@ class WorkbenchService:
             dataset_digest = _file_digest(package.metrics_path)
             if dataset_digest is None:
                 raise FlagshipCaseError("flagship case dataset is unavailable")
-            dataset_ref = SnapshotRef(
-                "dataset", f"dataset-{dataset_digest[:24]}", dataset_digest
-            )
+            dataset_ref = SnapshotRef("dataset", f"dataset-{dataset_digest[:24]}", dataset_digest)
             self.store.register_snapshot(dataset_ref, package.metrics_path)
             attached = self.attach_assets(
                 owner_id,
@@ -136,7 +138,7 @@ class WorkbenchService:
             supplied = tuple(SnapshotRef.from_dict(item) for item in raw_refs if isinstance(item, Mapping))
             if len(supplied) != len(raw_refs):
                 raise WorkspaceContractError("snapshot_refs must contain objects")
-            refs = { (ref.kind, ref.snapshot_id): ref for ref in current.snapshot_refs }
+            refs = {(ref.kind, ref.snapshot_id): ref for ref in current.snapshot_refs}
             refs.update({(ref.kind, ref.snapshot_id): ref for ref in supplied})
             updated = AnalysisTask(
                 task_id=current.task_id,
@@ -155,26 +157,13 @@ class WorkbenchService:
     def start_run(self, owner_id: str, task_id: str, payload: object) -> dict[str, object]:
         body = _body(payload)
         task = self._owned_task(owner_id, task_id)
+        if body.get("execute") is True and body.get("stream") is True:
+            return self._start_streamed_run(task, body)
         if body.get("execute") is True:
-            dataset = next((ref for ref in reversed(task.snapshot_refs) if ref.kind == "dataset"), None)
-            if dataset is None:
-                raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "analysis run requires a dataset snapshot")
-            data_path = self.store.snapshot_path(dataset)
-            if data_path is None or _file_digest(data_path) != dataset.sha256:
-                raise WorkbenchApiError(HTTPStatus.CONFLICT, "dataset snapshot is unavailable or changed")
-            document_paths: list[Path] = []
-            for ref in task.snapshot_refs:
-                if ref.kind != "document":
-                    continue
-                path = self.store.snapshot_path(ref)
-                if path is None or _file_digest(path) != ref.sha256:
-                    raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot is unavailable or changed")
-                document_paths.append(path)
+            data_path, document_paths = self._execution_inputs(task)
             try:
                 proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
-                result = AnalysisOrchestrator(self.store).run(
-                    task, data_path, tuple(document_paths), proposal
-                )
+                result = AnalysisOrchestrator(self.store).run(task, data_path, document_paths, proposal)
                 graph = result.evidence_graph.to_dict()
                 self.store.save_run_artifact(result.run.run_id, "evidence_graph", graph)
             except (ValueError, WorkspaceStoreError) as exc:
@@ -190,13 +179,23 @@ class WorkbenchService:
                 task_id=task.task_id,
                 snapshot_refs=task.snapshot_refs,
             ).transition(RunStatus.RUNNING)
-            event = RunEvent.create(
-                run.run_id, 1, "run.started", "setup", {"snapshot_count": len(run.snapshot_refs)}
-            )
+            event = RunEvent.create(run.run_id, 1, "run.started", "setup", {"snapshot_count": len(run.snapshot_refs)})
             self.store.create_run(run, event)
         except (WorkspaceContractError, WorkspaceStoreError, RunEventError) as exc:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return {"run": run.to_dict()}
+
+    def cancel_run(self, owner_id: str, run_id: str) -> dict[str, object]:
+        if not self.store.owner_can_access_run(run_id, owner_id):
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        run = self.store.get_run(run_id)
+        if run is None:
+            raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
+        with self._run_lock:
+            control = self._run_controls.get(run_id)
+            if control is not None:
+                control.set()
+        return {"accepted": control is not None, "run": run.to_dict()}
 
     def run_graph(self, owner_id: str, run_id: str) -> dict[str, object]:
         if not self.store.owner_can_access_run(run_id, owner_id):
@@ -285,9 +284,7 @@ class WorkbenchService:
             if registered is not None
         ]
         combined_paths = tuple(dict.fromkeys([*registered_paths, *failed_paths]))
-        text_dashboard = build_text_dashboard(
-            build_document_corpus(combined_paths, f"corpus-{task_id}")
-        ).to_dict()
+        text_dashboard = build_text_dashboard(build_document_corpus(combined_paths, f"corpus-{task_id}")).to_dict()
         document_refs = [ref.to_dict() for ref in updated_task.snapshot_refs if ref.kind == "document"]
         self.store.save_task_artifact(
             task_id,
@@ -369,6 +366,83 @@ class WorkbenchService:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return {"events": [event.to_dict() for event in events]}
 
+    def _start_streamed_run(
+        self,
+        task: AnalysisTask,
+        body: Mapping[str, object],
+    ) -> dict[str, object]:
+        data_path, document_paths = self._execution_inputs(task)
+        proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
+        first_event = threading.Event()
+        cancel = threading.Event()
+        state: dict[str, str] = {}
+
+        def observe(event: RunEvent) -> None:
+            if first_event.is_set():
+                return
+            state["run_id"] = event.run_id
+            with self._run_lock:
+                self._run_controls[event.run_id] = cancel
+                self._run_threads[event.run_id] = threading.current_thread()
+            first_event.set()
+
+        def execute() -> None:
+            try:
+                DemoFlowRunner(self.store).run(
+                    task,
+                    data_path,
+                    document_paths,
+                    proposal,
+                    on_event=observe,
+                    cancelled=cancel.is_set,
+                )
+            except FlowCancelled:
+                pass
+            except Exception:
+                # The runner persists a bounded terminal failure event for clients.
+                pass
+            finally:
+                run_id = state.get("run_id")
+                if run_id is not None:
+                    with self._run_lock:
+                        self._run_controls.pop(run_id, None)
+                        self._run_threads.pop(run_id, None)
+
+        thread = threading.Thread(
+            target=execute,
+            name=f"analysis-{task.task_id}",
+            daemon=True,
+        )
+        thread.start()
+        if not first_event.wait(timeout=2.0):
+            raise WorkbenchApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "analysis run did not start")
+        run_id = state["run_id"]
+        run = self.store.get_run(run_id)
+        if run is None:
+            raise WorkbenchApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "analysis run is unavailable")
+        return {
+            "accepted": True,
+            "run": run.to_dict(),
+            "stream_url": f"/api/workbench/runs/{run_id}/stream",
+        }
+
+    def _execution_inputs(self, task: AnalysisTask) -> tuple[Path, tuple[Path, ...]]:
+        dataset = next((ref for ref in reversed(task.snapshot_refs) if ref.kind == "dataset"), None)
+        if dataset is None:
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "analysis run requires a dataset snapshot")
+        data_path = self.store.snapshot_path(dataset)
+        if data_path is None or _file_digest(data_path) != dataset.sha256:
+            raise WorkbenchApiError(HTTPStatus.CONFLICT, "dataset snapshot is unavailable or changed")
+        document_paths: list[Path] = []
+        for ref in task.snapshot_refs:
+            if ref.kind != "document":
+                continue
+            path = self.store.snapshot_path(ref)
+            if path is None or _file_digest(path) != ref.sha256:
+                raise WorkbenchApiError(HTTPStatus.CONFLICT, "document snapshot is unavailable or changed")
+            document_paths.append(path)
+        return data_path, tuple(document_paths)
+
     def _owned_task(self, owner_id: str, task_id: str) -> AnalysisTask:
         task = self.store.get_task_for_owner(task_id, owner_id)
         if task is None:
@@ -388,9 +462,7 @@ class WorkbenchService:
         seeded = [
             {"hypothesis_id": item.get("id"), "text": item.get("text")}
             for item in raw_items[:20]
-            if isinstance(item, Mapping)
-            and isinstance(item.get("id"), str)
-            and isinstance(item.get("text"), str)
+            if isinstance(item, Mapping) and isinstance(item.get("id"), str) and isinstance(item.get("text"), str)
         ]
         return {"hypotheses": seeded}
 

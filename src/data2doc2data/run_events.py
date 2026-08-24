@@ -16,6 +16,7 @@ EVENT_KINDS = frozenset(
         "run.started",
         "run.completed",
         "run.failed",
+        "run.interrupted",
         "step.started",
         "step.completed",
         "step.failed",
@@ -62,8 +63,7 @@ class RunEventError(ValueError):
 def _contains_forbidden_key(value: Any) -> bool:
     if isinstance(value, Mapping):
         return any(
-            str(key).lower() in _FORBIDDEN_SUMMARY_KEYS or _contains_forbidden_key(item)
-            for key, item in value.items()
+            str(key).lower() in _FORBIDDEN_SUMMARY_KEYS or _contains_forbidden_key(item) for key, item in value.items()
         )
     if isinstance(value, (list, tuple)):
         return any(_contains_forbidden_key(item) for item in value)

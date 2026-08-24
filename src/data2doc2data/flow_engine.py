@@ -36,6 +36,10 @@ class FlowPlanError(ValueError):
     """Raised when a connected agent proposes an unsafe or invalid flow."""
 
 
+class FlowCancelled(RuntimeError):
+    """Raised at a safe tool boundary when a user cancels a running flow."""
+
+
 @dataclass(frozen=True)
 class FlowStep:
     step_id: str
@@ -249,7 +253,7 @@ class AgentFlowEngine:
 
         def check_cancelled() -> None:
             if cancelled is not None and cancelled():
-                raise FlowPlanError("analysis run was cancelled")
+                raise FlowCancelled("analysis run was cancelled")
 
         emit("run.started", "setup", {"snapshot_count": len(run.snapshot_refs), "runner": plan.runner})
         try:
@@ -476,6 +480,11 @@ class AgentFlowEngine:
             emit("run.completed", "finish", {"status": completed.status.value})
             self.store.save_run(completed)
             return FlowExecutionResult(completed, tuple(events), profile, dashboard, text_dashboard, final_graph)
+        except FlowCancelled:
+            interrupted = run.transition(RunStatus.INTERRUPTED)
+            emit("run.interrupted", "finish", {"status": interrupted.status.value})
+            self.store.save_run(interrupted)
+            raise
         except Exception as exc:
             emit("run.failed", "finish", {"error_type": type(exc).__name__})
             self.store.save_run(run.transition(RunStatus.FAILED))

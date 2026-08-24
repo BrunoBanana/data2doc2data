@@ -131,9 +131,7 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertIn("H1", [node["node_id"] for node in analysis["evidence_graph"]["nodes"]])
 
         other_cookie, _ = self.authenticate()
-        status, hidden, _ = self.request(
-            "GET", f"/api/workbench/tasks/{task['task_id']}", cookie=other_cookie
-        )
+        status, hidden, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}", cookie=other_cookie)
         self.assertEqual(status, 404, hidden)
 
     def test_assets_runs_event_replay_and_browser_ownership(self):
@@ -198,9 +196,7 @@ class WorkbenchApiTests(unittest.TestCase):
             csrf=self.csrf,
         )
         run_id = started["run"]["run_id"]
-        status, payload, _ = self.request(
-            "GET", f"/api/workbench/runs/{run_id}/events?limit=1001", cookie=self.cookie
-        )
+        status, payload, _ = self.request("GET", f"/api/workbench/runs/{run_id}/events?limit=1001", cookie=self.cookie)
         self.assertEqual(status, 422)
         self.assertIn("limit", payload["error"])
 
@@ -211,16 +207,30 @@ class WorkbenchApiTests(unittest.TestCase):
         digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
         snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
         self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
-        status, _, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+        status, _, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/assets",
+            {"snapshot_refs": [snapshot]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 200)
 
         document = Path(self.temporary_directory.name) / "plan.md"
         document.write_text("# 目标\n主张：收入将持续增长\n", encoding="utf-8")
-        status, imported, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/documents", {"paths": [str(document)]}, cookie=self.cookie, csrf=self.csrf)
+        status, imported, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/documents",
+            {"paths": [str(document)]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 200, imported)
         self.assertEqual(imported["text_dashboard"]["document_count"], 1)
 
-        status, payload, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie)
+        status, payload, _ = self.request(
+            "GET", f"/api/workbench/tasks/{task['task_id']}/dashboard", cookie=self.cookie
+        )
         self.assertEqual(status, 200, payload)
         self.assertEqual(payload["dashboard"]["blocks"][0]["value"], 2)
         self.assertEqual(payload["text_dashboard"]["claims"][0]["status"], "pending")
@@ -283,9 +293,24 @@ class WorkbenchApiTests(unittest.TestCase):
         digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
         snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
         self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
-        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
+        self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/assets",
+            {"snapshot_refs": [snapshot]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
 
-        status, payload, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True, "proposal": {"hypotheses": [{"hypothesis_id": "hypothesis-price", "text": "价格调整影响收入"}]}}, cookie=self.cookie, csrf=self.csrf)
+        status, payload, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {
+                "execute": True,
+                "proposal": {"hypotheses": [{"hypothesis_id": "hypothesis-price", "text": "价格调整影响收入"}]},
+            },
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
 
         self.assertEqual(status, 201, payload)
         self.assertEqual(payload["run"]["status"], "completed")
@@ -306,6 +331,51 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(detail["events"][-1]["kind"], "run.completed")
         self.assertEqual(detail["evidence_graph"]["graph_id"], payload["evidence_graph"]["graph_id"])
 
+    def test_streamed_run_returns_202_and_sse_replays_from_a_cursor(self):
+        task = self.create_task()
+        dataset = Path(self.temporary_directory.name) / "stream.csv"
+        dataset.write_text(
+            "date,metric,value\n2026-01-01,revenue,10\n2026-02-01,revenue,12\n",
+            encoding="utf-8",
+        )
+        digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        snapshot = {
+            "kind": "dataset",
+            "snapshot_id": f"dataset-{digest[:24]}",
+            "sha256": digest,
+        }
+        self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
+        self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/assets",
+            {"snapshot_refs": [snapshot]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+
+        status, started, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True, "stream": True},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+
+        self.assertEqual(status, 202, started)
+        run_id = started["run"]["run_id"]
+        request = Request(
+            f"{self.base_url}/api/workbench/runs/{run_id}/stream?after=1",
+            headers={"Cookie": self.cookie, "Last-Event-ID": "1"},
+        )
+        with urlopen(request, timeout=4) as response:
+            body = response.read().decode("utf-8")
+            self.assertEqual(response.headers["Content-Type"], "text/event-stream; charset=utf-8")
+        event_ids = [int(line.removeprefix("id: ")) for line in body.splitlines() if line.startswith("id: ")]
+        self.assertTrue(event_ids)
+        self.assertTrue(all(event_id > 1 for event_id in event_ids))
+        self.assertEqual(event_ids, sorted(set(event_ids)))
+        self.assertIn('"kind":"run.completed"', body)
+
     def test_failed_run_can_be_retried_idempotently_without_mutating_history(self):
         task = self.create_task()
         dataset = Path(self.temporary_directory.name) / "standard.csv"
@@ -313,18 +383,42 @@ class WorkbenchApiTests(unittest.TestCase):
         digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
         snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
         self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
-        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
-        status, first, _ = self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True}, cookie=self.cookie, csrf=self.csrf)
+        self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/assets",
+            {"snapshot_refs": [snapshot]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        status, first, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 201, first)
 
         retry_body = {"idempotency_key": "retry-button-0001"}
-        status, retried, _ = self.request("POST", f"/api/workbench/runs/{first['run']['run_id']}/retry", retry_body, cookie=self.cookie, csrf=self.csrf)
+        status, retried, _ = self.request(
+            "POST",
+            f"/api/workbench/runs/{first['run']['run_id']}/retry",
+            retry_body,
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 201, retried)
         self.assertNotEqual(retried["run"]["run_id"], first["run"]["run_id"])
         self.assertEqual(retried["retried_from"], first["run"]["run_id"])
         self.assertFalse(retried["replayed"])
 
-        status, repeated, _ = self.request("POST", f"/api/workbench/runs/{first['run']['run_id']}/retry", retry_body, cookie=self.cookie, csrf=self.csrf)
+        status, repeated, _ = self.request(
+            "POST",
+            f"/api/workbench/runs/{first['run']['run_id']}/retry",
+            retry_body,
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 200, repeated)
         self.assertEqual(repeated["run"]["run_id"], retried["run"]["run_id"])
         self.assertTrue(repeated["replayed"])
@@ -337,8 +431,20 @@ class WorkbenchApiTests(unittest.TestCase):
         digest = hashlib.sha256(dataset.read_bytes()).hexdigest()
         snapshot = {"kind": "dataset", "snapshot_id": f"dataset-{digest[:24]}", "sha256": digest}
         self.server.workbench_store.register_snapshot(SnapshotRef.from_dict(snapshot), dataset)
-        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/assets", {"snapshot_refs": [snapshot]}, cookie=self.cookie, csrf=self.csrf)
-        self.request("POST", f"/api/workbench/tasks/{task['task_id']}/runs", {"execute": True}, cookie=self.cookie, csrf=self.csrf)
+        self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/assets",
+            {"snapshot_refs": [snapshot]},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         status, _, _ = self.request(
             "POST",
             f"/api/workbench/tasks/{task['task_id']}/runs",
@@ -348,7 +454,9 @@ class WorkbenchApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 422)
 
-        request = Request(f"{self.base_url}/api/workbench/tasks/{task['task_id']}/report", headers={"Cookie": self.cookie})
+        request = Request(
+            f"{self.base_url}/api/workbench/tasks/{task['task_id']}/report", headers={"Cookie": self.cookie}
+        )
         with urlopen(request, timeout=2) as response:
             html = response.read().decode("utf-8")
             self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")

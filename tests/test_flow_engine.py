@@ -6,6 +6,7 @@ import unittest
 from data2doc2data.flow_engine import (
     ConnectedFlowRunner,
     DemoFlowRunner,
+    FlowCancelled,
     FlowPlanError,
     validate_flow_plan,
 )
@@ -86,6 +87,27 @@ class FlowEngineTests(unittest.TestCase):
 
         self.assertEqual(plan.plan_id, "connected-plan")
         self.assertEqual([step.step_id for step in plan.steps], ["inspect", "profile"])
+
+    def test_demo_runner_persists_an_interrupted_terminal_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "metrics.csv"
+            document = root / "notes.md"
+            data.write_text(
+                "date,metric,value\n2026-01-01,revenue,10\n2026-01-02,revenue,8\n",
+                encoding="utf-8",
+            )
+            document.write_text("# Notes\n", encoding="utf-8")
+            task = _task(data, document)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+
+            with self.assertRaises(FlowCancelled):
+                DemoFlowRunner(store).run(task, data, (document,), cancelled=lambda: True)
+
+            run = store.list_runs(task.task_id)[0]
+            self.assertEqual(run.status.value, "interrupted")
+            self.assertEqual(store.events_after(run.run_id)[-1].kind, "run.interrupted")
 
     def test_connected_runner_rejects_unknown_tools_cycles_and_oversized_plans(self):
         base = {

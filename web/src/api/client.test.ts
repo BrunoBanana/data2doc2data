@@ -129,7 +129,7 @@ describe('WorkbenchClient', () => {
   })
 
   it('starts a structured observable run without private reasoning fields', async () => {
-    const result = { run: { run_id: 'run-1', status: 'completed' }, events: [], evidence_graph: { contract_version: 1, graph_id: 'graph-1', nodes: [], edges: [] } }
+    const result = { run: { run_id: 'run-1', status: 'running' }, stream_url: '/api/workbench/runs/run-1/stream' }
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
       .mockResolvedValueOnce(response(result, 201))
@@ -137,8 +137,42 @@ describe('WorkbenchClient', () => {
 
     await client.startAnalysis('task-1', ['价格调整影响收入'])
 
-    expect(JSON.parse(fetcher.mock.calls[1][1].body as string)).toEqual({ execute: true, proposal: { hypotheses: [{ hypothesis_id: 'hypothesis-1', text: '价格调整影响收入' }] } })
+    expect(JSON.parse(fetcher.mock.calls[1][1].body as string)).toEqual({ execute: true, stream: true, proposal: { hypotheses: [{ hypothesis_id: 'hypothesis-1', text: '价格调整影响收入' }] } })
     expect(fetcher.mock.calls[1][1].body).not.toContain('chain_of_thought')
+  })
+
+  it('reattaches run events from the saved cursor and deduplicates replay', () => {
+    const opened: FakeEventSource[] = []
+    class FakeEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null
+      onerror: (() => void) | null = null
+      closed = false
+      constructor(readonly url: string) { opened.push(this) }
+      close() { this.closed = true }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+    window.sessionStorage.clear()
+    const client = new WorkbenchClient(vi.fn())
+    const received: number[] = []
+    const event = {
+      contract_version: 1,
+      run_id: 'run-1',
+      sequence: 2,
+      kind: 'tool.started',
+      phase: 'tools',
+      summary: {},
+      artifact_refs: [],
+      created_at: '2026-08-24T00:00:00Z',
+    }
+
+    client.openRunEventStream('run-1', 0, (_item, cursor) => received.push(cursor), () => undefined)
+    opened[0].onmessage?.({ lastEventId: '2', data: JSON.stringify(event) } as MessageEvent<string>)
+    opened[0].onmessage?.({ lastEventId: '2', data: JSON.stringify(event) } as MessageEvent<string>)
+    client.openRunEventStream('run-1', 0, () => undefined, () => undefined)
+
+    expect(received).toEqual([2])
+    expect(opened[1].url).toContain('after=2')
+    vi.unstubAllGlobals()
   })
 
   it('surfaces the backend error message', async () => {

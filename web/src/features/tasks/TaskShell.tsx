@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import type { CombinedDashboard, DashboardSpec, TextDashboardSpec } from '../../contracts/dashboard'
-import type { AnalysisRunResult, EvidenceGraphSpec, RunHistoryItem } from '../../contracts/run-events'
+import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../../contracts/run-events'
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
 import { AssistantDrawer } from '../assistant/AssistantDrawer'
 import { DataImport } from '../assets/DataImport'
@@ -26,7 +26,10 @@ interface TaskShellProps {
   applyImport: (path: string, plan: Record<string, string>) => Promise<void>
   loadDashboard: () => Promise<CombinedDashboard>
   importDocuments: (paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
-  startAnalysis: (hypotheses: string[]) => Promise<AnalysisRunResult>
+  startAnalysis: (hypotheses: string[]) => Promise<AnalysisRunStart>
+  loadEvidenceGraph: (runId: string) => Promise<EvidenceGraphSpec>
+  openRunEventStream: (runId: string, after: number, onEvent: (event: RunEvent, cursor: number) => void, onError: () => void) => () => void
+  cancelRun: (runId: string) => Promise<void>
   listTaskRuns: () => Promise<RunHistoryItem[]>
   loadRun: (runId: string) => Promise<AnalysisRunResult>
   retryRun: (runId: string, idempotencyKey: string) => Promise<AnalysisRunResult>
@@ -42,7 +45,7 @@ interface TaskShellProps {
 }
 
 export function TaskShell(props: TaskShellProps) {
-  const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, listTaskRuns, loadRun, retryRun, downloadTaskReport, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
+  const { task, providers, agents, previewLocalPath, uploadFile, previewApi, applyImport, loadDashboard, importDocuments, startAnalysis, loadEvidenceGraph, openRunEventStream, cancelRun, listTaskRuns, loadRun, retryRun, downloadTaskReport, createAgentSession, sendAgentMessage, interruptAgent, decideAgentApproval, openAgentEventStream, onTaskUpdate, onBack, onCreateTask } = props
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('总览')
   const [assistantOpen, setAssistantOpen] = useState(true)
   const [mobileView, setMobileView] = useState<'analysis' | 'process' | 'assistant'>('analysis')
@@ -52,6 +55,7 @@ export function TaskShell(props: TaskShellProps) {
   const [runResult, setRunResult] = useState<AnalysisRunResult | null>(null)
   const [running, setRunning] = useState(false)
   const [runs, setRuns] = useState<RunHistoryItem[]>([])
+  const closeRunStream = useRef<(() => void) | null>(null)
   const readyProvider = providers.find((provider) => provider.state === 'ready' || provider.state === 'connected')
   const datasets = task.snapshot_refs.filter((ref) => ref.kind === 'dataset').length
   const documents = task.snapshot_refs.filter((ref) => ref.kind === 'document').length
@@ -70,9 +74,29 @@ export function TaskShell(props: TaskShellProps) {
 
   useEffect(() => {
     let active = true
-    listTaskRuns().then((items) => { if (active) setRuns(items) }).catch(() => { if (active) setRuns([]) })
+    listTaskRuns().then((items) => {
+      if (!active) return
+      setRuns(items)
+      const unfinished = items.find((item) => item.status === 'running' || item.status === 'queued')
+      if (unfinished) {
+        loadRun(unfinished.run_id).then((result) => {
+          if (!active) return
+          setRunResult(result)
+          const stillRunning = result.run.status === 'running' || result.run.status === 'queued'
+          setRunning(stillRunning)
+          setActiveTab('证据')
+          if (stillRunning) {
+            attachRunStream(unfinished.run_id, Math.max(0, ...result.events.map((event) => event.sequence)))
+          } else {
+            listTaskRuns().then((latest) => { if (active) setRuns(latest) }).catch(() => undefined)
+          }
+        }).catch(() => undefined)
+      }
+    }).catch(() => { if (active) setRuns([]) })
     return () => { active = false }
   }, [listTaskRuns, task.task_id])
+
+  useEffect(() => () => closeRunStream.current?.(), [])
 
   async function addDocuments(paths: string[]) {
     const imported = await importDocuments(paths)
@@ -84,17 +108,41 @@ export function TaskShell(props: TaskShellProps) {
     setRunning(true)
     setDashboardError('')
     try {
-      const result = await startAnalysis(hypotheses)
-      setRunResult(result)
-      const refreshed = await listTaskRuns().catch(() => [])
-      setRuns(refreshed)
+      const started = await startAnalysis(hypotheses)
+      const runId = started.run.run_id
+      const emptyGraph: EvidenceGraphSpec = { contract_version: 1, graph_id: `graph-${runId}`, nodes: [], edges: [] }
+      setRunResult({ run: started.run, events: [], evidence_graph: emptyGraph })
       setActiveTab('证据')
+      attachRunStream(runId, 0)
     } catch (error) {
+      setRunning(false)
       setDashboardError(error instanceof Error ? error.message : '分析运行失败。')
       throw error
-    } finally {
-      setRunning(false)
     }
+  }
+
+  function attachRunStream(runId: string, after: number) {
+    closeRunStream.current?.()
+    closeRunStream.current = openRunEventStream(runId, after, (event) => {
+      setRunResult((current) => {
+        if (!current || current.run.run_id !== runId || current.events.some((item) => item.sequence === event.sequence)) return current
+        const terminalStatus = event.kind === 'run.completed' ? 'completed' : event.kind === 'run.failed' ? 'failed' : event.kind === 'run.interrupted' ? 'interrupted' : current.run.status
+        return { ...current, run: { ...current.run, status: terminalStatus }, events: [...current.events, event].sort((left, right) => left.sequence - right.sequence) }
+      })
+      if (event.kind === 'node.added' || event.kind === 'node.updated' || event.kind === 'edge.added' || event.kind === 'edge.activated') {
+        loadEvidenceGraph(runId).then((graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current)).catch(() => undefined)
+      }
+      if (event.kind === 'run.completed' || event.kind === 'run.failed' || event.kind === 'run.interrupted') {
+        setRunning(false)
+        loadEvidenceGraph(runId).then((graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current)).catch(() => undefined)
+        listTaskRuns().then(setRuns).catch(() => undefined)
+      }
+    }, () => setDashboardError('实时过程暂时断开，正在等待浏览器自动续接。'))
+  }
+
+  async function stopAnalysis() {
+    if (!runResult || !running) return
+    await cancelRun(runResult.run.run_id)
   }
 
   return <>
@@ -116,7 +164,7 @@ export function TaskShell(props: TaskShellProps) {
         <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => setActiveTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
       </nav>
       <main className="analysis-canvas">
-        <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{datasets ? <button className="button button--primary" type="button" disabled={running} onClick={() => runAnalysis([])}>{running ? '分析运行中…' : '运行分析'}</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
+        <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{running ? <button className="button button--quiet" type="button" onClick={stopAnalysis}>停止当前任务</button> : datasets ? <button className="button button--primary" type="button" onClick={() => runAnalysis([])}>运行分析</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
         <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}
         {loadingDashboard && <section className="dashboard-loading" aria-busy="true">正在基于锁定快照生成 Dashboard…</section>}

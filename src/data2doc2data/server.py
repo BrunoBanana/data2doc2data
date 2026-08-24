@@ -43,9 +43,7 @@ MAX_REQUEST_BYTES = 8_000_000
 SESSION_EVENTS_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/events")
 SESSION_MESSAGES_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/messages")
 SESSION_INTERRUPT_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/interrupt")
-SESSION_APPROVAL_ROUTE = re.compile(
-    r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/approvals/([A-Za-z0-9._:-]{1,200})"
-)
+SESSION_APPROVAL_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/approvals/([A-Za-z0-9._:-]{1,200})")
 INGEST_MUTATION_ROUTES = frozenset(
     {
         "/api/ingest/upload",
@@ -63,9 +61,12 @@ WORKBENCH_TASK_DOCUMENTS_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._
 WORKBENCH_TASK_DASHBOARD_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/dashboard")
 WORKBENCH_TASK_REPORT_ROUTE = re.compile(r"/api/workbench/tasks/([A-Za-z0-9._:-]{1,200})/report")
 WORKBENCH_RUN_EVENTS_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/events")
+WORKBENCH_RUN_STREAM_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/stream")
 WORKBENCH_RUN_GRAPH_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/graph")
 WORKBENCH_RUN_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})")
 WORKBENCH_RUN_RETRY_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/retry")
+WORKBENCH_RUN_CANCEL_ROUTE = re.compile(r"/api/workbench/runs/([A-Za-z0-9._:-]{1,200})/cancel")
+RUN_TERMINAL_EVENTS = frozenset({"run.completed", "run.failed", "run.interrupted"})
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
@@ -240,10 +241,7 @@ def _validate_knowledge_path(path: str) -> str | None:
     candidate = Path(path).expanduser()
     if not candidate.is_dir():
         return "文档目录不存在，确定性结论可能缺少证据来源。"
-    documents = [
-        child for child in candidate.iterdir()
-        if child.is_file() and child.suffix.lower() in {".md", ".txt"}
-    ]
+    documents = [child for child in candidate.iterdir() if child.is_file() and child.suffix.lower() in {".md", ".txt"}]
     if not documents:
         return "文档目录中没有 .md/.txt 文档，确定性结论可能缺少证据来源。"
     return None
@@ -361,6 +359,8 @@ def ingest_api_snapshot(
             result["agent_plan"] = agent_plan.to_dict()
             result["agent_used"] = True
     return result
+
+
 class CompanionHandler(BaseHTTPRequestHandler):
     server: ThreadingHTTPServer
 
@@ -409,6 +409,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         run_events_match = WORKBENCH_RUN_EVENTS_ROUTE.fullmatch(path)
         if run_events_match:
             self._get_workbench_run_events(run_events_match.group(1))
+            return
+        run_stream_match = WORKBENCH_RUN_STREAM_ROUTE.fullmatch(path)
+        if run_stream_match:
+            self._stream_workbench_run(run_stream_match.group(1))
             return
         run_graph_match = WORKBENCH_RUN_GRAPH_ROUTE.fullmatch(path)
         if run_graph_match:
@@ -521,6 +525,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
         retry_match = WORKBENCH_RUN_RETRY_ROUTE.fullmatch(path)
         if retry_match:
             self._retry_workbench_run(retry_match.group(1))
+            return
+        cancel_match = WORKBENCH_RUN_CANCEL_ROUTE.fullmatch(path)
+        if cancel_match:
+            self._cancel_workbench_run(cancel_match.group(1))
             return
         if path == "/api/agent-sessions":
             self._create_agent_session()
@@ -668,6 +676,57 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except WorkbenchApiError as error:
             self._send_json(error.status, {"error": str(error)})
 
+    def _stream_workbench_run(self, run_id: str) -> None:
+        try:
+            owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                cursor = max(
+                    0,
+                    int(query.get("after", ["0"])[0]),
+                    int(self.headers.get("Last-Event-ID", "0")),
+                )
+            except (TypeError, ValueError):
+                raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "event cursor is invalid")
+            self._workbench().events_after(owner_id, run_id, cursor, 1)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Connection", "close")
+            self._send_security_headers()
+            self.end_headers()
+            self.close_connection = True
+            last_keepalive = time.monotonic()
+            while True:
+                payload = self._workbench().events_after(owner_id, run_id, cursor, 100)
+                events = payload["events"]
+                if events:
+                    for event in events:
+                        sequence = int(event["sequence"])
+                        if sequence <= cursor:
+                            continue
+                        data = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                        self.wfile.write(f"id: {sequence}\n".encode("ascii"))
+                        self.wfile.write(b"data: " + data + b"\n\n")
+                        self.wfile.flush()
+                        cursor = sequence
+                        if event["kind"] in RUN_TERMINAL_EVENTS:
+                            return
+                    continue
+                run = self.server.workbench_store.get_run(run_id)
+                if run is None or run.status.value in {"completed", "failed", "interrupted"}:
+                    return
+                if time.monotonic() - last_keepalive >= 5.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_keepalive = time.monotonic()
+                time.sleep(0.05)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except WorkbenchApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+
     def _get_workbench_run_graph(self, run_id: str) -> None:
         try:
             owner_id = self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
@@ -743,7 +802,20 @@ class CompanionHandler(BaseHTTPRequestHandler):
         try:
             owner_id = self._authorize_agent_mutation()
             payload = self._workbench().start_run(owner_id, task_id, self._read_json())
-            self._send_json(HTTPStatus.CREATED, payload)
+            status = HTTPStatus.ACCEPTED if payload.get("accepted") is True else HTTPStatus.CREATED
+            self._send_json(status, payload)
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (WorkbenchApiError, ValueError) as error:
+            status = error.status if isinstance(error, WorkbenchApiError) else HTTPStatus.UNPROCESSABLE_ENTITY
+            self._send_json(status, {"error": str(error)})
+
+    def _cancel_workbench_run(self, run_id: str) -> None:
+        try:
+            owner_id = self._authorize_agent_mutation()
+            self._read_json()
+            payload = self._workbench().cancel_run(owner_id, run_id)
+            self._send_json(HTTPStatus.ACCEPTED, payload)
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except (WorkbenchApiError, ValueError) as error:
@@ -957,7 +1029,11 @@ class CompanionHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/assets/"):
             asset = (dist_root / path.lstrip("/")).resolve()
-            if dist_root not in asset.parents or not asset.is_file() or asset.suffix not in {".js", ".css", ".svg", ".woff2"}:
+            if (
+                dist_root not in asset.parents
+                or not asset.is_file()
+                or asset.suffix not in {".js", ".css", ".svg", ".woff2"}
+            ):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
                 return
             self._send_static_asset(asset)

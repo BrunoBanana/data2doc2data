@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, FlagshipCaseSummary, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
-import type { AnalysisRunResult, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
+import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -24,6 +24,13 @@ export type AgentEventStream = (
   sessionId: string,
   after: number,
   onEvent: (event: AgentEvent, eventId: number) => void,
+  onError: () => void,
+) => () => void
+
+export type RunEventStream = (
+  runId: string,
+  after: number,
+  onEvent: (event: RunEvent, cursor: number) => void,
   onError: () => void,
 ) => () => void
 
@@ -123,10 +130,11 @@ export class WorkbenchClient {
     return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/documents`, { paths })
   }
 
-  async startAnalysis(taskId: string, hypotheses: string[]): Promise<AnalysisRunResult> {
+  async startAnalysis(taskId: string, hypotheses: string[]): Promise<AnalysisRunStart> {
     await this.ensureSession()
     return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/runs`, {
       execute: true,
+      stream: true,
       proposal: {
         hypotheses: hypotheses.slice(0, 20).map((hypothesis, index) => ({
           hypothesis_id: `hypothesis-${index + 1}`,
@@ -134,6 +142,34 @@ export class WorkbenchClient {
         })),
       },
     })
+  }
+
+  openRunEventStream: RunEventStream = (runId, after, onEvent, onError) => {
+    const key = `d2d2d.run.cursor.${runId}`
+    const saved = readSessionCursor(key)
+    let cursor = Math.max(0, after, saved)
+    const source = new EventSource(`/api/workbench/runs/${encodeURIComponent(runId)}/stream?after=${cursor}`)
+    source.onmessage = (message) => {
+      try {
+        const parsed = JSON.parse(message.data) as RunEvent
+        const eventId = Number.parseInt(message.lastEventId, 10)
+        const next = Number.isFinite(eventId) ? eventId : parsed.sequence
+        if (parsed.run_id !== runId || !Number.isFinite(next) || next <= cursor) return
+        cursor = next
+        writeSessionCursor(key, cursor)
+        onEvent(parsed, cursor)
+        if (['run.completed', 'run.failed', 'run.interrupted'].includes(parsed.kind)) source.close()
+      } catch {
+        onError()
+      }
+    }
+    source.onerror = onError
+    return () => source.close()
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    await this.ensureSession()
+    await this.mutate(`/api/workbench/runs/${encodeURIComponent(runId)}/cancel`, {})
   }
 
   async runEventsAfter(runId: string, after: number): Promise<RunEvent[]> {
@@ -299,4 +335,21 @@ function fileAsBase64(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function readSessionCursor(key: string): number {
+  try {
+    const value = Number.parseInt(globalThis.sessionStorage?.getItem(key) ?? '0', 10)
+    return Number.isFinite(value) && value >= 0 ? value : 0
+  } catch {
+    return 0
+  }
+}
+
+function writeSessionCursor(key: string, value: number): void {
+  try {
+    globalThis.sessionStorage?.setItem(key, String(value))
+  } catch {
+    // Cursor persistence is an enhancement; in-memory dedupe still applies.
+  }
 }

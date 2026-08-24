@@ -6,6 +6,7 @@ from data2doc2data.run_events import RunEvent, RunEventError, validate_event_str
 class RunEventContractTests(unittest.TestCase):
     def test_flow_events_cover_live_graph_tool_and_knowledge_lifecycle(self):
         kinds = (
+            "run.interrupted",
             "plan.created",
             "plan.revised",
             "step.added",
