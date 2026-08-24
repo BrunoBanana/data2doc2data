@@ -79,4 +79,19 @@ describe('DiagnosticBlocks', () => {
 
     expect(screen.getByLabelText('关键计算结果')).toHaveTextContent('基准值0.72当前值0.64绝对变化-0.08变化率-11.11%')
   })
+
+  it('explains an unavailable diagnostic instead of showing an ambiguous evidence label', () => {
+    const dashboard: ArtifactDashboardSpec = {
+      contract_version: 1, dashboard_id: 'dashboard-cycle-5', blocks: [{
+        block_id: 'block-text', kind: 'text_ml', title: '文本主题与聚类', status: 'unavailable',
+        provenance: { artifact_ref: 'artifact-text', method: 'tfidf_fallback', sample_size: 1, limitations: [] },
+        observations: {},
+      }],
+    }
+
+    render(<DiagnosticBlocks dashboard={dashboard} />)
+
+    expect(screen.getByText('不可用')).toBeInTheDocument()
+    expect(screen.getByText('当前输入不足以完成该方法；产物已保留，可补充材料后安全重试。')).toBeInTheDocument()
+  })
 })

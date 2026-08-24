@@ -1,7 +1,7 @@
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useReducedMotion } from 'motion/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { EvidenceGraphSpec, RunEvent } from '../../contracts/run-events'
 import { FlowInspector } from './FlowInspector'
@@ -55,23 +55,26 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
       style: { stroke: relationshipColors[edge.relationship] ?? '#6f6b60', strokeWidth: activeEdges.has(edge.id) ? 3 : 1.5 },
       className: edge.conflicted ? 'agent-flow-edge--conflict' : undefined,
     }))
+  const completed = visibleEvents.some((event) => event.kind === 'run.completed')
+  const terminal = completed || visibleEvents.some((event) => event.kind === 'run.failed' || event.kind === 'run.interrupted')
+  const cycleProgress = analysisCycleProgress(visibleEvents)
+  const previousViewport = useRef({ nodeCount: 0, terminal: false })
 
   useEffect(() => {
-    if (!flow || nodes.length === 0) return
+    const previous = previousViewport.current
+    previousViewport.current = { nodeCount: nodes.length, terminal }
+    if (!flow || !shouldAutoFitFlow(previous.nodeCount, nodes.length, previous.terminal, terminal)) return
     const frame = window.requestAnimationFrame(() => {
       flow.fitView({ duration: reducedMotion ? 0 : 240, padding: .14, maxZoom: .9 })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [flow, nodes.length, reducedMotion])
+  }, [flow, nodes.length, reducedMotion, terminal])
 
   function focusNode(nodeId: string) {
     setSelectedId(nodeId)
     const duration = reducedMotion ? 0 : 280
     flow?.fitView({ nodes: [{ id: nodeId }], duration, padding: .9, maxZoom: 1.1 })
   }
-
-  const completed = visibleEvents.some((event) => event.kind === 'run.completed')
-  const terminal = completed || visibleEvents.some((event) => event.kind === 'run.failed' || event.kind === 'run.interrupted')
 
   function jumpToResult() {
     if (pendingCount > 0) {
@@ -89,7 +92,7 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
     <header className="agent-flow-heading">
       <div><p className="eyebrow">LIVE AGENT FLOW</p><h2 id="agent-flow-title">分析过程与证据联动</h2><p>这是可审计事件回放，不是模型隐性思维过程。</p></div>
       <div className="agent-flow-heading__actions">
-        <div className="agent-flow-status" role="status"><span data-state={completed ? 'completed' : paused ? 'paused' : 'running'} />{completed ? '分析完成' : paused ? '回放已暂停' : 'Flow 构建中'}<b>{projection.lastSequence} / {events.at(-1)?.sequence ?? 0} EVENTS</b></div>
+        <div className="agent-flow-status" role="status"><span data-state={completed ? 'completed' : paused ? 'paused' : 'running'} />{completed ? '分析完成' : paused ? '回放已暂停' : 'Flow 构建中'}<b>{cycleProgress.maxRounds ? `${cycleProgress.completedRounds} / ${cycleProgress.maxRounds} 轮 · ${cycleProgress.artifactCount} 产物` : `${projection.lastSequence} / ${events.at(-1)?.sequence ?? 0} EVENTS`}</b></div>
         {!reducedMotion && pendingCount > 0 && <div className="agent-flow-playback-controls">
           <button className="button button--quiet" type="button" onClick={togglePaused}>{paused ? '继续播放' : '暂停播放'}</button>
           <label>播放速度<select aria-label="播放速度" value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
@@ -130,6 +133,24 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
       <FlowInspector projection={projection} selected={selected} />
     </div>
   </section>
+}
+
+export function shouldAutoFitFlow(previousNodeCount: number, nodeCount: number, wasTerminal: boolean, terminal: boolean) {
+  return (previousNodeCount === 0 && nodeCount > 0) || (!wasTerminal && terminal)
+}
+
+export function analysisCycleProgress(events: RunEvent[]) {
+  let maxRounds = 0
+  let completedRounds = 0
+  let artifactCount = 0
+  for (const event of events) {
+    if (event.kind === 'cycle.started') maxRounds = Number(event.summary.max_rounds) || maxRounds
+    if (event.kind === 'round.completed') {
+      completedRounds = Math.max(completedRounds, Number(event.summary.round_number) || 0)
+      artifactCount += Number(event.summary.artifact_count) || 0
+    }
+  }
+  return { completedRounds, maxRounds, artifactCount }
 }
 
 function enrichProjection(projection: ReturnType<typeof projectFlowEvents>, graph: EvidenceGraphSpec) {

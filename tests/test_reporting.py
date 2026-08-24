@@ -35,7 +35,15 @@ class ReportingTests(unittest.TestCase):
         text = {"corpus_id": "corpus-1", "document_count": 1, "failure_count": 0, "duplicate_count": 0, "topics": ["收入"], "entities": ["华东区"], "claims": [{"claim_id": "claim-1", "text": "收入将增长", "status": "pending", "citation": {"document": "strategy.md", "sha256": "b" * 64, "start_line": 2, "end_line": 2, "excerpt": "主张：收入将增长"}, "conflicts_with": []}]}
         graph = {"contract_version": 1, "graph_id": "graph-1", "nodes": [{"node_id": "hypothesis-1", "kind": "hypothesis", "label": "价格影响收入", "status": "insufficient", "artifact_ref": None}], "edges": []}
 
-        artifact = build_html_report(task, dashboard, text, graph, run_count=1)
+        diagnostic = {
+            "blocks": [{
+                "block_id": "block-anomaly", "kind": "anomalies", "title": "检测到 1 个异常点", "status": "completed",
+                "provenance": {"artifact_ref": "artifact-anomaly", "method": "detect_anomalies", "sample_size": 26, "limitations": ["异常不代表因果。"]},
+                "observations": {"anomaly_count": 1, "change_percent": -11.1, "anomalies": [{"date": "2026-05-01", "value": 50, "robust_score": 4.2}]},
+            }],
+        }
+
+        artifact = build_html_report(task, dashboard, text, graph, run_count=1, artifact_dashboard=diagnostic)
 
         self.assertTrue(artifact.filename.endswith(".html"))
         self.assertIn("<h2>分析结论</h2>", artifact.html)
@@ -53,6 +61,10 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("推荐下一步", artifact.html)
         self.assertIn("仍需回答的问题", artifact.html)
         self.assertIn("局限与假设", artifact.html)
+        self.assertIn("深度诊断产物", artifact.html)
+        self.assertIn("detect_anomalies", artifact.html)
+        self.assertIn("2026-05-01", artifact.html)
+        self.assertIn("异常不代表因果", artifact.html)
         self.assertIn("dataset-1", artifact.html)
         self.assertIn("count rows", artifact.html)
         self.assertIn("strategy.md · 第 2–2 行", artifact.html)

@@ -32,8 +32,14 @@ function DiagnosticBlock({ block }: { block: ArtifactDashboardBlock }) {
     const value = block.observations[key]
     return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ? [{ key, label, value }] : []
   }).slice(0, 8)
+  const statusLabel = ({ completed: '已完成', unavailable: '不可用', insufficient: '证据不足', failed: '失败' } as Record<string, string>)[block.status] ?? block.status
+  const limitations = block.provenance.limitations.length > 0
+    ? block.provenance.limitations
+    : block.status === 'completed'
+      ? []
+      : ['当前输入不足以完成该方法；产物已保留，可补充材料后安全重试。']
   return <article className="diagnostic-card" data-kind={block.kind}>
-    <div className="diagnostic-card__heading"><div><span>{block.kind.replaceAll('_', ' ')}</span><h3>{block.title}</h3></div><b>{block.status === 'completed' ? '已完成' : '证据不足'}</b></div>
+    <div className="diagnostic-card__heading"><div><span>{block.kind.replaceAll('_', ' ')}</span><h3>{block.title}</h3></div><b data-status={block.status}>{statusLabel}</b></div>
     <dl><div><dt>方法</dt><dd><strong>{methodLabels[block.provenance.method] ?? '本地诊断'}</strong><code>{block.provenance.method}</code></dd></div><div><dt>范围</dt><dd>样本 {block.provenance.sample_size}</dd></div><div><dt>产物</dt><dd>{block.provenance.artifact_ref}</dd></div></dl>
     {findings.length > 0 && <div className="diagnostic-facts" aria-label="关键计算结果">{findings.map((finding) => <span key={finding.key}><small>{finding.label}</small><strong>{finding.key === 'change_percent' ? formatPercent(finding.value) : formatValue(finding.value)}</strong></span>)}</div>}
     {anomalies.length > 0 && <div className="diagnostic-table-wrap"><table><caption>异常点明细</caption><thead><tr><th>日期</th><th>数值</th><th>稳健分数</th></tr></thead><tbody>{anomalies.map((item, index) => {
@@ -54,7 +60,7 @@ function DiagnosticBlock({ block }: { block: ArtifactDashboardBlock }) {
       const documents = Array.isArray(cluster.documents) ? cluster.documents : []
       return <li key={String(cluster.cluster_id ?? index)}><div><strong>{String(cluster.label ?? `聚类 ${index + 1}`)}</strong><span>{Array.isArray(cluster.keywords) ? cluster.keywords.slice(0, 6).join(' · ') : ''}</span></div><b>{documents.length} 份材料</b></li>
     })}</ul>}
-    {block.provenance.limitations.length > 0 && <aside><strong>解释边界</strong><ul>{block.provenance.limitations.map((item) => <li key={item}>{item}</li>)}</ul></aside>}
+    {limitations.length > 0 && <aside><strong>{block.status === 'completed' ? '解释边界' : '为何未完成'}</strong><ul>{limitations.map((item) => <li key={item}>{item}</li>)}</ul></aside>}
   </article>
 }
 

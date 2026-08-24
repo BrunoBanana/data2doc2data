@@ -391,10 +391,14 @@ class WorkbenchService:
         combined = self._task_dashboard(task)
         runs = self.store.list_runs(task.task_id)
         graph = None
+        artifact_dashboard = None
         for run in runs:
             candidate = self.store.get_run_artifact(run.run_id, "evidence_graph")
             if isinstance(candidate, Mapping):
                 graph = candidate
+                diagnostic_candidate = self.store.get_run_artifact(run.run_id, "artifact_dashboard")
+                if isinstance(diagnostic_candidate, Mapping):
+                    artifact_dashboard = diagnostic_candidate
                 break
         return build_html_report(
             task,
@@ -402,6 +406,7 @@ class WorkbenchService:
             combined.get("text_dashboard") if isinstance(combined.get("text_dashboard"), Mapping) else None,
             graph if isinstance(graph, Mapping) else None,
             run_count=len(runs),
+            artifact_dashboard=artifact_dashboard,
         )
 
     def events_after(self, owner_id: str, run_id: str, after: object, limit: object) -> dict[str, object]:

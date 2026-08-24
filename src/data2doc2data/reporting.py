@@ -63,6 +63,7 @@ def build_html_report(
     evidence_graph: Mapping[str, Any] | None,
     *,
     run_count: int,
+    artifact_dashboard: Mapping[str, Any] | None = None,
 ) -> HtmlReportArtifact:
     blocks = _list(dashboard, "blocks")
     kpis = [block for block in blocks if block.get("kind") == "kpi"]
@@ -87,12 +88,51 @@ def build_html_report(
 <section><h2>关键发现</h2>{_findings(findings, dashboard is not None)}</section>
 {_text_findings(text_dashboard, claims)}
 {_evidence_findings(nodes, evidence_graph)}
+{_diagnostic_findings(artifact_dashboard)}
 <section><h2>推荐下一步</h2><ol>{_recommendations(pending, failures, bool(dashboard), bool(text_dashboard))}</ol></section>
 <section><h2>仍需回答的问题</h2><ul>{_questions(claims, nodes)}</ul></section>
 <section><h2>局限与假设</h2><ul><li>报告只使用本机锁定快照生成；模型建议不会覆盖确定性计算结果。</li><li>文本中的主张在获得数据或独立证据核验前保持“待核验”。</li><li>图表展示有界聚合结果，不包含原始记录、凭据或本地文件路径。</li></ul></section>
 <section class="sources"><h2>来源与计算口径</h2>{_sources(task, blocks, claims)}</section>
 </main><footer>由 Data2Doc2Data 本地工作台生成 · 单文件 HTML · 可离线打开与打印</footer></body></html>"""
     return HtmlReportArtifact(f"data2doc2data-{task.task_id}.html", body)
+
+
+def _diagnostic_findings(dashboard: Mapping[str, Any] | None) -> str:
+    blocks = _list(dashboard, "blocks")
+    if not blocks:
+        return '<section><h2>深度诊断产物</h2><article class="empty"><strong>尚未生成多轮诊断产物。</strong></article></section>'
+    cards = []
+    for block in blocks[:20]:
+        provenance = block.get("provenance") if isinstance(block.get("provenance"), Mapping) else {}
+        observations = block.get("observations") if isinstance(block.get("observations"), Mapping) else {}
+        method = escape(str(provenance.get("method", "local_analysis")))
+        artifact_ref = escape(str(provenance.get("artifact_ref", "—")))
+        sample_size = escape(str(provenance.get("sample_size", 0)))
+        scalar_rows = [
+            {"结果": key, "值": value}
+            for key, value in list(observations.items())[:20]
+            if isinstance(value, (str, int, float, bool))
+        ]
+        detail_rows = next(
+            (
+                value[:50]
+                for value in observations.values()
+                if isinstance(value, list) and value and all(isinstance(item, Mapping) for item in value[:50])
+            ),
+            [],
+        )
+        limitations = provenance.get("limitations") if isinstance(provenance.get("limitations"), list) else []
+        limitation_html = "".join(f"<li>{escape(str(item))}</li>" for item in limitations[:20] if str(item).strip())
+        cards.append(
+            '<article class="finding">'
+            f'<p class="eyebrow">{escape(str(block.get("kind", "DIAGNOSTIC"))).upper()}</p>'
+            f'<h3>{escape(str(block.get("title", "本地诊断")))}</h3>'
+            f'<div class="meta"><span>方法 {method}</span><span>样本 {sample_size}</span><span>产物 {artifact_ref}</span></div>'
+            f'{_table(scalar_rows)}{_table(detail_rows)}'
+            f'{_safe_embedded_svg(observations.get("word_cloud_svg"))}'
+            f'<ul>{limitation_html or "<li>未声明额外限制。</li>"}</ul></article>'
+        )
+    return '<section><p class="eyebrow">AUDITABLE DIAGNOSTICS</p><h2>深度诊断产物</h2>' + "".join(cards) + "</section>"
 
 
 def build_html_report_from_cycle(

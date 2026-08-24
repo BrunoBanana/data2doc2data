@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { EvidenceGraphSpec, RunEvent } from '../../contracts/run-events'
-import { AgentFlowCanvas } from './AgentFlowCanvas'
+import { AgentFlowCanvas, analysisCycleProgress, shouldAutoFitFlow } from './AgentFlowCanvas'
 
 vi.mock('motion/react', () => ({ useReducedMotion: () => false }))
 vi.mock('@xyflow/react', () => ({
@@ -52,6 +52,21 @@ afterEach(() => {
 })
 
 describe('AgentFlowCanvas readable event playback', () => {
+  it('fits the canvas only for first reveal or terminal convergence', () => {
+    expect(shouldAutoFitFlow(0, 1, false, false)).toBe(true)
+    expect(shouldAutoFitFlow(1, 2, false, false)).toBe(false)
+    expect(shouldAutoFitFlow(8, 9, false, true)).toBe(true)
+    expect(shouldAutoFitFlow(9, 10, true, true)).toBe(false)
+  })
+
+  it('summarizes persisted cycle progress without exposing private reasoning', () => {
+    const progress = analysisCycleProgress([
+      event(1, 'cycle.started', { max_rounds: 3 }),
+      event(2, 'round.completed', { round_number: 1, artifact_count: 1 }),
+      event(3, 'round.completed', { round_number: 2, artifact_count: 2 }),
+    ])
+    expect(progress).toEqual({ completedRounds: 2, maxRounds: 3, artifactCount: 3 })
+  })
   it('lets the analyst pause and resume a readable semantic playback', async () => {
     vi.useFakeTimers()
     render(<AgentFlowCanvas events={events} graph={graph} />)

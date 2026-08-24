@@ -333,13 +333,23 @@ def build_artifact_dashboard(cycle: AnalysisCycle, store: ArtifactStore) -> Arti
             )
         elif record.get("kind") == "text_ml":
             method = str(payload.get("method", "text_ml"))
+            limitations = tuple(
+                str(item.get("message"))
+                for item in payload.get("diagnostics", [])
+                if isinstance(item, Mapping) and str(item.get("message", "")).strip()
+            )
             blocks.append(
                 ArtifactDashboardBlock(
                     f"block-{artifact_ref}",
                     "text_ml",
                     "文本主题与聚类",
                     str(payload.get("status", "completed")),
-                    ArtifactProvenance(artifact_ref, method, int(payload.get("document_count", 0))),
+                    ArtifactProvenance(
+                        artifact_ref,
+                        method,
+                        int(payload.get("document_count", 0)),
+                        limitations,
+                    ),
                     {
                         "topics": payload.get("topics", []),
                         "clusters": payload.get("clusters", []),

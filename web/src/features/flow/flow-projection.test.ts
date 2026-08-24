@@ -96,6 +96,8 @@ describe('flow event projection', () => {
     ])
 
     expect(projection.nodes.map((node) => node.id)).toEqual(['round-1', 'artifact-1', 'round-2', 'artifact-2'])
+    expect(projection.nodes.find((node) => node.id === 'round-1')?.label).toBe('第 1 轮 · 检查异常')
+    expect(projection.nodes.find((node) => node.id === 'artifact-1')?.label).toBe('稳健异常检测')
     expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'artifact-1', target: 'round-2' }))
     expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'artifact-2' }))
   })

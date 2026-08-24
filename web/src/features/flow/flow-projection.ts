@@ -1,5 +1,12 @@
 import type { EvidenceNode, RunEvent } from '../../contracts/run-events'
 
+const analysisMethodLabels: Record<string, string> = {
+  detect_anomalies: '稳健异常检测', detect_change_points: '结构变化点检测', compare_periods: '前后周期比较',
+  segment_rank: '分组差异排名', decompose_change: '变化贡献分解', correlate_metrics: '指标时滞关联',
+  compare_groups: '组间效应比较', analyze_text: '文本主题与聚类', tfidf_nmf_kmeans: '文本主题与聚类',
+  topic_metric_alignment: '文本—指标对齐', text_metric_lag: '文本领先指标检验', explanatory_segments: '解释分组候选',
+}
+
 export type FlowLane = 'inputs' | 'compute' | 'reasoning' | 'verification' | 'delivery'
 export type FlowNodeStatus = EvidenceNode['status']
 
@@ -113,7 +120,7 @@ export function projectFlowEvent(current: FlowProjection, event: RunEvent): Flow
     if (current.nodes.some((node) => node.id === id)) return next
     const priorRefs = Array.isArray(summary.prior_artifact_refs) ? summary.prior_artifact_refs.map(text).filter(Boolean) : []
     const node: FlowNodeProjection = {
-      id, kind: 'analysis_round', label: boundedText(summary.rationale_summary, text(summary.tool) || `第 ${roundNumber} 轮`),
+      id, kind: 'analysis_round', label: `第 ${roundNumber} 轮 · ${boundedText(summary.rationale_summary, analysisMethodLabels[text(summary.tool)] || text(summary.tool) || '继续诊断')}`,
       status: 'pending', lane: 'reasoning', artifactRef: null, addedAt: event.sequence, updatedAt: event.sequence,
     }
     const edges = priorRefs.map((source) => ({
@@ -136,7 +143,7 @@ export function projectFlowEvent(current: FlowProjection, event: RunEvent): Flow
     const roundId = `round-${roundNumber}`
     const node: FlowNodeProjection = {
       id, kind: text(summary.kind) === 'text_ml' ? 'text_theme' : 'analytical_artifact',
-      label: boundedText(summary.method, '本地分析产物'), status: 'verified',
+      label: analysisMethodLabels[text(summary.method)] || boundedText(summary.method, '本地分析产物'), status: 'verified',
       lane: text(summary.kind) === 'text_ml' ? 'reasoning' : 'compute', artifactRef: id,
       addedAt: event.sequence, updatedAt: event.sequence,
     }
