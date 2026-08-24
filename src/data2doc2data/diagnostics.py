@@ -11,6 +11,8 @@ from statistics import fmean, median, pstdev
 from types import MappingProxyType
 from typing import Mapping
 
+from .analytical_table import AnalyticalRow, AnalyticalTable
+
 
 @dataclass(frozen=True)
 class SeriesPoint:
@@ -202,6 +204,256 @@ def detect_change_points(
         parameters,
         limitations=("变化点是水平漂移候选，需要结合业务事件与更多周期复核。",),
         source_refs=source_refs,
+    )
+
+
+def segment_rank(
+    table: AnalyticalTable,
+    *,
+    metric: str,
+    dimension: str,
+    split_date: date | None = None,
+    minimum_samples: int = 1,
+) -> AnalyticalArtifact:
+    rows = tuple(row for row in table.rows if row.metric == metric)
+    parameters = {
+        "method": "segment_window_rank",
+        "metric": metric,
+        "dimension": dimension,
+        "split_date": split_date.isoformat() if split_date else None,
+        "minimum_samples": minimum_samples,
+    }
+    limitation = _dimension_limitation(table, rows, dimension, minimum_samples)
+    if limitation:
+        return _unavailable("segment_rank", len(rows), parameters, limitation, (table.snapshot_id,))
+    boundary = split_date or _middle_date(rows)
+    members = _member_windows(rows, dimension, boundary)
+    ranked = [
+        {
+            "member": member,
+            "baseline": sum(values[0]),
+            "current": sum(values[1]),
+            "delta": sum(values[1]) - sum(values[0]),
+            "baseline_count": len(values[0]),
+            "current_count": len(values[1]),
+        }
+        for member, values in members.items()
+        if len(values[0]) >= minimum_samples and len(values[1]) >= minimum_samples
+    ]
+    if not ranked:
+        return _unavailable(
+            "segment_rank",
+            len(rows),
+            parameters,
+            "没有分组同时满足基准期、当前期和最小样本要求。",
+            (table.snapshot_id,),
+        )
+    observations = {
+        "by_current": sorted(ranked, key=lambda item: (-float(item["current"]), str(item["member"]))),
+        "by_change": sorted(ranked, key=lambda item: (-float(item["delta"]), str(item["member"]))),
+    }
+    return _artifact(
+        "segment_rank",
+        "completed",
+        f"已按 {dimension} 对 {len(ranked)} 个分组完成排名。",
+        observations,
+        len(rows),
+        parameters,
+        limitations=("分组排名描述当前输入中的差异，不自动解释差异原因。",),
+        source_refs=(table.snapshot_id,),
+    )
+
+
+def decompose_change(
+    table: AnalyticalTable,
+    *,
+    metric: str,
+    dimension: str,
+    split_date: date | None = None,
+    numerator_metric: str | None = None,
+    denominator_metric: str | None = None,
+) -> AnalyticalArtifact:
+    parameters = {
+        "method": "additive_change_decomposition",
+        "metric": metric,
+        "dimension": dimension,
+        "split_date": split_date.isoformat() if split_date else None,
+        "numerator_metric": numerator_metric,
+        "denominator_metric": denominator_metric,
+    }
+    if dimension not in table.dimensions:
+        return _unavailable(
+            "decompose_change",
+            0,
+            parameters,
+            f"数据中不存在维度 {dimension}。",
+            (table.snapshot_id,),
+        )
+    if _is_rate_metric(metric):
+        if not numerator_metric or not denominator_metric:
+            return _unavailable(
+                "decompose_change",
+                0,
+                parameters,
+                "比率指标贡献分解需要明确的分子指标和分母指标。",
+                (table.snapshot_id,),
+            )
+        return _decompose_rate(
+            table,
+            metric,
+            dimension,
+            numerator_metric,
+            denominator_metric,
+            split_date,
+            parameters,
+        )
+
+    rows = tuple(row for row in table.rows if row.metric == metric)
+    limitation = _dimension_limitation(table, rows, dimension, 1)
+    if limitation:
+        return _unavailable("decompose_change", len(rows), parameters, limitation, (table.snapshot_id,))
+    boundary = split_date or _middle_date(rows)
+    members = _member_windows(rows, dimension, boundary)
+    contributors = []
+    for member, (baseline_values, current_values) in members.items():
+        delta = sum(current_values) - sum(baseline_values)
+        contributors.append(
+            {
+                "member": member,
+                "baseline": sum(baseline_values),
+                "current": sum(current_values),
+                "delta": delta,
+            }
+        )
+    total_delta = sum(float(item["delta"]) for item in contributors)
+    for item in contributors:
+        item["contribution_percent"] = None if total_delta == 0 else float(item["delta"]) / total_delta * 100
+    contributors.sort(key=lambda item: (-abs(float(item["delta"])), str(item["member"])))
+    return _artifact(
+        "decompose_change",
+        "completed",
+        f"已将 {metric} 的变化拆解到 {dimension}。",
+        {"total_delta": total_delta, "contributors": contributors},
+        len(rows),
+        parameters,
+        limitations=("加法贡献表示总体变化的数值构成，不单独证明驱动机制。",),
+        source_refs=(table.snapshot_id,),
+    )
+
+
+def _decompose_rate(
+    table: AnalyticalTable,
+    metric: str,
+    dimension: str,
+    numerator_metric: str,
+    denominator_metric: str,
+    split_date: date | None,
+    parameters: Mapping[str, object],
+) -> AnalyticalArtifact:
+    rows = tuple(row for row in table.rows if row.metric in {numerator_metric, denominator_metric})
+    if not rows:
+        return _unavailable(
+            "decompose_change",
+            0,
+            parameters,
+            "比率分子或分母指标没有可用数据。",
+            (table.snapshot_id,),
+        )
+    boundary = split_date or _middle_date(rows)
+    by_metric = {
+        name: _member_windows(tuple(row for row in rows if row.metric == name), dimension, boundary)
+        for name in (numerator_metric, denominator_metric)
+    }
+    members = sorted(set(by_metric[numerator_metric]) | set(by_metric[denominator_metric]))
+    values = []
+    for member in members:
+        numerator = by_metric[numerator_metric].get(member, ([], []))
+        denominator = by_metric[denominator_metric].get(member, ([], []))
+        n0, n1 = sum(numerator[0]), sum(numerator[1])
+        d0, d1 = sum(denominator[0]), sum(denominator[1])
+        if d0 <= 0 or d1 <= 0:
+            continue
+        values.append({"member": member, "n0": n0, "n1": n1, "d0": d0, "d1": d1})
+    total_d0 = sum(item["d0"] for item in values)
+    total_d1 = sum(item["d1"] for item in values)
+    if not values or total_d0 <= 0 or total_d1 <= 0:
+        return _unavailable(
+            "decompose_change",
+            len(rows),
+            parameters,
+            "比率分解要求每个周期存在正的分母。",
+            (table.snapshot_id,),
+        )
+    contributors = []
+    for item in values:
+        w0, w1 = item["d0"] / total_d0, item["d1"] / total_d1
+        r0, r1 = item["n0"] / item["d0"], item["n1"] / item["d1"]
+        within = (w0 + w1) / 2 * (r1 - r0)
+        mix = (r0 + r1) / 2 * (w1 - w0)
+        contributors.append(
+            {"member": item["member"], "within": within, "mix": mix, "delta": within + mix}
+        )
+    baseline_rate = sum(item["n0"] for item in values) / total_d0
+    current_rate = sum(item["n1"] for item in values) / total_d1
+    total_delta = current_rate - baseline_rate
+    contributors.sort(key=lambda item: (-abs(float(item["delta"])), str(item["member"])))
+    return _artifact(
+        "decompose_change",
+        "completed",
+        f"已使用分子/分母口径拆解 {metric} 的变化。",
+        {
+            "baseline": baseline_rate,
+            "current": current_rate,
+            "total_delta": total_delta,
+            "contributors": contributors,
+        },
+        len(rows),
+        {**parameters, "method": "symmetric_rate_decomposition"},
+        limitations=("比率贡献分为组内变化与结构占比变化，不单独证明因果。",),
+        source_refs=(table.snapshot_id,),
+    )
+
+
+def _dimension_limitation(
+    table: AnalyticalTable,
+    rows: tuple[AnalyticalRow, ...],
+    dimension: str,
+    minimum_samples: int,
+) -> str | None:
+    if dimension not in table.dimensions:
+        return f"数据中不存在维度 {dimension}。"
+    if not rows:
+        return "指定指标没有可用数据。"
+    if minimum_samples < 1:
+        raise ValueError("minimum samples must be positive")
+    if len({row.date for row in rows}) < 2:
+        return "维度分析至少需要两个日期。"
+    return None
+
+
+def _middle_date(rows: tuple[AnalyticalRow, ...]) -> date:
+    dates = sorted({row.date for row in rows})
+    return dates[len(dates) // 2]
+
+
+def _member_windows(
+    rows: tuple[AnalyticalRow, ...],
+    dimension: str,
+    boundary: date,
+) -> dict[str, tuple[list[float], list[float]]]:
+    members: dict[str, tuple[list[float], list[float]]] = {}
+    for row in rows:
+        member = row.dimensions.get(dimension) or "（未标注）"
+        baseline, current = members.setdefault(member, ([], []))
+        (baseline if row.date < boundary else current).append(row.value)
+    return members
+
+
+def _is_rate_metric(metric: str) -> bool:
+    normalized = metric.lower()
+    return normalized.endswith("率") or any(
+        token in normalized
+        for token in ("rate", "ratio", "margin", "retention", "conversion", "churn", "refund", "return")
     )
 
 

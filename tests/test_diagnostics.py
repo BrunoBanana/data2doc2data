@@ -1,12 +1,17 @@
 from datetime import date, timedelta
 import math
+from pathlib import Path
+import tempfile
 import unittest
 
+from data2doc2data.analytical_table import load_analytical_table
 from data2doc2data.diagnostics import (
     SeriesPoint,
     compare_periods,
+    decompose_change,
     detect_anomalies,
     detect_change_points,
+    segment_rank,
 )
 
 
@@ -61,6 +66,84 @@ class DiagnosticTests(unittest.TestCase):
     def test_series_rejects_nonfinite_values(self):
         with self.assertRaises(ValueError):
             SeriesPoint(date(2026, 1, 1), math.nan)
+
+    def test_decomposes_additive_change_by_channel(self):
+        table = dimension_table(
+            "gmv",
+            [
+                ("2026-01-01", 10, "直播"),
+                ("2026-01-02", 10, "直播"),
+                ("2026-01-03", 40, "直播"),
+                ("2026-01-04", 40, "直播"),
+                ("2026-01-01", 20, "搜索"),
+                ("2026-01-02", 20, "搜索"),
+                ("2026-01-03", 25, "搜索"),
+                ("2026-01-04", 25, "搜索"),
+            ],
+        )
+
+        artifact = decompose_change(table, metric="gmv", dimension="channel")
+
+        self.assertEqual(artifact.status, "completed")
+        contributors = artifact.observations["contributors"]
+        self.assertEqual(contributors[0]["member"], "直播")
+        self.assertEqual(contributors[0]["delta"], 60)
+        self.assertEqual(
+            sum(item["delta"] for item in contributors),
+            artifact.observations["total_delta"],
+        )
+
+    def test_ranks_segments_by_current_value_and_change(self):
+        table = dimension_table(
+            "orders",
+            [
+                ("2026-01-01", 5, "A"),
+                ("2026-01-02", 10, "A"),
+                ("2026-01-01", 20, "B"),
+                ("2026-01-02", 21, "B"),
+            ],
+        )
+
+        artifact = segment_rank(table, metric="orders", dimension="channel", split_date=date(2026, 1, 2))
+
+        self.assertEqual(artifact.observations["by_current"][0]["member"], "B")
+        self.assertEqual(artifact.observations["by_change"][0]["member"], "A")
+
+    def test_refuses_rate_decomposition_without_numerator_and_denominator(self):
+        table = dimension_table(
+            "refund_rate",
+            [
+                ("2026-01-01", 0.1, "直播"),
+                ("2026-01-02", 0.2, "直播"),
+            ],
+        )
+
+        artifact = decompose_change(table, metric="refund_rate", dimension="channel")
+
+        self.assertEqual(artifact.status, "unavailable")
+        self.assertTrue(any("分子" in item and "分母" in item for item in artifact.limitations))
+
+    def test_dimension_tools_report_unavailable_when_dimension_is_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "metrics.csv"
+            path.write_text(
+                "date,metric,value\n2026-01-01,gmv,10\n2026-01-02,gmv,20\n",
+                encoding="utf-8",
+            )
+            table = load_analytical_table(path, "snapshot-1")
+
+        artifact = segment_rank(table, metric="gmv", dimension="channel")
+
+        self.assertEqual(artifact.status, "unavailable")
+        self.assertIn("channel", artifact.limitations[0])
+
+
+def dimension_table(metric: str, values: list[tuple[str, float, str]]):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "metrics.csv"
+        rows = "".join(f"{item_date},{metric},{value},{channel}\n" for item_date, value, channel in values)
+        path.write_text(f"date,metric,value,channel\n{rows}", encoding="utf-8")
+        return load_analytical_table(path, "snapshot-1")
 
 
 if __name__ == "__main__":
