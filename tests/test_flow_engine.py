@@ -10,6 +10,7 @@ from data2doc2data.flow_engine import (
     FlowPlanError,
     validate_flow_plan,
 )
+from data2doc2data.knowledge import KnowledgeLedger
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
@@ -52,6 +53,7 @@ class FlowEngineTests(unittest.TestCase):
             self.assertIn("edge.added", kinds)
             self.assertIn("edge.activated", kinds)
             self.assertTrue({"conflict.detected", "plan.revised"} & set(kinds))
+            self.assertIn("knowledge.candidate", kinds)
             self.assertLess(kinds.index("report.generated"), kinds.index("run.completed"))
             self.assertEqual(kinds[-1], "run.completed")
             self.assertEqual(observed, list(result.events))
@@ -61,6 +63,10 @@ class FlowEngineTests(unittest.TestCase):
                 list(range(1, len(observed) + 1)),
             )
             self.assertGreater(len(set(graph_sizes)), 1)
+            knowledge = KnowledgeLedger(store).latest(task.task_id)
+            self.assertEqual(len(knowledge), 1)
+            self.assertEqual(knowledge[0].state, "candidate")
+            self.assertEqual(KnowledgeLedger(store).verified_facts(task.task_id), ())
 
     def test_connected_runner_accepts_only_a_bounded_registered_dag(self):
         payload = {

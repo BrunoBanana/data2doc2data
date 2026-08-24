@@ -10,11 +10,12 @@ import sqlite3
 import threading
 from typing import Iterator
 
+from .knowledge import KnowledgeRecord
 from .run_events import RunEvent, RunEventError
 from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class WorkspaceStoreError(ValueError):
@@ -53,9 +54,7 @@ class WorkspaceStore:
     def assign_task_owner(self, task_id: str, owner_id: str) -> None:
         with self._lock, self._connection() as connection:
             try:
-                connection.execute(
-                    "INSERT INTO task_owners (task_id, owner_id) VALUES (?, ?)", (task_id, owner_id)
-                )
+                connection.execute("INSERT INTO task_owners (task_id, owner_id) VALUES (?, ?)", (task_id, owner_id))
             except sqlite3.IntegrityError as exc:
                 existing = connection.execute(
                     "SELECT owner_id FROM task_owners WHERE task_id = ?", (task_id,)
@@ -187,7 +186,12 @@ class WorkspaceStore:
                 )
                 connection.execute(
                     "INSERT INTO run_events (run_id, sequence, created_at, payload) VALUES (?, ?, ?, ?)",
-                    (initial_event.run_id, initial_event.sequence, initial_event.created_at, _json(initial_event.to_dict())),
+                    (
+                        initial_event.run_id,
+                        initial_event.sequence,
+                        initial_event.created_at,
+                        _json(initial_event.to_dict()),
+                    ),
                 )
                 connection.commit()
             except sqlite3.IntegrityError as exc:
@@ -326,6 +330,86 @@ class WorkspaceStore:
             except sqlite3.IntegrityError as exc:
                 raise WorkspaceStoreError("idempotency key already has a response") from exc
 
+    def append_knowledge_version(self, record: KnowledgeRecord) -> KnowledgeRecord:
+        encoded = _json(record.to_dict())
+        if len(encoded.encode("utf-8")) > 100_000:
+            raise WorkspaceStoreError("knowledge record is too large")
+        allowed_transitions = {
+            "candidate": {"verified", "rejected"},
+            "verified": {"superseded"},
+            "superseded": set(),
+            "rejected": set(),
+        }
+        with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                latest = connection.execute(
+                    "SELECT payload FROM knowledge_versions WHERE project_id = ? AND knowledge_id = ? ORDER BY revision DESC LIMIT 1",
+                    (record.project_id, record.knowledge_id),
+                ).fetchone()
+                if latest is None:
+                    if record.revision != 1 or record.state != "candidate":
+                        raise WorkspaceStoreError("knowledge history must begin with a candidate")
+                else:
+                    previous = KnowledgeRecord.from_dict(json.loads(latest[0]))
+                    if record.revision != previous.revision + 1:
+                        raise WorkspaceStoreError("knowledge revisions must be contiguous")
+                    if (
+                        record.project_id != previous.project_id
+                        or record.knowledge_id != previous.knowledge_id
+                        or record.statement != previous.statement
+                        or record.source_refs != previous.source_refs
+                        or record.run_id != previous.run_id
+                        or record.created_at != previous.created_at
+                    ):
+                        raise WorkspaceStoreError("knowledge provenance is immutable")
+                    if record.state not in allowed_transitions[previous.state]:
+                        raise WorkspaceStoreError("invalid knowledge state transition")
+                connection.execute(
+                    "INSERT INTO knowledge_versions (project_id, knowledge_id, revision, state, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        record.project_id,
+                        record.knowledge_id,
+                        record.revision,
+                        record.state,
+                        record.updated_at,
+                        encoded,
+                    ),
+                )
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise WorkspaceStoreError("cannot append knowledge for an unknown project") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return record
+
+    def knowledge_history(self, project_id: str, knowledge_id: str) -> tuple[KnowledgeRecord, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM knowledge_versions WHERE project_id = ? AND knowledge_id = ? ORDER BY revision ASC",
+                (project_id, knowledge_id),
+            ).fetchall()
+        return tuple(KnowledgeRecord.from_dict(json.loads(row[0])) for row in rows)
+
+    def list_latest_knowledge(self, project_id: str) -> tuple[KnowledgeRecord, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT current.payload FROM knowledge_versions AS current
+                JOIN (
+                    SELECT knowledge_id, MAX(revision) AS revision
+                    FROM knowledge_versions WHERE project_id = ? GROUP BY knowledge_id
+                ) AS latest
+                ON current.knowledge_id = latest.knowledge_id AND current.revision = latest.revision
+                WHERE current.project_id = ?
+                ORDER BY current.knowledge_id
+                """,
+                (project_id, project_id),
+            ).fetchall()
+        return tuple(KnowledgeRecord.from_dict(json.loads(row[0])) for row in rows)
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -407,17 +491,24 @@ class WorkspaceStore:
                 response TEXT NOT NULL,
                 PRIMARY KEY(owner_id, scope, request_key)
             );
+            CREATE TABLE IF NOT EXISTS knowledge_versions (
+                project_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+                knowledge_id TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision > 0),
+                state TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY(project_id, knowledge_id, revision)
+            );
+            CREATE INDEX IF NOT EXISTS knowledge_project_state
+                ON knowledge_versions(project_id, state, updated_at DESC);
             """
         )
         row = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()
         if row is None:
-            connection.execute(
-                "INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
-            )
-        elif row[0] == "1":
-            connection.execute(
-                "UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),)
-            )
+            connection.execute("INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+        elif row[0] in {"1", "2"}:
+            connection.execute("UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
         elif row[0] != str(SCHEMA_VERSION):
             raise WorkspaceStoreError(f"unsupported workspace schema version: {row[0]}")
 

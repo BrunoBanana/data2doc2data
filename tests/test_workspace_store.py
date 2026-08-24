@@ -25,7 +25,7 @@ class WorkspaceStoreTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection:
             version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
 
-        self.assertEqual(version, "2")
+        self.assertEqual(version, "3")
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
@@ -43,8 +43,24 @@ class WorkspaceStoreTests(unittest.TestCase):
             task_artifacts = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_artifacts'"
             ).fetchone()
-        self.assertEqual(version, "2")
+        self.assertEqual(version, "3")
         self.assertEqual(task_artifacts, ("task_artifacts",))
+
+    def test_version_two_database_adds_append_only_knowledge_history(self):
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES ('schema_version', '2')")
+
+        self.store.initialize()
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
+            knowledge = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_versions'"
+            ).fetchone()
+        self.assertEqual(version, "3")
+        self.assertEqual(knowledge, ("knowledge_versions",))
 
     def test_task_crud_keeps_versioned_contracts(self):
         task = AnalysisTask.create("task-1", "收入复盘", "解释收入下降", now="2026-08-23T08:00:00Z")
@@ -61,9 +77,7 @@ class WorkspaceStoreTests(unittest.TestCase):
 
     def test_runs_pin_snapshot_references_and_cascade_events(self):
         snapshot = SnapshotRef("dataset", "dataset-1", "a" * 64)
-        task = AnalysisTask.create(
-            "task-1", "收入复盘", "解释收入下降", (snapshot,), now="2026-08-23T08:00:00Z"
-        )
+        task = AnalysisTask.create("task-1", "收入复盘", "解释收入下降", (snapshot,), now="2026-08-23T08:00:00Z")
         run = AnalysisRun.create("run-1", task.task_id, (snapshot,), now="2026-08-23T08:01:00Z")
         self.store.save_task(task)
         self.store.save_run(run)

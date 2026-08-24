@@ -16,6 +16,7 @@ from .dashboard import DashboardSpec
 from .documents import build_document_corpus
 from .evidence_graph import EvidenceEdge, EvidenceGraph, EvidenceNode
 from .flow_tools import LocalAnalysisTools, ToolResult
+from .knowledge import KnowledgeLedger
 from .reporting import build_html_report
 from .run_events import RunEvent
 from .text_dashboard import TextDashboard, build_text_dashboard
@@ -459,6 +460,31 @@ class AgentFlowEngine:
 
             final_graph = graph()
             emit("evidence.linked", "evidence", {"node_count": len(nodes), "edge_count": len(edges)}, (graph_id,))
+            if seen_conflicts:
+                knowledge_statement = f"本次分析在文本材料中检测到 {len(seen_conflicts)} 组相互冲突的主张。"
+            elif hypotheses:
+                knowledge_statement = f"本次分析有 {len(hypotheses)} 个业务假设仍需补充证据。"
+            else:
+                knowledge_statement = f"本次本地分析形成 {len(profile.metrics)} 个指标的数据画像。"
+            candidate = KnowledgeLedger(self.store).propose(
+                project_id=task.task_id,
+                knowledge_id=f"knowledge-{run.run_id}",
+                statement=knowledge_statement,
+                source_refs=tuple(ref.snapshot_id for ref in run.snapshot_refs),
+                run_id=run.run_id,
+                evidence_refs=(graph_id,),
+            )
+            emit(
+                "knowledge.candidate",
+                "knowledge",
+                {
+                    "knowledge_id": candidate.knowledge_id,
+                    "state": candidate.state,
+                    "statement": candidate.statement,
+                    "requires_approval": True,
+                },
+                (candidate.knowledge_id, graph_id),
+            )
             report = build_html_report(
                 task,
                 dashboard.to_dict(),
