@@ -15,6 +15,13 @@ const providers = [
 ]
 
 describe('onboarding', () => {
+  it('explains the business-analysis contract before asking users to choose a journey', () => {
+    render(<Onboarding providers={providers} cases={cases} createTask={vi.fn()} loadCase={vi.fn()} onComplete={vi.fn()} />)
+
+    expect(screen.getByLabelText('产品能力边界')).toHaveTextContent(/锁定输入.*本地计算.*证据链.*安全回退.*HTML 交付/)
+    expect(screen.getByText('Agent 负责选择下一步；宿主负责计算、留痕与约束。')).toBeInTheDocument()
+  })
+
   it('offers a complete Demo journey even when every agent is unavailable', async () => {
     const unavailable = providers.map((provider) => ({ ...provider, state: 'auth_required' }))
     const loaded = { task_id: 'task-demo', title: cases[0].title, goal: cases[0].business_question, status: 'active', snapshot_refs: [], analysis_mode: 'demo' as const, agent_provider: null }

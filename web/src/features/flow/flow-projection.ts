@@ -119,8 +119,9 @@ export function projectFlowEvent(current: FlowProjection, event: RunEvent): Flow
     const id = `round-${roundNumber}`
     if (current.nodes.some((node) => node.id === id)) return next
     const priorRefs = Array.isArray(summary.prior_artifact_refs) ? summary.prior_artifact_refs.map(text).filter(Boolean) : []
+    const plannerPrefix = text(summary.planner) === 'connected_agent' ? 'Agent 规划 · ' : ''
     const node: FlowNodeProjection = {
-      id, kind: 'analysis_round', label: `第 ${roundNumber} 轮 · ${boundedText(summary.rationale_summary, analysisMethodLabels[text(summary.tool)] || text(summary.tool) || '继续诊断')}`,
+      id, kind: 'analysis_round', label: `${plannerPrefix}第 ${roundNumber} 轮 · ${boundedText(summary.rationale_summary, analysisMethodLabels[text(summary.tool)] || text(summary.tool) || '继续诊断')}`,
       status: 'pending', lane: 'reasoning', artifactRef: null, addedAt: event.sequence, updatedAt: event.sequence,
     }
     const edges = priorRefs.map((source) => ({

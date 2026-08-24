@@ -79,6 +79,10 @@ export function Onboarding({ providers, cases, createTask, loadCase, onComplete 
       <p className="eyebrow">START HERE</p>
       <h1 id="onboarding-title">选择你的分析方式</h1>
       <p>两条路径使用相同的本地工具、证据协议和报告格式；区别只在于谁来规划分析过程。</p>
+      <div className="product-contract" aria-label="产品能力边界">
+        <span><b>01</b>锁定输入</span><i aria-hidden="true">→</i><span><b>02</b>本地计算</span><i aria-hidden="true">→</i><span><b>03</b>证据链</span><i aria-hidden="true">→</i><span><b>04</b>安全回退</span><i aria-hidden="true">→</i><span><b>05</b>HTML 交付</span>
+      </div>
+      <p className="product-contract-note">Agent 负责选择下一步；宿主负责计算、留痕与约束。</p>
       <div className="journey-grid">
         <button type="button" className="journey-card journey-card--demo" aria-label="立即体验 Demo" onClick={() => setStep('demo')}>
           <span>01 · NO MODEL REQUIRED</span><strong>立即体验 Demo</strong>

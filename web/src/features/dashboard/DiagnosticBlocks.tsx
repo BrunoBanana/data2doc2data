@@ -46,7 +46,7 @@ function DiagnosticBlock({ block }: { block: ArtifactDashboardBlock }) {
       const row = item as Record<string, unknown>
       return <tr key={`${String(row.date)}-${index}`}><td>{String(row.date ?? '—')}</td><td>{String(row.value ?? '—')}</td><td>{String(row.robust_score ?? '—')}</td></tr>
     })}</tbody></table></div>}
-    {contributors.length > 0 && <div className="diagnostic-table-wrap"><table aria-label="贡献分解明细"><thead><tr><th>分组</th><th>基准</th><th>当前</th><th>变化</th><th>贡献</th></tr></thead><tbody>{contributors.map((item, index) => {
+    {contributors.length > 0 && <div className="diagnostic-table-wrap"><table><caption>贡献分解明细</caption><thead><tr><th>分组</th><th>基准</th><th>当前</th><th>变化</th><th>贡献</th></tr></thead><tbody>{contributors.map((item, index) => {
       const row = item as Record<string, unknown>
       return <tr key={`${String(row.member)}-${index}`}><td>{String(row.member ?? '—')}</td><td>{formatValue(row.baseline)}</td><td>{formatValue(row.current)}</td><td>{formatValue(row.delta)}</td><td>{formatPercent(row.contribution_percent)}</td></tr>
     })}</tbody></table></div>}

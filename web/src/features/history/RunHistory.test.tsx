@@ -19,6 +19,7 @@ describe('RunHistory', () => {
 
     expect(screen.getByText('DataProfileError')).toBeInTheDocument()
     expect(screen.getByText('快照已变化')).toBeInTheDocument()
+    expect(screen.getByLabelText('回退机制')).toHaveTextContent('回放不改变历史安全重试创建新运行原始运行始终保留')
     fireEvent.click(screen.getByRole('button', { name: /回放 run-1/ }))
     await waitFor(() => expect(onReplay).toHaveBeenCalledWith(replay))
     fireEvent.click(screen.getByRole('button', { name: /安全重试 run-2/ }))

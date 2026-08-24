@@ -101,4 +101,14 @@ describe('flow event projection', () => {
     expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'artifact-1', target: 'round-2' }))
     expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'artifact-2' }))
   })
+
+  it('makes connected-agent orchestration visible on the public flow node', () => {
+    const projection = projectFlowEvents([
+      event(1, 'round.planned', {
+        round_number: 1, tool: 'detect_anomalies', rationale_summary: '检查异常', prior_artifact_refs: [], planner: 'connected_agent',
+      }),
+    ])
+
+    expect(projection.nodes[0].label).toBe('Agent 规划 · 第 1 轮 · 检查异常')
+  })
 })

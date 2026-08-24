@@ -40,6 +40,7 @@ export function RunHistory({ runs, loadRun, retryRun, onReplay }: RunHistoryProp
 
   return <section className="run-history" aria-labelledby="run-history-title">
     <div className="dashboard-heading"><div><p className="eyebrow">IMMUTABLE HISTORY</p><h2 id="run-history-title">运行历史</h2></div><span>{runs.length} 次运行</span></div>
+    <div className="recovery-contract" aria-label="回退机制"><span>回放不改变历史</span><span>安全重试创建新运行</span><span>原始运行始终保留</span></div>
     {runs.length ? <div className="run-history-list">{runs.map((run) => <article key={run.run_id} className={`run-history-card run-history-card--${run.status}`}>
       <header><div><strong>{statusLabel(run.status)}</strong><code>{run.run_id}</code></div><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></header>
       <div className="run-history-meta"><span>{run.event_count} 个事件</span>{run.failure_type && <span className="failure-type">{run.failure_type}</span>}{run.stale && <span className="stale-warning">快照已变化</span>}</div>
