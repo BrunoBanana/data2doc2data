@@ -14,9 +14,11 @@ from typing import Any
 
 from .data_profile import DataProfile, build_default_dashboard, profile_standard_csv
 from .artifacts import ArtifactStore
+from .cycle_runner import DemoCycleRunner
 from .dashboard import DashboardSpec
+from .dashboard import build_artifact_dashboard
 from .documents import build_document_corpus
-from .evidence_graph import EvidenceEdge, EvidenceGraph, EvidenceNode
+from .evidence_graph import EvidenceEdge, EvidenceGraph, EvidenceNode, build_cycle_evidence_graph
 from .flow_tools import LocalAnalysisTools, REGISTERED_ANALYSIS_TOOLS, ToolResult
 from .knowledge import KnowledgeLedger
 from .reporting import build_html_report
@@ -290,6 +292,78 @@ class AgentFlowEngine:
             dataset = next((ref for ref in run.snapshot_refs if ref.kind == "dataset"), None)
             if dataset is None:
                 raise ValueError("analysis run requires a dataset snapshot")
+            cycle_result = None
+            cycle_graph = None
+            if plan.runner == "demo":
+                cycle_id = f"cycle-{run.run_id}"
+                emit("cycle.started", "cycle", {"cycle_id": cycle_id, "max_rounds": 3}, (cycle_id,))
+                cycle_result = DemoCycleRunner(self.store).run(
+                    task,
+                    data_path,
+                    document_paths,
+                    cycle_id=cycle_id,
+                )
+                artifact_store = ArtifactStore(self.store.path.parent / "artifacts")
+                artifact_dashboard = build_artifact_dashboard(cycle_result.cycle, artifact_store)
+                cycle_graph = build_cycle_evidence_graph(cycle_result.cycle, artifact_store)
+                self.store.save_run_artifact(run.run_id, "analysis_cycle", cycle_result.cycle.to_dict())
+                self.store.save_run_artifact(run.run_id, "artifact_dashboard", artifact_dashboard.to_dict())
+                for analysis_round in cycle_result.cycle.rounds:
+                    decision = analysis_round.decision
+                    emit(
+                        "round.planned",
+                        "cycle",
+                        {
+                            "cycle_id": cycle_id,
+                            "round_number": analysis_round.round_number,
+                            "action": decision.action,
+                            "tool": decision.tool,
+                            "rationale_summary": decision.rationale_summary,
+                            "prior_artifact_refs": list(decision.prior_artifact_refs),
+                        },
+                        (cycle_id, *decision.prior_artifact_refs),
+                    )
+                    emit(
+                        "round.started",
+                        "cycle",
+                        {"cycle_id": cycle_id, "round_number": analysis_round.round_number, "tool": decision.tool},
+                        (cycle_id,),
+                    )
+                    for artifact_ref in analysis_round.artifact_refs:
+                        record = artifact_store.load(artifact_ref)
+                        payload = record.get("payload", {})
+                        emit(
+                            "artifact.created",
+                            "cycle",
+                            {
+                                "cycle_id": cycle_id,
+                                "round_number": analysis_round.round_number,
+                                "artifact_ref": artifact_ref,
+                                "kind": record.get("kind"),
+                                "method": payload.get("method") if isinstance(payload, Mapping) else None,
+                            },
+                            (artifact_ref,),
+                        )
+                    emit(
+                        "round.completed",
+                        "cycle",
+                        {
+                            "cycle_id": cycle_id,
+                            "round_number": analysis_round.round_number,
+                            "artifact_count": len(analysis_round.artifact_refs),
+                        },
+                        (cycle_id, *analysis_round.artifact_refs),
+                    )
+                emit(
+                    "cycle.completed",
+                    "cycle",
+                    {
+                        "cycle_id": cycle_id,
+                        "status": cycle_result.cycle.status,
+                        "round_count": len(cycle_result.cycle.rounds),
+                    },
+                    (cycle_id, *cycle_result.cycle.artifact_refs),
+                )
             hypotheses = parse_hypotheses(proposal)
             emit(
                 "plan.created",
@@ -377,6 +451,16 @@ class AgentFlowEngine:
                 EvidenceNode("data-signal", "data_signal", "数据画像", "verified", dashboard.dashboard_id), "compute"
             )
             add_edge(EvidenceEdge("edge-plan-signal", "compute-plan", "data-signal", "derived_from"), "compute")
+            if cycle_graph is not None:
+                for artifact_node in cycle_graph.nodes:
+                    add_node(artifact_node, "cycle")
+                for index, first_ref in enumerate(cycle_result.cycle.rounds[0].artifact_refs if cycle_result else ()):
+                    add_edge(
+                        EvidenceEdge(f"edge-cycle-source-{index + 1}", "data-signal", first_ref, "derived_from"),
+                        "cycle",
+                    )
+                for cycle_edge in cycle_graph.edges:
+                    add_edge(cycle_edge, "cycle")
 
             check_cancelled()
             corpus = build_document_corpus(document_paths, f"corpus-{run.run_id}")

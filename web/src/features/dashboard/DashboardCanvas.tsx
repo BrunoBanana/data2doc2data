@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import type { DashboardBlock, DashboardSpec } from '../../contracts/dashboard'
-import { ChartCard } from './ChartCard'
+import { ChartCard, formatMetricValue, metricLabel } from './ChartCard'
 import { DataProfilePanel } from './DataProfilePanel'
 
 const allowedMarks = new Set(['line', 'bar', 'point', 'area'])
@@ -21,10 +21,33 @@ export function DashboardCanvas({ dashboard }: { dashboard: DashboardSpec }) {
     <section className="dashboard-canvas" aria-labelledby="dashboard-title">
       <div className="dashboard-heading"><div><p className="eyebrow">DETERMINISTIC DASHBOARD</p><h2 id="dashboard-title">{dashboard.title}</h2></div><span>本地计算 · 快照已锁定</span></div>
       <DataProfilePanel blocks={kpis} onProvenance={setProvenance} />
-      <div className="dashboard-grid">{details.map((block) => <article className={`dashboard-card dashboard-card--${block.kind}`} key={block.block_id}><header><h3>{block.title}</h3><button type="button" onClick={() => setProvenance(block)}>查看依据</button></header>{block.kind === 'chart' && block.chart ? <ChartCard title={block.title} spec={block.chart} data={block.data} /> : <SafeTable rows={block.data} />}</article>)}</div>
+      <div className="dashboard-grid">{details.map((block) => {
+        const title = displayBlockTitle(block)
+        return <article className={`dashboard-card dashboard-card--${block.kind}`} key={block.block_id}><header><div><h3>{title}</h3>{block.kind === 'chart' && <p>一次聚焦一个指标，避免不同量纲造成误读</p>}</div><button type="button" onClick={() => setProvenance(block)}>查看依据</button></header>{block.kind === 'chart' && block.chart ? <ChartCard title={title} spec={block.chart} data={block.data} /> : isMetricSummary(block.data) ? <MetricSummaryTable rows={block.data} /> : <SafeTable rows={block.data} />}</article>
+      })}</div>
       {provenance && <div className="provenance-backdrop" role="presentation" onMouseDown={() => setProvenance(null)}><section className="provenance-dialog" role="dialog" aria-modal="true" aria-label="计算依据" onMouseDown={(event) => event.stopPropagation()}><button className="button button--quiet provenance-close" type="button" aria-label="关闭计算依据" onClick={() => setProvenance(null)}>关闭</button><p className="eyebrow">PROVENANCE</p><h3>{provenance.title}</h3><dl><dt>计算</dt><dd>{provenance.provenance.expression}</dd><dt>字段</dt><dd>{provenance.provenance.fields.join('、')}</dd><dt>快照</dt><dd><code>{provenance.provenance.snapshot_id}</code></dd><dt>结果行数</dt><dd>{provenance.provenance.result_row_count}</dd></dl></section></div>}
     </section>
   )
+}
+
+function displayBlockTitle(block: DashboardBlock) {
+  return block.block_id === 'distribution' || block.title === '指标分布' ? '指标摘要' : block.title
+}
+
+function isMetricSummary(rows: Record<string, unknown>[]) {
+  if (!rows.length) return false
+  const fields = new Set(Object.keys(rows[0]))
+  return ['metric', 'count', 'minimum', 'maximum', 'average'].every((field) => fields.has(field))
+}
+
+function MetricSummaryTable({ rows }: { rows: Record<string, unknown>[] }) {
+  return <div className="metric-summary-table table-scroll"><table><thead><tr><th>指标</th><th>均值</th><th>范围</th><th>样本</th></tr></thead><tbody>{rows.slice(0, 100).map((row, index) => {
+    const metric = String(row.metric ?? '')
+    const average = Number(row.average)
+    const minimum = Number(row.minimum)
+    const maximum = Number(row.maximum)
+    return <tr key={`${metric}-${index}`}><td><strong>{metricLabel(metric)}</strong><small>{metric}</small></td><td>{formatMetricValue(metric, average)}</td><td>{formatMetricValue(metric, minimum)}–{formatMetricValue(metric, maximum)}</td><td>{String(row.count ?? '—')}</td></tr>
+  })}</tbody></table></div>
 }
 
 function SafeTable({ rows }: { rows: Record<string, unknown>[] }) {

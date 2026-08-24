@@ -8,6 +8,10 @@
         "trial_signups",
         "retention_8w"
       ],
+      "clauses": [
+        {"metric": "trial_signups", "direction": "up"},
+        {"metric": "retention_8w", "direction": "down"}
+      ],
       "document": "growth-strategy.md"
     },
     {
@@ -16,6 +20,10 @@
       "metrics": [
         "activation_rate",
         "support_backlog"
+      ],
+      "clauses": [
+        {"metric": "activation_rate", "direction": "down"},
+        {"metric": "support_backlog", "direction": "up"}
       ],
       "document": "customer-research.md"
     },
@@ -26,6 +34,11 @@
         "mrr",
         "expansion_revenue",
         "cac"
+      ],
+      "clauses": [
+        {"metric": "mrr", "direction": "up"},
+        {"metric": "expansion_revenue", "direction": "flat"},
+        {"metric": "cac", "direction": "up"}
       ],
       "document": "pricing-experiment.md"
     }

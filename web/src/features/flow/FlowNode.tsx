@@ -24,7 +24,7 @@ const statusLabels: Record<FlowNodeStatus, string> = {
 const kindLabels: Record<string, string> = {
   data_source: 'DATA', document_source: 'DOC', document_excerpt: 'QUOTE', compute_plan: 'PLAN',
   data_signal: 'SIGNAL', claim: 'CLAIM', hypothesis: 'HYPOTHESIS', validation: 'CHECK',
-  conclusion: 'CONCLUSION', action: 'ACTION', report: 'REPORT',
+  conclusion: 'CONCLUSION', action: 'ACTION', report: 'REPORT', tool_step: 'TOOL',
 }
 
 export function FlowNode({ data, selected }: NodeProps<AgentFlowNode>) {

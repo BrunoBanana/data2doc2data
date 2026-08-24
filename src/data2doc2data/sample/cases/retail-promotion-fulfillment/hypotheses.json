@@ -8,6 +8,10 @@
         "gmv",
         "gross_margin_rate"
       ],
+      "clauses": [
+        {"metric": "gmv", "direction": "up"},
+        {"metric": "gross_margin_rate", "direction": "down"}
+      ],
       "document": "campaign-plan.md"
     },
     {
@@ -18,6 +22,11 @@
         "late_delivery_rate",
         "repeat_purchase_rate"
       ],
+      "clauses": [
+        {"metric": "stockout_rate", "direction": "up"},
+        {"metric": "late_delivery_rate", "direction": "up"},
+        {"metric": "repeat_purchase_rate", "direction": "down"}
+      ],
       "document": "fulfillment-incidents.md"
     },
     {
@@ -27,6 +36,11 @@
         "refund_rate",
         "return_rate",
         "late_delivery_rate"
+      ],
+      "clauses": [
+        {"metric": "refund_rate", "direction": "up"},
+        {"metric": "return_rate", "direction": "up"},
+        {"metric": "late_delivery_rate", "direction": "up"}
       ],
       "document": "merchandising-note.md"
     }

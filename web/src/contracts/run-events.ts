@@ -1,4 +1,5 @@
 import type { SnapshotRef } from './workbench'
+import type { ArtifactDashboardSpec } from './dashboard'
 
 export type RunEventKind =
   | 'run.started' | 'run.completed' | 'run.failed' | 'run.interrupted'
@@ -14,6 +15,8 @@ export type RunEventKind =
   | 'conflict.detected'
   | 'knowledge.candidate' | 'knowledge.verified' | 'knowledge.superseded'
   | 'report.generated'
+  | 'cycle.started' | 'round.planned' | 'round.started' | 'artifact.created'
+  | 'round.completed' | 'cycle.checkpointed' | 'planner.waiting' | 'planner.resumed' | 'cycle.completed'
 
 export interface RunEvent {
   contract_version: 1
@@ -63,6 +66,7 @@ export interface AnalysisRunResult {
   run: AnalysisRun
   events: RunEvent[]
   evidence_graph: EvidenceGraphSpec
+  artifact_dashboard?: ArtifactDashboardSpec | null
 }
 
 export interface AnalysisRunStart {

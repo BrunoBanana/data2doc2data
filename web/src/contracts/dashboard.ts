@@ -64,3 +64,25 @@ export interface CombinedDashboard {
   dashboard: DashboardSpec | null
   text_dashboard: TextDashboardSpec | null
 }
+
+export interface ArtifactProvenance {
+  artifact_ref: string
+  method: string
+  sample_size: number
+  limitations: string[]
+}
+
+export interface ArtifactDashboardBlock {
+  block_id: string
+  kind: string
+  title: string
+  status: string
+  provenance: ArtifactProvenance
+  observations: Record<string, unknown>
+}
+
+export interface ArtifactDashboardSpec {
+  contract_version: 1
+  dashboard_id: string
+  blocks: ArtifactDashboardBlock[]
+}

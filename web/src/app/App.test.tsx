@@ -83,4 +83,43 @@ describe('analysis workbench shell', () => {
     expect(await screen.findByRole('heading', { name: '数据证据摘要' })).toBeInTheDocument()
     expect(screen.getByLabelText('数据证据摘要')).toHaveTextContent('记录数12')
   })
+
+  it('reloads persisted analytical artifacts when a live run completes', async () => {
+    const snapshotTask = { ...task, snapshot_refs: [{ kind: 'dataset' as const, snapshot_id: 'dataset-1', sha256: 'a'.repeat(64) }] }
+    const api = client([snapshotTask])
+    api.openRunEventStream = (_runId, _after, onEvent) => {
+      window.setTimeout(() => onEvent({
+        contract_version: 1,
+        run_id: 'run-1',
+        sequence: 1,
+        kind: 'run.completed',
+        phase: 'delivery',
+        summary: {},
+        artifact_refs: [],
+        created_at: '2026-08-23T00:00:01Z',
+      }, 1), 0)
+      return () => undefined
+    }
+    api.loadRun = async () => ({
+      run: { contract_version: 1, run_id: 'run-1', task_id: 'task-1', status: 'completed', snapshot_refs: snapshotTask.snapshot_refs, created_at: '2026-08-23T00:00:00Z', started_at: '2026-08-23T00:00:00Z', completed_at: '2026-08-23T00:00:01Z' },
+      events: [],
+      evidence_graph: { contract_version: 1, graph_id: 'graph-1', nodes: [], edges: [] },
+      artifact_dashboard: {
+        contract_version: 1,
+        dashboard_id: 'dashboard-cycle-1',
+        blocks: [{
+          block_id: 'block-anomaly', kind: 'anomalies', title: '检测到 1 个异常点。', status: 'completed',
+          provenance: { artifact_ref: 'artifact-1', method: 'detect_anomalies', sample_size: 12, limitations: ['异常不代表因果。'] },
+          observations: { anomalies: [{ date: '2026-04-13', value: 50, robust_score: 8.2 }] },
+        }],
+      },
+    })
+
+    render(<App client={api} />)
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '运行分析' }))
+
+    expect(await screen.findByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
+    expect(screen.getByText('detect_anomalies')).toBeInTheDocument()
+  })
 })

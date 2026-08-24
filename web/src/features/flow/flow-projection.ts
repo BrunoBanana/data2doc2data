@@ -71,6 +71,94 @@ export function projectFlowEvent(current: FlowProjection, event: RunEvent): Flow
   let next: FlowProjection = { ...current, lastSequence: event.sequence, phase: event.phase }
   const summary = event.summary
 
+  if (event.kind === 'step.added') {
+    const id = text(summary.step_id)
+    if (!id || current.nodes.some((node) => node.id === id)) return next
+    const tool = text(summary.tool)
+    const node: FlowNodeProjection = {
+      id,
+      kind: 'tool_step',
+      label: boundedText(summary.purpose, tool || '本地工具步骤'),
+      status: 'pending',
+      lane: laneForTool(tool),
+      artifactRef: null,
+      addedAt: event.sequence,
+      updatedAt: event.sequence,
+    }
+    const dependencies = Array.isArray(summary.dependencies)
+      ? summary.dependencies.map(text).filter(Boolean)
+      : []
+    const dependencyEdges: FlowEdgeProjection[] = dependencies.map((dependency) => ({
+      id: `step:${dependency}->${id}`,
+      source: dependency,
+      target: id,
+      relationship: 'derived_from',
+      addedAt: event.sequence,
+      activeAt: null,
+      conflicted: false,
+    }))
+    return {
+      ...next,
+      nodes: [...current.nodes, node],
+      edges: [...current.edges, ...dependencyEdges],
+      activeNodeIds: [id],
+      activeEdgeIds: dependencyEdges.map((edge) => edge.id),
+    }
+  }
+
+  if (event.kind === 'round.planned') {
+    const roundNumber = finiteNumber(summary.round_number)
+    if (roundNumber === null) return next
+    const id = `round-${roundNumber}`
+    if (current.nodes.some((node) => node.id === id)) return next
+    const priorRefs = Array.isArray(summary.prior_artifact_refs) ? summary.prior_artifact_refs.map(text).filter(Boolean) : []
+    const node: FlowNodeProjection = {
+      id, kind: 'analysis_round', label: boundedText(summary.rationale_summary, text(summary.tool) || `第 ${roundNumber} 轮`),
+      status: 'pending', lane: 'reasoning', artifactRef: null, addedAt: event.sequence, updatedAt: event.sequence,
+    }
+    const edges = priorRefs.map((source) => ({
+      id: `cycle:${source}->${id}`, source, target: id, relationship: 'derived_from', addedAt: event.sequence, activeAt: event.sequence, conflicted: false,
+    }))
+    return { ...next, nodes: [...current.nodes, node], edges: [...current.edges, ...edges], activeNodeIds: [id], activeEdgeIds: edges.map((edge) => edge.id) }
+  }
+
+  if (event.kind === 'round.started' || event.kind === 'round.completed') {
+    const roundNumber = finiteNumber(summary.round_number)
+    if (roundNumber === null) return next
+    const id = `round-${roundNumber}`
+    return { ...next, nodes: current.nodes.map((node) => node.id === id ? { ...node, status: event.kind === 'round.completed' ? 'verified' : 'pending', updatedAt: event.sequence } : node), activeNodeIds: [id] }
+  }
+
+  if (event.kind === 'artifact.created') {
+    const id = text(summary.artifact_ref) || event.artifact_refs[0]
+    const roundNumber = finiteNumber(summary.round_number)
+    if (!id || roundNumber === null || current.nodes.some((node) => node.id === id)) return next
+    const roundId = `round-${roundNumber}`
+    const node: FlowNodeProjection = {
+      id, kind: text(summary.kind) === 'text_ml' ? 'text_theme' : 'analytical_artifact',
+      label: boundedText(summary.method, '本地分析产物'), status: 'verified',
+      lane: text(summary.kind) === 'text_ml' ? 'reasoning' : 'compute', artifactRef: id,
+      addedAt: event.sequence, updatedAt: event.sequence,
+    }
+    const edge = { id: `cycle:${roundId}->${id}`, source: roundId, target: id, relationship: 'derived_from', addedAt: event.sequence, activeAt: event.sequence, conflicted: false }
+    return { ...next, nodes: [...current.nodes, node], edges: [...current.edges, edge], activeNodeIds: [id], activeEdgeIds: [edge.id] }
+  }
+
+  if (event.kind === 'step.started' || event.kind === 'step.completed' || event.kind === 'step.failed') {
+    const id = text(summary.step_id)
+    if (!id) return next
+    const status: FlowNodeStatus = event.kind === 'step.completed'
+      ? 'verified'
+      : event.kind === 'step.failed'
+        ? 'contradicted'
+        : 'pending'
+    return {
+      ...next,
+      nodes: current.nodes.map((node) => node.id === id ? { ...node, status, updatedAt: event.sequence } : node),
+      activeNodeIds: current.nodes.some((node) => node.id === id) ? [id] : [],
+    }
+  }
+
   if (event.kind === 'node.added') {
     const id = text(summary.node_id)
     if (!id || current.nodes.some((node) => node.id === id)) return next
@@ -163,11 +251,20 @@ export function projectFlowEvent(current: FlowProjection, event: RunEvent): Flow
 
 export function laneForKind(kind: string): FlowLane {
   if (kind === 'data_source' || kind === 'document_source' || kind === 'document_excerpt') return 'inputs'
-  if (kind === 'compute_plan' || kind === 'data_signal') return 'compute'
+  if (kind === 'compute_plan' || kind === 'data_signal' || kind === 'analytical_artifact') return 'compute'
+  if (kind === 'analysis_round' || kind === 'text_theme') return 'reasoning'
   if (kind === 'claim' || kind === 'hypothesis') return 'reasoning'
   if (kind === 'validation') return 'verification'
   if (kind === 'conclusion' || kind === 'action' || kind === 'report') return 'delivery'
   return 'reasoning'
+}
+
+function laneForTool(tool: string): FlowLane {
+  if (tool === 'inspect_sources') return 'inputs'
+  if (tool === 'profile_data' || tool === 'query_data') return 'compute'
+  if (tool === 'extract_claims' || tool === 'align_evidence') return 'reasoning'
+  if (tool === 'test_hypothesis') return 'verification'
+  return 'compute'
 }
 
 function edgeFromEvent(event: RunEvent): FlowEdgeProjection | null {
@@ -196,7 +293,8 @@ function kindLabel(kind: string) {
   return ({
     data_source: '数据来源', document_source: '文本来源', document_excerpt: '引用片段', compute_plan: '计算计划',
     data_signal: '数据信号', claim: '文本主张', hypothesis: '业务假设', validation: '交叉核验',
-    conclusion: '分析结论', action: '建议行动', report: '分析报告',
+    conclusion: '分析结论', action: '建议行动', report: '分析报告', tool_step: '本地工具步骤',
+    analysis_round: '分析轮次', analytical_artifact: '分析产物', text_theme: '文本主题',
   } as Record<string, string>)[kind] ?? '证据节点'
 }
 

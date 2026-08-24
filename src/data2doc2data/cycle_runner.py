@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import secrets
+from statistics import fmean
 
 from .analysis_cycle import AnalysisCycle, AnalysisRound, EvidenceGap, RoundDecision, validate_round_decision
 from .analytical_table import AnalyticalTable, load_analytical_table
@@ -37,11 +38,12 @@ class DemoCycleRunner:
         document_paths: tuple[Path, ...],
         *,
         interrupt_after_tool_round: int | None = None,
+        cycle_id: str | None = None,
     ) -> CycleExecutionResult:
         dataset = next((ref for ref in task.snapshot_refs if ref.kind == "dataset"), None)
         if dataset is None:
             raise ValueError("analysis cycle requires a dataset snapshot")
-        cycle = AnalysisCycle.start(f"cycle-{secrets.token_hex(12)}")
+        cycle = AnalysisCycle.start(cycle_id or f"cycle-{secrets.token_hex(12)}")
         context = {
             "task_id": task.task_id,
             "snapshot_id": dataset.snapshot_id,
@@ -124,7 +126,7 @@ class DemoCycleRunner:
     def _decide(self, cycle: AnalysisCycle, table: AnalyticalTable, has_documents: bool) -> RoundDecision:
         round_number = len(cycle.rounds) + 1
         metrics = tuple(dict.fromkeys(row.metric for row in table.rows))
-        metric = metrics[0]
+        metric = _priority_metric(table, metrics)
         previous_refs = cycle.rounds[-1].artifact_refs if cycle.rounds else ()
         if round_number == 1:
             count = sum(row.metric == metric for row in table.rows)
@@ -151,6 +153,15 @@ class DemoCycleRunner:
                 arguments = {"metric": metric}
                 rationale = "上一轮未发现明显异常，改用前后窗口比较确认整体变化。"
             return RoundDecision(2, "continue", tool, arguments, rationale, prior_artifact_refs=previous_refs)
+        if has_documents:
+            return RoundDecision(
+                round_number,
+                "continue",
+                "analyze_text",
+                {"seed": 7},
+                "数据侧结构诊断完成，补充本地文本主题、聚类与关键词证据。",
+                prior_artifact_refs=previous_refs,
+            )
         if table.dimensions:
             return RoundDecision(
                 round_number,
@@ -158,15 +169,6 @@ class DemoCycleRunner:
                 "segment_rank",
                 {"metric": metric, "dimension": table.dimensions[0]},
                 "依据前两轮结果下钻首个可审计业务维度，定位差异集中的分组。",
-                prior_artifact_refs=previous_refs,
-            )
-        if has_documents:
-            return RoundDecision(
-                round_number,
-                "continue",
-                "analyze_text",
-                {"seed": 7},
-                "数据侧结构诊断完成，补充本地文本主题与聚类证据。",
                 prior_artifact_refs=previous_refs,
             )
         return RoundDecision(
@@ -210,3 +212,19 @@ def _execution_key(cycle_id: str, decision: RoundDecision) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _priority_metric(table: AnalyticalTable, metrics: tuple[str, ...]) -> str:
+    """Choose the metric with the strongest normalized two-window shift."""
+    ranked: list[tuple[float, int, str]] = []
+    for position, metric in enumerate(metrics):
+        values = [row.value for row in sorted(table.rows, key=lambda row: row.date) if row.metric == metric]
+        split = len(values) // 2
+        if split < 1 or split >= len(values):
+            ranked.append((0.0, -position, metric))
+            continue
+        baseline = fmean(values[:split])
+        current = fmean(values[split:])
+        scale = max(abs(baseline), abs(current), 1e-12)
+        ranked.append((abs(current - baseline) / scale, -position, metric))
+    return max(ranked)[2]

@@ -67,4 +67,36 @@ describe('flow event projection', () => {
     expect(JSON.stringify(projection)).not.toContain('raw_rows')
     expect(projection.nodes).toEqual([])
   })
+
+  it('draws planned tool steps and their dependencies before evidence results exist', () => {
+    const projection = projectFlowEvents([
+      event(1, 'plan.created', { plan_id: 'plan-1' }),
+      event(2, 'step.added', { step_id: 'inspect', tool: 'inspect_sources', purpose: '识别输入材料', dependencies: [] }),
+      event(3, 'step.added', { step_id: 'profile', tool: 'profile_data', purpose: '生成本地数据画像', dependencies: ['inspect'] }),
+      event(4, 'step.started', { step_id: 'inspect', tool: 'inspect_sources' }),
+      event(5, 'tool.started', { step_id: 'inspect', tool: 'inspect_sources' }),
+      event(6, 'tool.result', { step_id: 'inspect', tool: 'inspect_sources', duration_ms: 12 }),
+      event(7, 'step.completed', { step_id: 'inspect', tool: 'inspect_sources', duration_ms: 12 }),
+    ])
+
+    expect(projection.nodes.map((node) => node.id)).toEqual(['inspect', 'profile'])
+    expect(projection.nodes.find((node) => node.id === 'inspect')).toMatchObject({ status: 'verified', kind: 'tool_step' })
+    expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'inspect', target: 'profile', relationship: 'derived_from' }))
+  })
+
+  it('projects persisted rounds and links a revision to the prior artifact', () => {
+    const projection = projectFlowEvents([
+      event(1, 'cycle.started', { cycle_id: 'cycle-1', max_rounds: 3 }),
+      event(2, 'round.planned', { cycle_id: 'cycle-1', round_number: 1, tool: 'detect_anomalies', rationale_summary: '检查异常', prior_artifact_refs: [] }),
+      event(3, 'round.started', { cycle_id: 'cycle-1', round_number: 1, tool: 'detect_anomalies' }),
+      event(4, 'artifact.created', { cycle_id: 'cycle-1', round_number: 1, artifact_ref: 'artifact-1', method: 'detect_anomalies' }, ['artifact-1']),
+      event(5, 'round.completed', { cycle_id: 'cycle-1', round_number: 1 }),
+      event(6, 'round.planned', { cycle_id: 'cycle-1', round_number: 2, tool: 'detect_change_points', rationale_summary: '根据异常检查变化点', prior_artifact_refs: ['artifact-1'] }, ['artifact-1']),
+      event(7, 'artifact.created', { cycle_id: 'cycle-1', round_number: 2, artifact_ref: 'artifact-2', method: 'detect_change_points' }, ['artifact-2']),
+    ])
+
+    expect(projection.nodes.map((node) => node.id)).toEqual(['round-1', 'artifact-1', 'round-2', 'artifact-2'])
+    expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'artifact-1', target: 'round-2' }))
+    expect(projection.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'artifact-2' }))
+  })
 })

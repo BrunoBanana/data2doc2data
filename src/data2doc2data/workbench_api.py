@@ -205,6 +205,7 @@ class WorkbenchService:
                 "run": result.run.to_dict(),
                 "events": [event.to_dict() for event in result.events],
                 "evidence_graph": graph,
+                "artifact_dashboard": self.store.get_run_artifact(result.run.run_id, "artifact_dashboard"),
             }
         try:
             run = AnalysisRun.create(
@@ -262,10 +263,12 @@ class WorkbenchService:
         if run is None:
             raise WorkbenchApiError(HTTPStatus.NOT_FOUND, "run not found")
         graph = self.store.get_run_artifact(run_id, "evidence_graph")
+        artifact_dashboard = self.store.get_run_artifact(run_id, "artifact_dashboard")
         return {
             "run": run.to_dict(),
             "events": [event.to_dict() for event in self.store.events_after(run_id)],
             "evidence_graph": graph,
+            "artifact_dashboard": artifact_dashboard,
         }
 
     def retry_run(self, owner_id: str, run_id: str, payload: object) -> dict[str, object]:
