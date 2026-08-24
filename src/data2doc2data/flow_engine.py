@@ -14,7 +14,7 @@ from typing import Any
 
 from .data_profile import DataProfile, build_default_dashboard, profile_standard_csv
 from .artifacts import ArtifactStore
-from .cycle_runner import DemoCycleRunner
+from .cycle_runner import ConnectedCycleRunner, DemoCycleRunner
 from .dashboard import DashboardSpec
 from .dashboard import build_artifact_dashboard
 from .documents import build_document_corpus
@@ -165,8 +165,9 @@ class ConnectedFlowRunner:
 
     REGISTERED_TOOLS = REGISTERED_ANALYSIS_TOOLS
 
-    def __init__(self, store: WorkspaceStore) -> None:
+    def __init__(self, store: WorkspaceStore, cycle_planner=None) -> None:
         self.store = store
+        self.cycle_planner = cycle_planner
 
     def run(
         self,
@@ -195,6 +196,7 @@ class ConnectedFlowRunner:
             proposal=proposal,
             on_event=on_event,
             cancelled=cancelled,
+            connected_cycle_planner=self.cycle_planner,
         )
 
 
@@ -214,6 +216,7 @@ class AgentFlowEngine:
         proposal: dict[str, Any] | None = None,
         on_event: Callable[[RunEvent], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
+        connected_cycle_planner=None,
     ) -> FlowExecutionResult:
         run = AnalysisRun.create(f"run-{secrets.token_hex(12)}", task.task_id, task.snapshot_refs).transition(
             RunStatus.RUNNING
@@ -294,15 +297,22 @@ class AgentFlowEngine:
                 raise ValueError("analysis run requires a dataset snapshot")
             cycle_result = None
             cycle_graph = None
-            if plan.runner == "demo":
+            if plan.runner == "demo" or connected_cycle_planner is not None:
                 cycle_id = f"cycle-{run.run_id}"
                 emit("cycle.started", "cycle", {"cycle_id": cycle_id, "max_rounds": 3}, (cycle_id,))
-                cycle_result = DemoCycleRunner(self.store).run(
-                    task,
-                    data_path,
-                    document_paths,
-                    cycle_id=cycle_id,
+                cycle_result = (
+                    DemoCycleRunner(self.store).run(task, data_path, document_paths, cycle_id=cycle_id)
+                    if connected_cycle_planner is None
+                    else ConnectedCycleRunner(
+                        self.store,
+                        connected_cycle_planner,
+                        on_planner_event=lambda kind, summary: emit(kind, "cycle", summary, (cycle_id,)),
+                    ).run(
+                        task, data_path, document_paths, cycle_id=cycle_id
+                    )
                 )
+                if cycle_result.cycle.status != "completed":
+                    raise RuntimeError(cycle_result.error or f"analysis cycle stopped: {cycle_result.cycle.status}")
                 artifact_store = ArtifactStore(self.store.path.parent / "artifacts")
                 artifact_dashboard = build_artifact_dashboard(cycle_result.cycle, artifact_store)
                 cycle_graph = build_cycle_evidence_graph(cycle_result.cycle, artifact_store)
@@ -320,6 +330,7 @@ class AgentFlowEngine:
                             "tool": decision.tool,
                             "rationale_summary": decision.rationale_summary,
                             "prior_artifact_refs": list(decision.prior_artifact_refs),
+                            "planner": "connected_agent" if plan.runner == "connected" else "deterministic_demo",
                         },
                         (cycle_id, *decision.prior_artifact_refs),
                     )
@@ -329,6 +340,17 @@ class AgentFlowEngine:
                         {"cycle_id": cycle_id, "round_number": analysis_round.round_number, "tool": decision.tool},
                         (cycle_id,),
                     )
+                    if decision.tool is not None:
+                        emit(
+                            "tool.started",
+                            "cycle",
+                            {
+                                "step_id": f"cycle-round-{analysis_round.round_number}",
+                                "tool": decision.tool,
+                                "source": "connected_agent" if plan.runner == "connected" else "deterministic_demo",
+                            },
+                            (cycle_id,),
+                        )
                     for artifact_ref in analysis_round.artifact_refs:
                         record = artifact_store.load(artifact_ref)
                         payload = record.get("payload", {})
@@ -343,6 +365,18 @@ class AgentFlowEngine:
                                 "method": payload.get("method") if isinstance(payload, Mapping) else None,
                             },
                             (artifact_ref,),
+                        )
+                    if decision.tool is not None:
+                        emit(
+                            "tool.result",
+                            "cycle",
+                            {
+                                "step_id": f"cycle-round-{analysis_round.round_number}",
+                                "tool": decision.tool,
+                                "artifact_count": len(analysis_round.artifact_refs),
+                                "duration_ms": 0,
+                            },
+                            analysis_round.artifact_refs,
                         )
                     emit(
                         "round.completed",

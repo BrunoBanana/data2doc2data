@@ -8,10 +8,13 @@ import json
 from pathlib import Path
 import secrets
 from statistics import fmean
+from typing import Callable
 
 from .analysis_cycle import AnalysisCycle, AnalysisRound, EvidenceGap, RoundDecision, validate_round_decision
 from .analytical_table import AnalyticalTable, load_analytical_table
 from .artifacts import ArtifactStore
+from .cycle_planner import PlannerWaiting
+from .data_profile import profile_standard_csv
 from .flow_tools import LocalAnalysisTools, REGISTERED_ANALYSIS_TOOLS, ToolResult
 from .workspace import AnalysisTask
 from .workspace_store import WorkspaceStore, WorkspaceStoreError
@@ -22,6 +25,135 @@ class CycleExecutionResult:
     cycle: AnalysisCycle
     pending_artifact_refs: tuple[str, ...] = ()
     error: str | None = None
+
+
+CONNECTED_CYCLE_TOOLS = frozenset(
+    {
+        "compare_periods",
+        "detect_anomalies",
+        "detect_change_points",
+        "segment_rank",
+        "decompose_change",
+        "correlate_metrics",
+        "compare_groups",
+        "analyze_text",
+    }
+)
+
+
+class ConnectedCycleRunner:
+    """Let a connected planner choose each bounded tool after inspecting prior real artifacts."""
+
+    def __init__(
+        self,
+        store: WorkspaceStore,
+        planner,
+        *,
+        on_planner_event: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> None:
+        self.store = store
+        self.planner = planner
+        self.artifacts = ArtifactStore(store.path.parent / "artifacts")
+        self.on_planner_event = on_planner_event
+
+    def run(
+        self,
+        task: AnalysisTask,
+        data_path: Path,
+        document_paths: tuple[Path, ...],
+        *,
+        cycle_id: str | None = None,
+    ) -> CycleExecutionResult:
+        dataset = next((ref for ref in task.snapshot_refs if ref.kind == "dataset"), None)
+        if dataset is None:
+            raise ValueError("analysis cycle requires a dataset snapshot")
+        cycle = AnalysisCycle.start(cycle_id or f"cycle-{secrets.token_hex(12)}")
+        context: dict[str, object] = {
+            "task_id": task.task_id,
+            "snapshot_id": dataset.snapshot_id,
+            "data_path": str(data_path.expanduser().resolve()),
+            "document_paths": [str(path.expanduser().resolve()) for path in document_paths],
+        }
+        provider_resume_id: str | None = None
+        self.store.save_analysis_cycle(cycle, task.task_id, context)
+        tools = LocalAnalysisTools(
+            (data_path.parent, *(path.parent for path in document_paths)),
+            artifact_store=self.artifacts,
+        )
+        profile = profile_standard_csv(data_path, dataset.snapshot_id)
+        projections: list[dict[str, object]] = [
+            {
+                "tool": "profile_data",
+                "status": "completed",
+                "summary": {
+                    "row_count": profile.row_count,
+                    "metrics": list(profile.metrics),
+                    "dimensions": list(profile.dimensions),
+                    "date_range": list(profile.date_range),
+                    "document_count": len(document_paths),
+                },
+                "artifact_refs": [dataset.snapshot_id],
+            }
+        ]
+        while cycle.can_continue:
+            waiting_error: PlannerWaiting | None = None
+            for attempt in range(1, 4):
+                try:
+                    planned = self.planner.decide(
+                        cycle,
+                        tuple(projections),
+                        provider_resume_id=provider_resume_id,
+                    )
+                    if waiting_error is not None and self.on_planner_event is not None:
+                        self.on_planner_event(
+                            "planner.resumed",
+                            {"round_number": len(cycle.rounds) + 1, "attempt": attempt},
+                        )
+                    break
+                except PlannerWaiting as exc:
+                    waiting_error = exc
+                    provider_resume_id = exc.provider_resume_id or provider_resume_id
+                    if self.on_planner_event is not None:
+                        self.on_planner_event(
+                            "planner.waiting",
+                            {"round_number": len(cycle.rounds) + 1, "attempt": attempt, "retry_limit": 3},
+                        )
+            else:
+                waiting = cycle.transition("waiting_for_planner")
+                self.store.save_analysis_cycle(waiting, task.task_id, context)
+                return CycleExecutionResult(waiting, error=str(waiting_error or "planner unavailable"))
+            provider_resume_id = planned.provider_resume_id
+            decision = planned.decision
+            prior_decision = cycle.rounds[-1].decision if cycle.rounds else None
+            validate_round_decision(decision, CONNECTED_CYCLE_TOOLS, prior_decision=prior_decision)
+            if not set(decision.prior_artifact_refs) <= set(cycle.artifact_refs):
+                raise ValueError("planner decision references an unknown artifact")
+            if decision.action == "finish":
+                cycle = cycle.complete_round(AnalysisRound.completed(decision, ()))
+                self.store.save_analysis_cycle(cycle, task.task_id, context)
+                continue
+            execution_key = _execution_key(cycle.cycle_id, decision)
+            result = _execute_connected_cycle_tool(
+                tools,
+                decision,
+                data_path,
+                dataset.snapshot_id,
+                document_paths,
+                cycle.cycle_id,
+            )
+            self.store.save_cycle_execution(
+                cycle.cycle_id,
+                decision.round_number,
+                str(decision.tool),
+                execution_key,
+                result.artifact_refs,
+                result.agent_projection(),
+            )
+            projection = result.agent_projection()
+            projections.append(projection)
+            cycle = cycle.complete_round(AnalysisRound.completed(decision, result.artifact_refs))
+            self.store.save_analysis_cycle(cycle, task.task_id, context)
+        return CycleExecutionResult(cycle)
 
 
 class DemoCycleRunner:
@@ -212,6 +344,86 @@ def _execution_key(cycle_id: str, decision: RoundDecision) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _execute_connected_cycle_tool(
+    tools: LocalAnalysisTools,
+    decision: RoundDecision,
+    data_path: Path,
+    snapshot_id: str,
+    document_paths: tuple[Path, ...],
+    cycle_id: str,
+) -> ToolResult:
+    arguments = dict(decision.arguments)
+    tool = decision.tool
+    if tool == "compare_periods":
+        return tools.compare_periods(data_path, snapshot_id, metric=_required(arguments, "metric"), split=arguments.get("split"))
+    if tool == "detect_anomalies":
+        return tools.detect_anomalies(
+            data_path,
+            snapshot_id,
+            metric=_required(arguments, "metric"),
+            window=int(arguments.get("window", 5)),
+            threshold=float(arguments.get("threshold", 6.0)),
+        )
+    if tool == "detect_change_points":
+        return tools.detect_change_points(
+            data_path,
+            snapshot_id,
+            metric=_required(arguments, "metric"),
+            minimum_window=int(arguments.get("minimum_window", 4)),
+        )
+    if tool == "segment_rank":
+        return tools.segment_rank(
+            data_path,
+            snapshot_id,
+            metric=_required(arguments, "metric"),
+            dimension=_required(arguments, "dimension"),
+            split_date=_optional_text(arguments.get("split_date")),
+            minimum_samples=int(arguments.get("minimum_samples", 1)),
+        )
+    if tool == "decompose_change":
+        return tools.decompose_change(
+            data_path,
+            snapshot_id,
+            metric=_required(arguments, "metric"),
+            dimension=_required(arguments, "dimension"),
+            split_date=_optional_text(arguments.get("split_date")),
+            numerator_metric=_optional_text(arguments.get("numerator_metric")),
+            denominator_metric=_optional_text(arguments.get("denominator_metric")),
+        )
+    if tool == "correlate_metrics":
+        return tools.correlate_metrics(
+            data_path,
+            snapshot_id,
+            leading_metric=_required(arguments, "leading_metric"),
+            lagging_metric=_required(arguments, "lagging_metric"),
+            max_lag=int(arguments.get("max_lag", 3)),
+        )
+    if tool == "compare_groups":
+        return tools.compare_groups(
+            data_path,
+            snapshot_id,
+            metric=_required(arguments, "metric"),
+            dimension=_required(arguments, "dimension"),
+            first_group=_required(arguments, "first_group"),
+            second_group=_required(arguments, "second_group"),
+            bootstrap_samples=int(arguments.get("bootstrap_samples", 2_000)),
+        )
+    if tool == "analyze_text":
+        return tools.analyze_text(document_paths, f"corpus-{cycle_id}", seed=int(arguments.get("seed", 7)))
+    raise ValueError(f"unsupported connected cycle tool: {tool}")
+
+
+def _required(arguments: dict[str, object], key: str) -> str:
+    value = arguments.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} is required")
+    return value.strip()
+
+
+def _optional_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _priority_metric(table: AnalyticalTable, metrics: tuple[str, ...]) -> str:

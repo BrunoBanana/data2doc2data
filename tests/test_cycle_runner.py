@@ -3,7 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from data2doc2data.cycle_runner import DemoCycleRunner
+from data2doc2data.analysis_cycle import RoundDecision
+from data2doc2data.cycle_planner import PlannerResult, PlannerWaiting
+from data2doc2data.cycle_runner import ConnectedCycleRunner, DemoCycleRunner
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
@@ -69,6 +71,66 @@ class DemoCycleRunnerTests(unittest.TestCase):
             text_record = DemoCycleRunner(store).artifacts.load(result.cycle.rounds[2].artifact_refs[0])
             self.assertEqual(text_record["kind"], "text_ml")
             self.assertIn("<svg", text_record["payload"]["word_cloud_svg"])
+
+    def test_connected_cycle_asks_the_agent_after_each_real_artifact(self):
+        class Planner:
+            def __init__(self):
+                self.calls = []
+
+            def decide(self, cycle, artifact_projections, *, provider_resume_id=None):
+                self.calls.append((cycle, artifact_projections, provider_resume_id))
+                round_number = len(cycle.rounds) + 1
+                previous = cycle.rounds[-1].artifact_refs if cycle.rounds else ()
+                if round_number == 1:
+                    decision = RoundDecision(1, "continue", "detect_anomalies", {"metric": "gmv", "window": 5, "threshold": 4}, "先检查异常。")
+                elif round_number == 2:
+                    decision = RoundDecision(2, "continue", "detect_change_points", {"metric": "gmv", "minimum_window": 3}, "根据异常产物检查结构变化。", previous)
+                else:
+                    decision = RoundDecision(3, "finish", None, {}, "已有两种独立检验。", previous, stop_reason="evidence_sufficient")
+                return PlannerResult(decision, "provider-thread")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, task = _fixture(root)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+            planner = Planner()
+
+            result = ConnectedCycleRunner(store, planner).run(task, data, ())
+
+        self.assertEqual(result.cycle.status, "completed")
+        self.assertEqual(len(planner.calls), 3)
+        self.assertEqual(planner.calls[0][1][0]["tool"], "profile_data")
+        self.assertEqual(planner.calls[1][1][-1]["artifact_refs"], list(result.cycle.rounds[0].artifact_refs))
+        self.assertEqual(planner.calls[2][2], "provider-thread")
+
+    def test_connected_cycle_reconnects_a_transient_planner_session(self):
+        class Planner:
+            def __init__(self):
+                self.resume_ids = []
+
+            def decide(self, cycle, artifact_projections, *, provider_resume_id=None):
+                self.resume_ids.append(provider_resume_id)
+                if len(self.resume_ids) == 1:
+                    raise PlannerWaiting("temporary disconnect", "recover-thread")
+                return PlannerResult(
+                    RoundDecision(1, "finish", None, {}, "当前数据无需继续扩展。", stop_reason="evidence_sufficient"),
+                    "recover-thread",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, task = _fixture(root)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+            events = []
+            planner = Planner()
+
+            result = ConnectedCycleRunner(store, planner, on_planner_event=lambda kind, summary: events.append((kind, summary))).run(task, data, ())
+
+        self.assertEqual(result.cycle.status, "completed")
+        self.assertEqual(planner.resume_ids, [None, "recover-thread"])
+        self.assertEqual([kind for kind, _ in events], ["planner.waiting", "planner.resumed"])
 
 
 def _fixture(root: Path) -> tuple[Path, AnalysisTask]:

@@ -11,8 +11,8 @@ import re
 import threading
 from typing import Any, Mapping
 
-from .analysis_cycle import AnalysisCycle, CyclePlanError
-from .cycle_planner import ConnectedCyclePlanner, PlannerWaiting
+from .cycle_planner import ConnectedCyclePlanner
+from .cycle_runner import CONNECTED_CYCLE_TOOLS
 from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
@@ -194,7 +194,9 @@ class WorkbenchService:
                             "browser-authored flow_plan is no longer accepted; the backend planner owns connected runs",
                         )
                     flow_plan = self._backend_connected_flow_plan(task, data_path, document_paths)
-                    result = ConnectedFlowRunner(self.store).run(task, data_path, document_paths, flow_plan, proposal)
+                    result = ConnectedFlowRunner(self.store, self._connected_cycle_planner(task)).run(
+                        task, data_path, document_paths, flow_plan, proposal
+                    )
                 else:
                     result = AnalysisOrchestrator(self.store).run(task, data_path, document_paths, proposal)
                 graph = result.evidence_graph.to_dict()
@@ -431,34 +433,6 @@ class WorkbenchService:
         dataset = next((ref for ref in task.snapshot_refs if ref.kind == "dataset"), None)
         if dataset is None:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires a dataset")
-        profile = profile_standard_csv(data_path, dataset.snapshot_id)
-        projection = {
-            "tool": "profile_data",
-            "status": "completed",
-            "summary": {
-                "task_title": task.title,
-                "task_goal": task.goal,
-                "row_count": profile.row_count,
-                "metrics": list(profile.metrics),
-                "dimensions": list(profile.dimensions),
-                "date_range": list(profile.date_range),
-                "document_count": len(document_paths),
-            },
-            "artifact_refs": [dataset.snapshot_id],
-        }
-        cycle = AnalysisCycle.start(f"cycle-plan-{secrets.token_hex(8)}")
-        planner = ConnectedCyclePlanner(
-            self.gateway,
-            task.agent_provider,
-            self.agent_workspace,
-            ConnectedFlowRunner.REGISTERED_TOOLS,
-        )
-        try:
-            planned = planner.decide(cycle, (projection,))
-        except PlannerWaiting as exc:
-            raise WorkbenchApiError(HTTPStatus.SERVICE_UNAVAILABLE, str(exc)) from exc
-        except CyclePlanError as exc:
-            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"invalid backend planner decision: {exc}") from exc
         steps: list[dict[str, object]] = [
             {
                 "step_id": "inspect",
@@ -475,7 +449,6 @@ class WorkbenchService:
                 "arguments": {},
             },
         ]
-        terminal_dependencies = ["profile"]
         if document_paths:
             steps.extend(
                 [
@@ -495,20 +468,17 @@ class WorkbenchService:
                     },
                 ]
             )
-            terminal_dependencies = ["align"]
-        decision = planned.decision
-        existing_tools = {str(step["tool"]) for step in steps}
-        if decision.action == "continue" and decision.tool not in existing_tools:
-            steps.append(
-                {
-                    "step_id": "agent-round-1",
-                    "tool": decision.tool,
-                    "purpose": decision.rationale_summary,
-                    "dependencies": terminal_dependencies,
-                    "arguments": dict(decision.arguments),
-                }
-            )
-        return {"plan_id": f"backend-{cycle.cycle_id}", "steps": steps}
+        return {"plan_id": f"backend-{secrets.token_hex(8)}", "steps": steps}
+
+    def _connected_cycle_planner(self, task: AnalysisTask) -> ConnectedCyclePlanner:
+        if self.gateway is None or not task.agent_provider:
+            raise WorkbenchApiError(HTTPStatus.SERVICE_UNAVAILABLE, "connected backend planner is unavailable")
+        return ConnectedCyclePlanner(
+            self.gateway,
+            task.agent_provider,
+            self.agent_workspace,
+            CONNECTED_CYCLE_TOOLS,
+        )
 
     def _start_streamed_run(
         self,
@@ -548,7 +518,7 @@ class WorkbenchService:
                         cancelled=cancel.is_set,
                     )
                 else:
-                    ConnectedFlowRunner(self.store).run(
+                    ConnectedFlowRunner(self.store, self._connected_cycle_planner(task)).run(
                         task,
                         data_path,
                         document_paths,

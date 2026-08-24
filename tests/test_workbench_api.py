@@ -201,16 +201,29 @@ class WorkbenchApiTests(unittest.TestCase):
 
             def send(self, provider, session, message):
                 self.messages.append(message)
-                decision = {
-                    "round_number": 1,
-                    "action": "continue",
-                    "tool": "detect_anomalies",
-                    "arguments": {"metric": "activation_rate", "window": 5, "threshold": 4},
-                    "rationale_summary": "先识别激活率异常。",
-                    "prior_artifact_refs": [],
-                    "evidence_gaps": [],
-                    "stop_reason": None,
-                }
+                envelope = json.loads(message.split("\n", 1)[1])
+                round_number = envelope["cycle"]["next_round"]
+                prior = envelope["cycle"]["prior_rounds"][-1]["artifact_refs"] if round_number > 1 else []
+                if round_number == 1:
+                    decision = {
+                        "round_number": 1, "action": "continue", "tool": "detect_anomalies",
+                        "arguments": {"metric": "activation_rate", "window": 5, "threshold": 4},
+                        "rationale_summary": "先识别激活率异常。", "prior_artifact_refs": [],
+                        "evidence_gaps": [], "stop_reason": None,
+                    }
+                elif round_number == 2:
+                    decision = {
+                        "round_number": 2, "action": "continue", "tool": "detect_change_points",
+                        "arguments": {"metric": "activation_rate", "minimum_window": 3},
+                        "rationale_summary": "根据真实异常产物检验结构变化。", "prior_artifact_refs": prior,
+                        "evidence_gaps": [], "stop_reason": None,
+                    }
+                else:
+                    decision = {
+                        "round_number": 3, "action": "finish", "tool": None, "arguments": {},
+                        "rationale_summary": "两种独立检验已足够。", "prior_artifact_refs": prior,
+                        "evidence_gaps": [], "stop_reason": "evidence_sufficient",
+                    }
                 yield AgentEvent("message.delta", {"text": json.dumps(decision, ensure_ascii=False)})
                 yield AgentEvent("turn.completed", {})
 
@@ -228,6 +241,11 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertTrue(
             any(event["kind"] == "tool.result" and event["summary"].get("tool") == "detect_anomalies" for event in analysis["events"])
         )
+        self.assertEqual(len(gateway.messages), 3)
+        self.assertTrue(
+            all(event["summary"].get("planner") == "connected_agent" for event in analysis["events"] if event["kind"] == "round.planned")
+        )
+        self.assertIsNotNone(analysis["artifact_dashboard"])
         self.assertNotIn("/Users/", gateway.messages[0])
         node_ids = [node["node_id"] for node in analysis["evidence_graph"]["nodes"]]
         self.assertNotIn("H1", node_ids)
