@@ -20,6 +20,9 @@ dev = [
   "coverage[toml]>=7.6",
   "ruff>=0.9",
 ]
+documents = [
+  "markitdown[pdf,docx,xlsx]",
+]
 
 [project.urls]
 Homepage = "https://github.com/BrunoBanana/data2doc2data"
