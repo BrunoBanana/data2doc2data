@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "runner": "demo",
+  "use_bundled_hypotheses": true,
+  "stages": ["inspect", "profile", "extract", "align", "verify", "report"]
+}

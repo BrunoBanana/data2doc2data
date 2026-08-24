@@ -1,31 +1,18 @@
 import { expect, test } from '@playwright/test'
-import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-
-const dataset = path.resolve('../src/data2doc2data/sample/scenarios/growth-quality-alert/metrics.csv')
-const document = path.resolve('../src/data2doc2data/sample/cases/saas-growth-retention/documents/customer-research.md')
 
 test('completes the model-free task journey and downloads an offline report', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto('/')
-  await page.getByRole('button', { name: '暂时跳过' }).click()
-  await page.getByLabel('任务名称').fill('增长质量复盘')
-  await page.getByLabel('业务目标').fill('解释激活与留存变化并形成证据报告')
-  await page.getByRole('button', { name: '创建分析任务' }).click()
-
-  await page.getByLabel('本地数据文件路径').fill(dataset)
-  await page.getByRole('button', { name: '预览数据' }).click()
-  await expect(page.getByText('12 条记录')).toBeVisible()
-  await page.getByRole('button', { name: '确认映射并导入' }).click()
+  await page.getByRole('button', { name: '立即体验 Demo' }).click()
+  await page.getByRole('button', { name: '运行 Demo：增长提速、留存承压' }).click()
   await expect(page.getByRole('heading', { name: '数据概览' })).toBeVisible()
-  await expect(page.getByText('记录数').locator('..')).toContainText('12')
+  await expect(page.getByText('记录数').locator('..')).toContainText('208')
 
   await page.getByRole('tab', { name: '文本' }).click()
-  await page.getByLabel('文档路径').fill(`${document}\n${path.resolve('../missing-synthetic-document.md')}`)
-  await page.getByRole('button', { name: '导入文本材料' }).click()
   await expect(page.getByRole('heading', { name: '文本材料分析' })).toBeVisible()
-  await expect(page.getByText('1 份文档 · 1 个失败')).toBeVisible()
+  await expect(page.getByText('4 份文档 · 0 个失败')).toBeVisible()
 
   await page.getByRole('button', { name: '运行分析' }).click()
   await expect(page.getByRole('heading', { name: '分析过程与证据联动' })).toBeVisible()
@@ -45,7 +32,7 @@ test('completes the model-free task journey and downloads an offline report', as
     if (/^https?:/.test(request.url())) externalRequests.push(request.url())
   })
   await reportPage.goto(pathToFileURL(reportPath).href)
-  await expect(reportPage).toHaveTitle('增长质量复盘 · Data2Doc2Data 分析报告')
+  await expect(reportPage).toHaveTitle('增长提速、留存承压 · Data2Doc2Data 分析报告')
   await expect(reportPage.getByRole('heading', { name: '分析结论' })).toBeVisible()
   await expect(reportPage.getByLabel('证据验证')).toBeVisible()
   await expect(reportPage.getByRole('heading', { name: '证据与假设' })).toBeVisible()
@@ -63,7 +50,8 @@ for (const caseName of ['增长提速、留存承压', '大促增收、利润与
     const errors: string[] = []
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
     await page.goto('/')
-    await page.getByRole('button', { name: `加载案例：${caseName}` }).click()
+    await page.getByRole('button', { name: '立即体验 Demo' }).click()
+    await page.getByRole('button', { name: `运行 Demo：${caseName}` }).click()
     await expect(page.getByRole('heading', { name: caseName })).toBeVisible()
     await expect(page.getByRole('heading', { name: '数据概览' })).toBeVisible()
     await page.getByRole('tab', { name: '文本' }).click()
@@ -85,7 +73,8 @@ test('keeps the complete workbench usable at 390px and honors reduced motion', a
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/')
-  await page.getByRole('button', { name: '加载案例：增长提速、留存承压' }).click()
+  await page.getByRole('button', { name: '立即体验 Demo' }).click()
+  await page.getByRole('button', { name: '运行 Demo：增长提速、留存承压' }).click()
   await expect(page.getByRole('heading', { name: '增长提速、留存承压' })).toBeVisible()
   await page.getByRole('button', { name: '运行分析' }).click()
   await expect(page.getByText('已按减少动态效果设置直接展示全部事件')).toBeVisible()
@@ -101,7 +90,8 @@ test('keeps the complete workbench usable at 390px and honors reduced motion', a
 test('keeps all workbench columns and the agent composer inside a 1440x1024 viewport', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1024 })
   await page.goto('/')
-  await page.getByRole('button', { name: '加载案例：增长提速、留存承压' }).click()
+  await page.getByRole('button', { name: '立即体验 Demo' }).click()
+  await page.getByRole('button', { name: '运行 Demo：增长提速、留存承压' }).click()
 
   const drawer = page.getByRole('complementary', { name: '分析员笔记' })
   const composer = drawer.locator('[data-fixed-region="composer"]')

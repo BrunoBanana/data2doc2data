@@ -21,10 +21,21 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
         retail = catalog.package("retail-promotion-fulfillment")
         self.assertEqual((saas.case.record_count, saas.case.metric_count, saas.case.document_count), (208, 8, 4))
         self.assertEqual((retail.case.record_count, retail.case.metric_count, retail.case.document_count), (260, 10, 5))
-        self.assertLess(self._value(saas.metrics_path, "retention_8w", "2026-06-29"), self._value(saas.metrics_path, "retention_8w", "2026-01-05"))
-        self.assertGreater(self._value(saas.metrics_path, "trial_signups", "2026-06-29"), self._value(saas.metrics_path, "trial_signups", "2026-01-05"))
-        self.assertGreater(self._value(retail.metrics_path, "gmv", "2026-05-04"), self._value(retail.metrics_path, "gmv", "2026-02-02"))
-        self.assertLess(self._value(retail.metrics_path, "gross_margin_rate", "2026-05-04"), self._value(retail.metrics_path, "gross_margin_rate", "2026-02-02"))
+        self.assertLess(
+            self._value(saas.metrics_path, "retention_8w", "2026-06-29"),
+            self._value(saas.metrics_path, "retention_8w", "2026-01-05"),
+        )
+        self.assertGreater(
+            self._value(saas.metrics_path, "trial_signups", "2026-06-29"),
+            self._value(saas.metrics_path, "trial_signups", "2026-01-05"),
+        )
+        self.assertGreater(
+            self._value(retail.metrics_path, "gmv", "2026-05-04"), self._value(retail.metrics_path, "gmv", "2026-02-02")
+        )
+        self.assertLess(
+            self._value(retail.metrics_path, "gross_margin_rate", "2026-05-04"),
+            self._value(retail.metrics_path, "gross_margin_rate", "2026-02-02"),
+        )
         for package in (saas, retail):
             hypotheses = json.loads(package.hypotheses_path.read_text(encoding="utf-8"))
             expected = json.loads(package.expected_path.read_text(encoding="utf-8"))
@@ -46,6 +57,10 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
             self.assertTrue(package.rules_path.is_file())
             self.assertTrue(package.hypotheses_path.is_file())
             self.assertTrue(package.expected_path.is_file())
+            self.assertTrue(package.demo_flow_path.is_file())
+            manifest = json.loads(package.demo_flow_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["runner"], "demo")
+            self.assertTrue(manifest["use_bundled_hypotheses"])
 
     def test_rejects_unknown_or_malformed_case_ids(self):
         catalog = self._catalog_with_valid_package()
@@ -153,6 +168,17 @@ class FlagshipCaseCatalogTest(unittest.TestCase):
         )
         (case_root / "hypotheses.json").write_text(json.dumps({"version": 1, "hypotheses": []}), encoding="utf-8")
         (case_root / "expected.json").write_text(json.dumps({"version": 1, "outcomes": []}), encoding="utf-8")
+        (case_root / "demo-flow.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "runner": "demo",
+                    "use_bundled_hypotheses": True,
+                    "stages": ["inspect", "profile", "extract", "align", "verify", "report"],
+                }
+            ),
+            encoding="utf-8",
+        )
         return root, cleanup
 
     @staticmethod

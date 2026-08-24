@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, FlagshipCaseSummary, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview } from '../contracts/workbench'
+import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, FlagshipCaseSummary, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview, TaskLaunchOptions } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
 import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
 
@@ -71,9 +71,9 @@ export class WorkbenchClient {
     return payload.tasks
   }
 
-  async createTask(title: string, goal: string): Promise<AnalysisTask> {
+  async createTask(title: string, goal: string, options: TaskLaunchOptions = { analysis_mode: 'demo', agent_provider: null }): Promise<AnalysisTask> {
     await this.ensureSession()
-    const payload = await this.mutate<{ task: AnalysisTask }>('/api/workbench/tasks', { title, goal })
+    const payload = await this.mutate<{ task: AnalysisTask }>('/api/workbench/tasks', { title, goal, ...options })
     return payload.task
   }
 
@@ -82,9 +82,9 @@ export class WorkbenchClient {
     return payload.cases
   }
 
-  async loadCase(caseId: string): Promise<AnalysisTask> {
+  async loadCase(caseId: string, options: TaskLaunchOptions = { analysis_mode: 'demo', agent_provider: null }): Promise<AnalysisTask> {
     await this.ensureSession()
-    const payload = await this.mutate<{ task: AnalysisTask }>(`/api/workbench/cases/${encodeURIComponent(caseId)}/load`, {})
+    const payload = await this.mutate<{ task: AnalysisTask }>(`/api/workbench/cases/${encodeURIComponent(caseId)}/load`, options)
     return payload.task
   }
 

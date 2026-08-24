@@ -52,6 +52,13 @@ export interface AnalysisTask {
   goal: string
   status: string
   snapshot_refs: SnapshotRef[]
+  analysis_mode?: 'demo' | 'connected'
+  agent_provider?: string | null
+}
+
+export interface TaskLaunchOptions {
+  analysis_mode: 'demo' | 'connected'
+  agent_provider: string | null
 }
 
 export interface FlagshipCaseSummary {

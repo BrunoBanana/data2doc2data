@@ -61,10 +61,12 @@ describe('analysis workbench shell', () => {
     expect(screen.getByText('未发现可用助手；确定性分析仍可使用。')).toBeInTheDocument()
   })
 
-  it('starts with provider onboarding when there are no tasks', async () => {
+  it('starts with explicit Demo and connected-Agent journeys when there are no tasks', async () => {
     render(<App client={client([])} />)
 
-    expect(await screen.findByRole('heading', { name: '先选择你的分析协作者' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '选择你的分析方式' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '立即体验 Demo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '连接 Agent 开始分析' })).toBeInTheDocument()
   })
 
   it('loads the deterministic dashboard for a task snapshot', async () => {

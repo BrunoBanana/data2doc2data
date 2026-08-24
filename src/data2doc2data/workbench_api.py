@@ -41,12 +41,21 @@ class WorkbenchService:
     def list_flagship_cases(self) -> dict[str, object]:
         return {"cases": [case.to_summary_dict() for case in self.flagship_cases.list()]}
 
-    def load_flagship_case(self, owner_id: str, case_id: str) -> dict[str, object]:
+    def load_flagship_case(self, owner_id: str, case_id: str, payload: object | None = None) -> dict[str, object]:
         try:
+            body = _body(payload or {})
+            analysis_mode = body.get("analysis_mode", "demo")
+            agent_provider = body.get("agent_provider")
+            _analysis_journey(analysis_mode, agent_provider)
             package = self.flagship_cases.package(case_id)
             created = self.create_task(
                 owner_id,
-                {"title": package.case.title, "goal": package.case.business_question},
+                {
+                    "title": package.case.title,
+                    "goal": package.case.business_question,
+                    "analysis_mode": analysis_mode,
+                    "agent_provider": agent_provider,
+                },
             )["task"]
             task = AnalysisTask.from_dict(created)
             dataset_digest = _file_digest(package.metrics_path)
@@ -69,6 +78,8 @@ class WorkbenchService:
                 "rules": json.loads(package.rules_path.read_text(encoding="utf-8")),
                 "hypotheses": json.loads(package.hypotheses_path.read_text(encoding="utf-8")),
                 "expected": json.loads(package.expected_path.read_text(encoding="utf-8")),
+                "demo_flow": json.loads(package.demo_flow_path.read_text(encoding="utf-8")),
+                "journey": analysis_mode,
             }
             self.store.save_task_artifact(task.task_id, "flagship_case", artifact)
             dashboard = self.task_dashboard(owner_id, task.task_id)
@@ -99,10 +110,15 @@ class WorkbenchService:
     def create_task(self, owner_id: str, payload: object) -> dict[str, object]:
         body = _body(payload)
         try:
+            analysis_mode = body.get("analysis_mode", "demo")
+            agent_provider = body.get("agent_provider")
+            _analysis_journey(analysis_mode, agent_provider)
             task = AnalysisTask.create(
                 task_id=f"task-{secrets.token_hex(12)}",
                 title=body.get("title", ""),
                 goal=body.get("goal", ""),
+                analysis_mode=analysis_mode,
+                agent_provider=agent_provider,
             )
             self.store.save_task(task)
             self.store.assign_task_owner(task.task_id, owner_id)
@@ -122,6 +138,8 @@ class WorkbenchService:
                 snapshot_refs=current.snapshot_refs,
                 created_at=current.created_at,
                 updated_at=_utc_now(),
+                analysis_mode=current.analysis_mode,
+                agent_provider=current.agent_provider,
             )
             self.store.save_task(updated)
         except (WorkspaceContractError, WorkspaceStoreError) as exc:
@@ -148,6 +166,8 @@ class WorkbenchService:
                 snapshot_refs=tuple(refs.values()),
                 created_at=current.created_at,
                 updated_at=_utc_now(),
+                analysis_mode=current.analysis_mode,
+                agent_provider=current.agent_provider,
             )
             self.store.save_task(updated)
         except (WorkspaceContractError, WorkspaceStoreError) as exc:
@@ -468,6 +488,11 @@ class WorkbenchService:
         if isinstance(proposal, Mapping) and proposal.get("hypotheses") not in (None, []):
             return proposal
         artifact = self.store.get_task_artifact(task_id, "flagship_case")
+        if not isinstance(artifact, Mapping) or artifact.get("journey") != "demo":
+            return proposal
+        manifest = artifact.get("demo_flow")
+        if not isinstance(manifest, Mapping) or manifest.get("use_bundled_hypotheses") is not True:
+            return proposal
         hypotheses = artifact.get("hypotheses") if isinstance(artifact, Mapping) else None
         raw_items = hypotheses.get("hypotheses") if isinstance(hypotheses, Mapping) else None
         if not isinstance(raw_items, list):
@@ -484,6 +509,15 @@ def _body(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "request must be an object")
     return payload
+
+
+def _analysis_journey(analysis_mode: object, agent_provider: object) -> None:
+    if analysis_mode not in {"demo", "connected"}:
+        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "analysis_mode must be demo or connected")
+    if analysis_mode == "connected" and (not isinstance(agent_provider, str) or not agent_provider.strip()):
+        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires an agent_provider")
+    if analysis_mode == "demo" and agent_provider is not None:
+        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "demo analysis cannot set an agent_provider")
 
 
 def _file_digest(path: Path) -> str | None:

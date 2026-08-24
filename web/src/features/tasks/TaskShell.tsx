@@ -11,6 +11,7 @@ import { TextDashboard } from '../documents/TextDashboard'
 import { EvidenceGraph } from '../evidence/EvidenceGraph'
 import { HypothesisPanel } from '../evidence/HypothesisPanel'
 import { RunHistory } from '../history/RunHistory'
+import { createTrailingRefresh } from './graph-refresh-queue'
 import { ReportExport } from '../reports/ReportExport'
 
 const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as const
@@ -123,6 +124,10 @@ export function TaskShell(props: TaskShellProps) {
 
   function attachRunStream(runId: string, after: number) {
     closeRunStream.current?.()
+    const graphRefresh = createTrailingRefresh(
+      () => loadEvidenceGraph(runId),
+      (graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current),
+    )
     closeRunStream.current = openRunEventStream(runId, after, (event) => {
       setRunResult((current) => {
         if (!current || current.run.run_id !== runId || current.events.some((item) => item.sequence === event.sequence)) return current
@@ -130,11 +135,11 @@ export function TaskShell(props: TaskShellProps) {
         return { ...current, run: { ...current.run, status: terminalStatus }, events: [...current.events, event].sort((left, right) => left.sequence - right.sequence) }
       })
       if (event.kind === 'node.added' || event.kind === 'node.updated' || event.kind === 'edge.added' || event.kind === 'edge.activated') {
-        loadEvidenceGraph(runId).then((graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current)).catch(() => undefined)
+        graphRefresh.schedule()
       }
       if (event.kind === 'run.completed' || event.kind === 'run.failed' || event.kind === 'run.interrupted') {
         setRunning(false)
-        loadEvidenceGraph(runId).then((graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current)).catch(() => undefined)
+        graphRefresh.schedule()
         listTaskRuns().then(setRuns).catch(() => undefined)
       }
     }, () => setDashboardError('实时过程暂时断开，正在等待浏览器自动续接。'))
@@ -148,7 +153,7 @@ export function TaskShell(props: TaskShellProps) {
   return <>
     <header className="topbar">
       <button className="brand brand--button" type="button" onClick={onBack} aria-label="返回任务首页"><span className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></span><span>Data2Doc2Data</span></button>
-      <div className="topbar-case"><span>当前案例</span><strong>{task.title}</strong></div>
+      <div className="topbar-case"><span>{task.analysis_mode === 'connected' ? `CONNECTED · ${task.agent_provider ?? 'AGENT'}` : 'DEMO · 合成数据'}</span><strong>{task.title}</strong></div>
       <div className="topbar-status" role="status"><span className="status-dot status-dot--ready" aria-hidden="true" />本地计算 <i aria-hidden="true">·</i> {readyProvider ? `${readyProvider.provider_id} 可用` : '助手未连接'}</div>
       <button className="button button--quiet" type="button" onClick={() => setAssistantOpen((open) => !open)}>{assistantOpen ? '收起笔记' : '打开笔记'}</button>
     </header>
@@ -160,7 +165,7 @@ export function TaskShell(props: TaskShellProps) {
     <div data-viewport-shell="true" className={`workbench-grid workbench-grid--mobile-${mobileView}${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
       <nav className="asset-rail" aria-label="案例与资产" data-scroll-owner="asset-rail">
         <div className="rail-heading"><span>案例与资产</span><button className="icon-button rail-create-button" type="button" aria-label="新建分析任务" onClick={onCreateTask}>新建</button></div>
-        <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">当前案例</span><strong>{task.title}</strong><span>{task.goal}</span></button>
+        <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">{task.analysis_mode === 'connected' ? 'CONNECTED TASK' : 'DETERMINISTIC DEMO'}</span><strong>{task.title}</strong><span>{task.goal}</span></button>
         <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => setActiveTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
       </nav>
       <main className="analysis-canvas" data-scroll-owner="analysis-canvas">

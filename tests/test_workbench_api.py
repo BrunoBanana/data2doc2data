@@ -143,6 +143,8 @@ class WorkbenchApiTests(unittest.TestCase):
 
         artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
         self.assertEqual(artifact["case"]["id"], "saas-growth-retention")
+        self.assertEqual(artifact["journey"], "demo")
+        self.assertEqual(artifact["demo_flow"]["runner"], "demo")
         self.assertEqual(len(artifact["rules"]["rules"]), 3)
         self.assertEqual(len(artifact["hypotheses"]["hypotheses"]), 3)
         self.assertNotIn("metrics_path", json.dumps(artifact))
@@ -160,6 +162,32 @@ class WorkbenchApiTests(unittest.TestCase):
         other_cookie, _ = self.authenticate()
         status, hidden, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}", cookie=other_cookie)
         self.assertEqual(status, 404, hidden)
+
+    def test_connected_material_pack_does_not_inject_demo_hypotheses(self):
+        status, loaded, _ = self.request(
+            "POST",
+            "/api/workbench/cases/saas-growth-retention/load",
+            {"analysis_mode": "connected", "agent_provider": "codex"},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 201, loaded)
+        task = loaded["task"]
+        self.assertEqual(task["analysis_mode"], "connected")
+        self.assertEqual(task["agent_provider"], "codex")
+
+        artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
+        self.assertEqual(artifact["journey"], "connected")
+        status, analysis, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True, "proposal": {"hypotheses": []}},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
+        self.assertEqual(status, 201, analysis)
+        node_ids = [node["node_id"] for node in analysis["evidence_graph"]["nodes"]]
+        self.assertNotIn("H1", node_ids)
 
     def test_assets_runs_event_replay_and_browser_ownership(self):
         task = self.create_task()

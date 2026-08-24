@@ -110,6 +110,8 @@ class AnalysisTask:
     snapshot_refs: tuple[SnapshotRef, ...]
     created_at: str
     updated_at: str
+    analysis_mode: str = "demo"
+    agent_provider: str | None = None
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -121,6 +123,14 @@ class AnalysisTask:
         object.__setattr__(self, "snapshot_refs", _snapshot_refs(self.snapshot_refs))
         _require_timestamp(self.created_at, "created_at")
         _require_timestamp(self.updated_at, "updated_at")
+        if self.analysis_mode not in {"demo", "connected"}:
+            raise WorkspaceContractError("analysis_mode must be demo or connected")
+        if self.analysis_mode == "connected":
+            if self.agent_provider is None:
+                raise WorkspaceContractError("connected analysis requires an agent_provider")
+            _require_identifier(self.agent_provider, "agent_provider")
+        elif self.agent_provider is not None:
+            raise WorkspaceContractError("demo analysis cannot set an agent_provider")
 
     @classmethod
     def create(
@@ -130,9 +140,22 @@ class AnalysisTask:
         goal: str,
         snapshot_refs: Iterable[SnapshotRef] = (),
         now: str | None = None,
+        *,
+        analysis_mode: str = "demo",
+        agent_provider: str | None = None,
     ) -> AnalysisTask:
         timestamp = now or _utc_now()
-        return cls(task_id, title, goal, TaskStatus.ACTIVE, tuple(snapshot_refs), timestamp, timestamp)
+        return cls(
+            task_id,
+            title,
+            goal,
+            TaskStatus.ACTIVE,
+            tuple(snapshot_refs),
+            timestamp,
+            timestamp,
+            analysis_mode,
+            agent_provider,
+        )
 
     def transition(self, status: TaskStatus | str, now: str | None = None) -> AnalysisTask:
         target = TaskStatus(status)
@@ -150,6 +173,8 @@ class AnalysisTask:
             "snapshot_refs": [ref.to_dict() for ref in self.snapshot_refs],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "analysis_mode": self.analysis_mode,
+            "agent_provider": self.agent_provider,
         }
 
     @classmethod
@@ -165,6 +190,8 @@ class AnalysisTask:
             snapshot_refs=tuple(SnapshotRef.from_dict(ref) for ref in refs),
             created_at=str(payload.get("created_at", "")),
             updated_at=str(payload.get("updated_at", "")),
+            analysis_mode=str(payload.get("analysis_mode", "demo")),
+            agent_provider=str(payload["agent_provider"]) if payload.get("agent_provider") is not None else None,
             contract_version=_require_version(payload.get("contract_version")),
         )
 
@@ -220,7 +247,9 @@ class AnalysisRun:
             self,
             status=target,
             started_at=timestamp if target == RunStatus.RUNNING else self.started_at,
-            completed_at=timestamp if target in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.INTERRUPTED} else None,
+            completed_at=timestamp
+            if target in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.INTERRUPTED}
+            else None,
         )
 
     def to_dict(self) -> dict[str, Any]:

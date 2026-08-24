@@ -422,6 +422,18 @@
 .case-card strong { font-size: 12px; }
 .case-card small { color: var(--muted); }
 .case-card .button { justify-self: start; margin-top: 6px; }
+.journey-panel { max-width: 980px; }
+.journey-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; }
+.journey-card { min-height: 260px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; border: 2px solid var(--line); color: var(--text); background: var(--surface-2); text-align: left; cursor: pointer; }
+.journey-card:hover { background: #effff4; box-shadow: var(--shadow-accent); transform: translate(-2px, -2px); }
+.journey-card > span { color: var(--accent-strong); font: 800 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.journey-card > strong { max-width: 360px; font-size: clamp(24px, 3vw, 36px); line-height: 1.05; letter-spacing: -.04em; }
+.journey-card > p { margin: auto 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.journey-card > small { padding-top: 10px; border-top: 1px solid var(--line); color: var(--text); font-size: 10px; font-weight: 800; }
+.journey-card--demo { box-shadow: 5px 5px 0 var(--accent); }
+.journey-card--connected { color: var(--surface-1); background: #050505; box-shadow: 5px 5px 0 var(--accent); }
+.journey-card--connected > p { color: #c8c4b9; }
+.journey-card--connected > small { border-top-color: #68675f; color: var(--surface-1); }
 .source-tabs { border-color: var(--line); border-radius: 2px; background: var(--surface-2); }
 .source-tabs button { border-radius: 2px; color: var(--muted); }
 .source-tabs button[aria-pressed="true"] { color: var(--text); background: var(--accent); box-shadow: none; }
@@ -644,4 +656,6 @@
   .flow-inspector { display: flex; }
   .agent-flow-stepbar { grid-template-columns: 90px minmax(0, 1fr); }
   .agent-flow-stepbar > .button { grid-column: 1 / -1; min-height: 40px; border-top: 1px solid var(--line); border-left: 0; }
+  .journey-grid { grid-template-columns: 1fr; }
+  .journey-card { min-height: 220px; }
 }

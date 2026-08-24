@@ -3,15 +3,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { WorkbenchClient, type WorkspaceState } from '../api/client'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
 import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunHistoryItem } from '../contracts/run-events'
-import type { AnalysisTask, PreparedSource, SourcePreview } from '../contracts/workbench'
+import type { AnalysisTask, PreparedSource, SourcePreview, TaskLaunchOptions } from '../contracts/workbench'
 import { Onboarding } from '../features/onboarding/Onboarding'
 import { TaskHome } from '../features/tasks/TaskHome'
 import { TaskShell } from '../features/tasks/TaskShell'
 
 export interface WorkbenchApi {
   loadWorkspace: () => Promise<WorkspaceState>
-  createTask: (title: string, goal: string) => Promise<AnalysisTask>
-  loadCase: (caseId: string) => Promise<AnalysisTask>
+  createTask: (title: string, goal: string, options?: TaskLaunchOptions) => Promise<AnalysisTask>
+  loadCase: (caseId: string, options?: TaskLaunchOptions) => Promise<AnalysisTask>
   previewLocalPath: (path: string) => Promise<SourcePreview>
   uploadFile: (file: File) => Promise<PreparedSource>
   previewApi: (url: string) => Promise<PreparedSource>

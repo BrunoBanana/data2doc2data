@@ -15,39 +15,62 @@ const providers = [
 ]
 
 describe('onboarding', () => {
-  it('allows model-free task creation without blocking on a provider', async () => {
+  it('offers a complete Demo journey even when every agent is unavailable', async () => {
+    const unavailable = providers.map((provider) => ({ ...provider, state: 'auth_required' }))
+    const loaded = { task_id: 'task-demo', title: cases[0].title, goal: cases[0].business_question, status: 'active', snapshot_refs: [], analysis_mode: 'demo' as const, agent_provider: null }
+    const loadCase = vi.fn().mockResolvedValue(loaded)
+    const onComplete = vi.fn()
+    render(<Onboarding providers={unavailable} cases={cases} createTask={vi.fn()} loadCase={loadCase} onComplete={onComplete} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '立即体验 Demo' }))
+    expect(screen.getByRole('heading', { name: '选择一个完整 Demo' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '运行 Demo：增长提速、留存承压' }))
+
+    expect(loadCase).toHaveBeenCalledWith('saas-growth-retention', { analysis_mode: 'demo', agent_provider: null })
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(loaded))
+  })
+
+  it('requires a ready provider before creating a connected task', async () => {
     const createTask = vi.fn().mockResolvedValue({ task_id: 'task-1', title: '收入复盘', goal: '解释收入下降' })
     render(<Onboarding providers={providers} cases={cases} createTask={createTask} loadCase={vi.fn()} onComplete={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '暂时跳过' }))
+    fireEvent.click(screen.getByRole('button', { name: '连接 Agent 开始分析' }))
+    fireEvent.click(screen.getByRole('button', { name: /WorkBuddy/ }))
+    expect(screen.getByRole('alert')).toHaveTextContent('请重新登录')
+    expect(screen.queryByLabelText('任务名称')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Codex CLI/ }))
     fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '收入复盘' } })
     fireEvent.change(screen.getByLabelText('业务目标'), { target: { value: '解释收入下降' } })
     fireEvent.click(screen.getByRole('button', { name: '创建分析任务' }))
 
-    expect(createTask).toHaveBeenCalledWith('收入复盘', '解释收入下降')
+    expect(createTask).toHaveBeenCalledWith('收入复盘', '解释收入下降', { analysis_mode: 'connected', agent_provider: 'codex' })
     expect(await screen.findByText('任务已创建')).toBeInTheDocument()
   })
 
   it('shows reconnect guidance instead of pretending an expired provider is usable', () => {
     render(<Onboarding providers={providers} cases={cases} createTask={vi.fn()} loadCase={vi.fn()} onComplete={vi.fn()} />)
 
+    fireEvent.click(screen.getByRole('button', { name: '连接 Agent 开始分析' }))
     fireEvent.click(screen.getByRole('button', { name: /WorkBuddy/ }))
 
     expect(screen.getByRole('alert')).toHaveTextContent('请重新登录')
   })
 
-  it('loads either complete synthetic case in one click', async () => {
+  it('loads a material pack without switching a connected journey to Demo', async () => {
     const loaded = { task_id: 'task-case', title: cases[0].title, goal: cases[0].business_question, status: 'active', snapshot_refs: [] }
     const loadCase = vi.fn().mockResolvedValue(loaded)
     const onComplete = vi.fn()
     render(<Onboarding providers={providers} cases={cases} createTask={vi.fn()} loadCase={loadCase} onComplete={onComplete} />)
 
-    expect(screen.getByRole('heading', { name: '完整示例案例' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '连接 Agent 开始分析' }))
+    fireEvent.click(screen.getByRole('button', { name: /Codex CLI/ }))
+    expect(screen.getByRole('heading', { name: '也可以从完整材料包开始' })).toBeInTheDocument()
     expect(screen.getByText('208 条指标记录 · 8 个指标 · 4 份文档')).toBeInTheDocument()
     expect(screen.getByText('260 条指标记录 · 10 个指标 · 5 份文档')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '加载案例：增长提速、留存承压' }))
+    fireEvent.click(screen.getByRole('button', { name: '使用材料包：增长提速、留存承压' }))
 
-    expect(loadCase).toHaveBeenCalledWith('saas-growth-retention')
+    expect(loadCase).toHaveBeenCalledWith('saas-growth-retention', { analysis_mode: 'connected', agent_provider: 'codex' })
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(loaded))
   })
 })

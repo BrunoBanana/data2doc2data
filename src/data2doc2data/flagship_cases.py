@@ -86,6 +86,7 @@ class FlagshipCasePackage:
     rules_path: Path
     hypotheses_path: Path
     expected_path: Path
+    demo_flow_path: Path
 
 
 class FlagshipCaseCatalog:
@@ -137,6 +138,7 @@ def _load_package(catalog_root: Path, case_id: str) -> FlagshipCasePackage:
     rules_path = _contained_file(case_root, case_root / "rules.json")
     hypotheses_path = _contained_file(case_root, case_root / "hypotheses.json")
     expected_path = _contained_file(case_root, case_root / "expected.json")
+    demo_flow_path = _contained_file(case_root, case_root / "demo-flow.json")
     _validate_companion(_read_json(rules_path, "flagship case rules"), "rules", {"version", "metrics", "rules"})
     try:
         load_ruleset(rules_path)
@@ -152,6 +154,18 @@ def _load_package(catalog_root: Path, case_id: str) -> FlagshipCasePackage:
         "expected outcomes",
         {"version", "outcomes"},
     )
+    demo_flow = _read_json(demo_flow_path, "flagship case demo flow")
+    _validate_companion(
+        demo_flow,
+        "demo flow",
+        {"version", "runner", "use_bundled_hypotheses", "stages"},
+    )
+    if (
+        demo_flow.get("runner") != "demo"
+        or demo_flow.get("use_bundled_hypotheses") is not True
+        or not isinstance(demo_flow.get("stages"), list)
+    ):
+        raise FlagshipCaseError("flagship case demo flow is invalid")
     _validate_metrics(metrics_path, case)
     return FlagshipCasePackage(
         case=case,
@@ -161,6 +175,7 @@ def _load_package(catalog_root: Path, case_id: str) -> FlagshipCasePackage:
         rules_path=rules_path,
         hypotheses_path=hypotheses_path,
         expected_path=expected_path,
+        demo_flow_path=demo_flow_path,
     )
 
 

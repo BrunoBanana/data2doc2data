@@ -616,7 +616,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
     def _load_flagship_case(self, case_id: str) -> None:
         try:
             owner_id = self._authorize_agent_mutation()
-            payload = self._workbench().load_flagship_case(owner_id, case_id)
+            payload = self._workbench().load_flagship_case(owner_id, case_id, self._read_json())
             self._send_json(HTTPStatus.CREATED, payload)
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
