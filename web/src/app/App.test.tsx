@@ -31,6 +31,7 @@ function client(tasks = [task], dashboard: CombinedDashboard = { dashboard: null
     interruptAgent: async () => undefined,
     decideAgentApproval: async () => undefined,
     openAgentEventStream: () => () => undefined,
+    heartbeat: async () => undefined,
   }
 }
 

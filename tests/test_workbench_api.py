@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from data2doc2data.config import ProfileStore
+from data2doc2data.agent_api import BrowserSessions
 from data2doc2data.run_events import RunEvent
 from data2doc2data.server import create_server
 from data2doc2data.workspace import SnapshotRef
@@ -77,6 +78,32 @@ class WorkbenchApiTests(unittest.TestCase):
         status, listed, _ = self.request("GET", "/api/workbench/tasks", cookie=self.cookie)
         self.assertEqual(status, 200)
         self.assertEqual([item["task_id"] for item in listed["tasks"]], [task["task_id"]])
+
+    def test_expired_browser_lease_renews_without_losing_owned_tasks(self):
+        now = [100.0]
+        self.server.agent_service.browser_sessions = BrowserSessions(
+            lifetime_seconds=10,
+            clock=lambda: now[0],
+        )
+        cookie, csrf = self.authenticate()
+        status, created, _ = self.request(
+            "POST",
+            "/api/workbench/tasks",
+            {"title": "长期调查", "goal": "跨时段保持工作区"},
+            cookie=cookie,
+            csrf=csrf,
+        )
+        self.assertEqual(status, 201, created)
+        now[0] = 111.0
+
+        status, bootstrap, headers = self.request("GET", "/api/agents", cookie=cookie)
+        renewed_cookie = headers["Set-Cookie"].split(";", 1)[0]
+        status, listed, _ = self.request("GET", "/api/workbench/tasks", cookie=renewed_cookie)
+
+        self.assertEqual(status, 200, listed)
+        self.assertEqual(renewed_cookie, cookie)
+        self.assertNotEqual(bootstrap["csrf_token"], csrf)
+        self.assertEqual([item["task_id"] for item in listed["tasks"]], [created["task"]["task_id"]])
 
     def test_flagship_cases_are_safe_and_load_as_complete_owned_tasks(self):
         status, catalog, _ = self.request("GET", "/api/workbench/cases", cookie=self.cookie)

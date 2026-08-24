@@ -50,6 +50,11 @@ export class WorkbenchClient {
     this.agents = Array.isArray(payload.agents) ? payload.agents : []
   }
 
+  async heartbeat(): Promise<void> {
+    await this.ensureSession()
+    await this.mutate('/api/agents/heartbeat', {})
+  }
+
   async loadWorkspace(): Promise<WorkspaceState> {
     await this.bootstrap()
     const [providers, tasks, cases] = await Promise.all([this.listProviders(), this.listTasks(), this.listCases()])

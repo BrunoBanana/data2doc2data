@@ -55,6 +55,7 @@ EVENT_FIELDS = {
     "turn.cancelled": ({"turn_id", "reason"}, set()),
     "turn.error": ({"turn_id", "message", "code"}, {"message"}),
     "provider.error": ({"message", "code"}, {"message"}),
+    "provider.status": ({"state", "detail"}, {"state"}),
 }
 STRING_FIELDS = {
     "session_id",
@@ -74,6 +75,8 @@ STRING_FIELDS = {
     "reason",
     "message",
     "code",
+    "state",
+    "detail",
 }
 
 
@@ -149,8 +152,7 @@ class AgentGateway:
             raise ProviderUnavailable(provider_name, "session creation failed") from error
         if isinstance(created, AgentSession):
             valid_workspace = (
-                isinstance(created.workspace, Path)
-                and created.workspace.expanduser().resolve() == resolved_workspace
+                isinstance(created.workspace, Path) and created.workspace.expanduser().resolve() == resolved_workspace
             )
             if (
                 created.provider != provider_name

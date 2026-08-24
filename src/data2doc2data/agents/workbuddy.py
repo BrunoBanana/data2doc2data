@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from http import HTTPStatus
 import ipaddress
 import json
 from pathlib import Path
 from queue import Empty, Queue
 import re
+import random
 import shutil
 import socket
 import subprocess
@@ -37,15 +39,19 @@ class WorkBuddyProvider:
         executable: str = "codebuddy",
         model: str = "hy3",
         request_timeout: float = 10.0,
+        reconnect_delays: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0),
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
         if not self.workspace.is_dir():
             raise ValueError("WorkBuddy workspace must be an existing directory")
         if request_timeout <= 0:
             raise ValueError("WorkBuddy request timeout must be positive")
+        if not reconnect_delays or any(delay < 0 for delay in reconnect_delays):
+            raise ValueError("WorkBuddy reconnect delays must be non-negative")
         self.executable = executable
         self.model = model
         self.request_timeout = request_timeout
+        self.reconnect_delays = reconnect_delays
         self.endpoint = _validate_endpoint(endpoint) if endpoint is not None else None
         self._configured_endpoint = self.endpoint is not None
         self._opener = build_opener(ProxyHandler({}))
@@ -57,6 +63,9 @@ class WorkBuddyProvider:
         self._sse_response = None
         self._sse_thread: threading.Thread | None = None
         self._closing = False
+        self._stop_reconnect = threading.Event()
+        self._connection_lock = threading.Lock()
+        self._connected_event = threading.Event()
         self._next_request_id = 1
         self._request_lock = threading.Lock()
         self._event_queues: dict[str, Queue[AgentEvent]] = {}
@@ -126,6 +135,7 @@ class WorkBuddyProvider:
         if self._connection_id is not None:
             return
         self._closing = False
+        self._stop_reconnect.clear()
         try:
             if self.endpoint is None:
                 self._start_owned_server()
@@ -159,6 +169,7 @@ class WorkBuddyProvider:
             )
             if isinstance(initialized, Mapping) and isinstance(initialized.get("agentCapabilities"), dict):
                 self._agent_capabilities = dict(initialized["agentCapabilities"])
+            self._connected_event.set()
         except Exception:
             self.close()
             raise
@@ -291,11 +302,7 @@ class WorkBuddyProvider:
         )
         if approved and selected is None:
             raise InvalidProviderPayload(self.name, "WorkBuddy did not offer an approval option")
-        outcome = (
-            {"outcome": "selected", "optionId": selected}
-            if selected is not None
-            else {"outcome": "cancelled"}
-        )
+        outcome = {"outcome": "selected", "optionId": selected} if selected is not None else {"outcome": "cancelled"}
         self._post_rpc_message(
             {"jsonrpc": "2.0", "id": request_id, "result": {"outcome": outcome}},
             allow_empty=True,
@@ -316,6 +323,7 @@ class WorkBuddyProvider:
 
     def close(self) -> None:
         self._closing = True
+        self._stop_reconnect.set()
         if self.endpoint is not None and self._connection_id is not None:
             try:
                 self._json_request("DELETE", "/api/v1/acp")
@@ -329,6 +337,7 @@ class WorkBuddyProvider:
         self._sse_thread = None
         self._connection_id = None
         self._session_token = None
+        self._connected_event.clear()
         self._approvals.clear()
         self._agent_capabilities.clear()
         process = self._owned_process
@@ -351,9 +360,7 @@ class WorkBuddyProvider:
         with self._request_lock:
             request_id = self._next_request_id
             self._next_request_id += 1
-        payload = self._post_rpc_message(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-        )
+        payload = self._post_rpc_message({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
         response = _unwrap_data(payload)
         if not isinstance(response, Mapping):
             raise InvalidProviderPayload(self.name, "WorkBuddy JSON-RPC response is invalid")
@@ -376,35 +383,122 @@ class WorkBuddyProvider:
         )
 
     def _sse_loop(self) -> None:
-        try:
-            request = Request(
-                f"{self.endpoint}/api/v1/acp",
-                method="GET",
-                headers=self._headers(accept="text/event-stream"),
-            )
-            response = self._opener.open(request, timeout=max(60.0, self.request_timeout))
-            self._sse_response = response
-            data_lines = []
-            data_size = 0
-            for raw_line in response:
-                line = raw_line.decode("utf-8").rstrip("\r\n")
-                if not line:
-                    if data_lines:
-                        self._route_sse_data("\n".join(data_lines))
-                        data_lines = []
-                        data_size = 0
+        attempt = 0
+        while not self._closing:
+            try:
+                request = Request(
+                    f"{self.endpoint}/api/v1/acp",
+                    method="GET",
+                    headers=self._headers(accept="text/event-stream"),
+                )
+                response = self._opener.open(request, timeout=max(60.0, self.request_timeout))
+                self._sse_response = response
+                data_lines = []
+                data_size = 0
+                for raw_line in response:
+                    line = raw_line.decode("utf-8").rstrip("\r\n")
+                    if not line:
+                        if data_lines:
+                            self._route_sse_data("\n".join(data_lines))
+                            data_lines = []
+                            data_size = 0
+                        continue
+                    if line.startswith("data:"):
+                        value = line[5:].lstrip()
+                        data_size += len(value.encode("utf-8"))
+                        if data_size > MAX_HTTP_BYTES:
+                            raise InvalidProviderPayload(self.name, "WorkBuddy SSE event is too large")
+                        data_lines.append(value)
+                if self._closing:
+                    return
+            except Exception:
+                if self._closing:
+                    return
+            finally:
+                self._sse_response = None
+            self._clear_connection()
+            self._emit_provider_status("reconnecting", "WorkBuddy event stream closed; reconnecting")
+            while not self._closing:
+                base_delay = self.reconnect_delays[min(attempt, len(self.reconnect_delays) - 1)]
+                delay = base_delay * random.uniform(0.8, 1.2)
+                attempt += 1
+                if self._stop_reconnect.wait(delay):
+                    return
+                try:
+                    self._restore_connection()
+                    attempt = 0
+                    self._connected_event.set()
+                    self._emit_provider_status("connected", "WorkBuddy sessions resumed")
+                    break
+                except NotAuthenticated:
+                    self._clear_connection()
+                    self._emit_provider_status("auth_required", "WorkBuddy authentication is required")
+                    return
+                except InvalidProviderPayload:
+                    self._clear_connection()
+                    self._emit_provider_status("failed", "WorkBuddy connection protocol is incompatible")
+                    return
+                except (ProviderUnavailable, OSError, TimeoutError):
+                    self._clear_connection()
                     continue
-                if line.startswith("data:"):
-                    value = line[5:].lstrip()
-                    data_size += len(value.encode("utf-8"))
-                    if data_size > MAX_HTTP_BYTES:
-                        raise InvalidProviderPayload(self.name, "WorkBuddy SSE event is too large")
-                    data_lines.append(value)
-            if not self._closing:
-                self._emit_provider_error("WorkBuddy event stream closed", "streamClosed")
-        except Exception:
-            if not self._closing:
-                self._emit_provider_error("WorkBuddy event stream closed", "streamClosed")
+
+    def _restore_connection(self) -> None:
+        if not self._health_available():
+            raise ProviderUnavailable(self.name, "CodeBuddy health endpoint is unavailable")
+        payload = self._json_request("POST", "/api/v1/acp/connect", {})
+        data = _unwrap_data(payload)
+        if not isinstance(data, Mapping):
+            raise InvalidProviderPayload(self.name, "CodeBuddy connection response is invalid")
+        connection_id = data.get("connectionId")
+        session_token = data.get("sessionToken")
+        if not isinstance(connection_id, str) or not connection_id:
+            raise InvalidProviderPayload(self.name, "CodeBuddy connection ID is missing")
+        if not isinstance(session_token, str) or not session_token:
+            raise InvalidProviderPayload(self.name, "CodeBuddy session token is missing")
+        with self._connection_lock:
+            self._connection_id = connection_id
+            self._session_token = session_token
+        initialized = self._rpc(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientInfo": {
+                    "name": "data2doc2data",
+                    "title": "Data2Doc2Data",
+                    "version": "3.0.0",
+                },
+                "clientCapabilities": {},
+            },
+        )
+        if isinstance(initialized, Mapping) and isinstance(initialized.get("agentCapabilities"), dict):
+            self._agent_capabilities = dict(initialized["agentCapabilities"])
+        for session_id in tuple(self._event_queues):
+            try:
+                resumed = self._rpc(
+                    "session/resume",
+                    {"sessionId": session_id, "cwd": str(self.workspace)},
+                )
+            except ProviderUnavailable:
+                if not self._agent_capabilities.get("loadSession"):
+                    raise
+                resumed = self._rpc(
+                    "session/load",
+                    {"sessionId": session_id, "cwd": str(self.workspace), "mcpServers": []},
+                )
+            restored_id = resumed.get("sessionId") if isinstance(resumed, Mapping) else None
+            if restored_id != session_id:
+                raise InvalidProviderPayload(self.name, "WorkBuddy resumed a different session")
+
+    def _clear_connection(self) -> None:
+        with self._connection_lock:
+            self._connection_id = None
+            self._session_token = None
+            self._connected_event.clear()
+
+    def _emit_provider_status(self, state: str, detail: str) -> None:
+        event = AgentEvent("provider.status", {"state": state, "detail": detail})
+        for event_queue in self._event_queues.values():
+            event_queue.put(event)
 
     def _route_sse_data(self, data: str) -> None:
         try:
@@ -494,11 +588,15 @@ class WorkBuddyProvider:
         raw_input = tool_call.get("rawInput")
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
         locations = tool_call.get("locations")
-        target_paths = [
-            location["path"]
-            for location in locations
-            if isinstance(location, dict) and isinstance(location.get("path"), str)
-        ] if isinstance(locations, list) else []
+        target_paths = (
+            [
+                location["path"]
+                for location in locations
+                if isinstance(location, dict) and isinstance(location.get("path"), str)
+            ]
+            if isinstance(locations, list)
+            else []
+        )
         payload: dict[str, object] = {
             "request_id": approval_id,
             "operation": operation,
@@ -598,6 +696,9 @@ class WorkBuddyProvider:
                 body = response.read(MAX_HTTP_BYTES + 1)
                 content_type = response.headers.get_content_type()
         except HTTPError as error:
+            if error.code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
+                error.close()
+                raise NotAuthenticated(self.name, "WorkBuddy authentication is required") from error
             error.close()
             raise ProviderUnavailable(self.name, f"WorkBuddy HTTP request failed with status {error.code}") from error
         except (URLError, TimeoutError, socket.timeout, OSError) as error:
@@ -631,7 +732,9 @@ class WorkBuddyProvider:
         emit_provider_error(self._event_queues, message, code)
 
     def _require_connected(self) -> None:
-        if self._connection_id is None:
+        if not self._connected_event.is_set() and not self._closing:
+            self._connected_event.wait(timeout=self.request_timeout)
+        if self._connection_id is None or not self._connected_event.is_set():
             raise ProviderUnavailable(self.name, "WorkBuddy ACP connection is not established")
 
     def _validate_session(self, session: AgentSession) -> None:
@@ -698,6 +801,4 @@ def _is_authentication_error(error: Mapping[str, object]) -> bool:
     data = error.get("data")
     category = data.get("category") if isinstance(data, Mapping) else None
     message = error.get("message")
-    return category == "auth" or (
-        isinstance(message, str) and "authentication required" in message.lower()
-    )
+    return category == "auth" or (isinstance(message, str) and "authentication required" in message.lower())

@@ -60,6 +60,21 @@ describe('WorkbenchClient', () => {
     }))
   })
 
+  it('keeps the browser lease alive without rotating csrf', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))
+      .mockResolvedValueOnce(response({ alive: true, expires_in: 600 }))
+    const client = new WorkbenchClient(fetcher)
+
+    await client.bootstrap()
+    await client.heartbeat()
+
+    expect(fetcher).toHaveBeenNthCalledWith(2, '/api/agents/heartbeat', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf-1' }),
+    }))
+  })
+
   it('uses strict local validation for path previews', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response({ csrf_token: 'csrf-1', agents: [] }))

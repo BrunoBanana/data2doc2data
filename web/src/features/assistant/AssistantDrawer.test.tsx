@@ -83,4 +83,17 @@ describe('AssistantDrawer', () => {
     expect(await screen.findByText(/<script>window\.pwned=true<\/script>/)).toBeInTheDocument()
     expect(document.querySelector('script')).toBeNull()
   })
+
+  it('shows reconnecting and recovered provider states without ending the session', async () => {
+    const { emit } = setup()
+    fireEvent.click(screen.getByRole('button', { name: '连接助手' }))
+    await screen.findByText('腾讯 WorkBuddy / CodeBuddy 已连接')
+
+    emit({ kind: 'provider.status', payload: { state: 'reconnecting' } }, 1)
+    expect(await screen.findByText('助手连接正在恢复，当前会话会自动续接…')).toBeInTheDocument()
+    emit({ kind: 'provider.status', payload: { state: 'connected' } }, 2)
+
+    expect(await screen.findByText('助手连接已恢复。')).toBeInTheDocument()
+    expect(screen.getByText('已连接')).toBeInTheDocument()
+  })
 })

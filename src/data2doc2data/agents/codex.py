@@ -50,6 +50,7 @@ class CodexProvider:
         self._reader_thread: threading.Thread | None = None
         self._write_lock = threading.Lock()
         self._state_lock = threading.Lock()
+        self._reconnect_lock = threading.Lock()
         self._next_request_id = 1
         self._pending: dict[int, Queue[object]] = {}
         self._event_queues: dict[str, Queue[AgentEvent]] = {}
@@ -151,7 +152,10 @@ class CodexProvider:
         return thread_id
 
     def stream_turn(self, session: AgentSession, message: str):
-        self._validate_session(session)
+        try:
+            self._validate_session(session)
+        except ProviderUnavailable:
+            self._reconnect_session(session)
         result = self._request(
             "turn/start",
             {
@@ -176,6 +180,48 @@ class CodexProvider:
             if event.kind in {"turn.completed", "turn.cancelled", "turn.error", "provider.error"}:
                 self._active_turns.pop(session.provider_session_id, None)
                 return
+
+    def _reconnect_session(self, session: AgentSession) -> None:
+        with self._reconnect_lock:
+            if self._process is not None and self._process.poll() is None:
+                self._validate_session(session)
+                return
+            previous = self._process
+            self._process = None
+            if self._reader_thread is not None:
+                self._reader_thread.join(timeout=2)
+            self._reader_thread = None
+            if previous is not None:
+                if previous.stdin is not None:
+                    previous.stdin.close()
+                if previous.stdout is not None:
+                    previous.stdout.close()
+            self._approvals.clear()
+            self._active_turns.clear()
+            event_queue = self._event_queues.get(session.provider_session_id)
+            if event_queue is not None:
+                while True:
+                    try:
+                        event_queue.get_nowait()
+                    except Empty:
+                        break
+                event_queue.put(
+                    AgentEvent(
+                        "provider.status",
+                        {"state": "reconnecting", "detail": "Codex App Server is restarting"},
+                    )
+                )
+            self.connect()
+            resumed = self.create_session(self.workspace, session.provider_session_id)
+            if resumed != session.provider_session_id:
+                raise InvalidProviderPayload(self.name, "Codex resumed a different thread")
+            if event_queue is not None:
+                event_queue.put(
+                    AgentEvent(
+                        "provider.status",
+                        {"state": "connected", "detail": "Codex thread resumed"},
+                    )
+                )
 
     def decide_approval(
         self,
@@ -315,9 +361,7 @@ class CodexProvider:
             "item/fileChange/requestApproval",
             "item/permissions/requestApproval",
         }:
-            self._write_message(
-                {"id": request_id, "error": {"code": -32601, "message": "method not supported"}}
-            )
+            self._write_message({"id": request_id, "error": {"code": -32601, "message": "method not supported"}})
             return
         approval_id = params.get("approvalId") or params.get("itemId") or f"codex-{request_id}"
         if not isinstance(approval_id, str) or not approval_id or approval_id in self._approvals:

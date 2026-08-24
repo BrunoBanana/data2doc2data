@@ -13,7 +13,13 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .agent_api import AgentApiError, AgentWebService, BROWSER_SESSION_SECONDS, TERMINAL_EVENTS
+from .agent_api import (
+    AgentApiError,
+    AgentWebService,
+    BROWSER_OWNER_RETENTION_SECONDS,
+    BROWSER_SESSION_SECONDS,
+    TERMINAL_EVENTS,
+)
 from .agents.gateway import AgentGateway, AgentGatewayError
 from .analysis import InputValidationError, analyze, load_profile_ruleset, validate_profile
 from .config import Profile, ProfileError, ProfileStore
@@ -375,7 +381,7 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 {"agents": self._agents().list_agents(), "csrf_token": csrf_token},
                 {
                     "Set-Cookie": (
-                        f"d2d2d_session={browser_session}; Path=/; Max-Age={BROWSER_SESSION_SECONDS}; "
+                        f"d2d2d_session={browser_session}; Path=/; Max-Age={BROWSER_OWNER_RETENTION_SECONDS}; "
                         "HttpOnly; SameSite=Strict"
                     )
                 },
@@ -500,6 +506,9 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if not self._allow_local_origin():
             return
         path = urlparse(self.path).path
+        if path == "/api/agents/heartbeat":
+            self._heartbeat_agent_session()
+            return
         if path == "/api/workbench/providers/openai-compatible":
             self._configure_workbench_provider()
             return
@@ -838,6 +847,28 @@ class CompanionHandler(BaseHTTPRequestHandler):
             owner_id = self._authorize_agent_mutation()
             session = self._agents().create_session(owner_id, self._read_json())
             self._send_json(HTTPStatus.CREATED, {"session": session})
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except ValueError as error:
+            self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+
+    def _heartbeat_agent_session(self) -> None:
+        try:
+            browser_session = self._agents().browser_sessions.heartbeat(
+                self.headers.get("Cookie"),
+                self.headers.get("X-CSRF-Token"),
+            )
+            self._read_json()
+            self._send_json(
+                HTTPStatus.OK,
+                {"alive": True, "expires_in": BROWSER_SESSION_SECONDS},
+                {
+                    "Set-Cookie": (
+                        f"d2d2d_session={browser_session}; Path=/; Max-Age={BROWSER_OWNER_RETENTION_SECONDS}; "
+                        "HttpOnly; SameSite=Strict"
+                    )
+                },
+            )
         except AgentApiError as error:
             self._send_json(error.status, {"error": str(error)})
         except ValueError as error:

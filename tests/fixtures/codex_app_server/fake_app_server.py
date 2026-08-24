@@ -10,6 +10,8 @@ if "--version" in sys.argv:
 
 fixture = Path(__file__).with_name("turn.jsonl")
 crash_on_turn = "--crash-on-turn" in sys.argv
+crash_once_index = sys.argv.index("--crash-once") if "--crash-once" in sys.argv else None
+crash_once_marker = Path(sys.argv[crash_once_index + 1]) if crash_once_index is not None else None
 hang_on_initialize = "--hang-on-initialize" in sys.argv
 delay_turn_events = "--delay-turn-events" in sys.argv
 
@@ -46,6 +48,9 @@ for line in sys.stdin:
     print(json.dumps(response), flush=True)
     if method == "turn/start":
         if crash_on_turn:
+            raise SystemExit(7)
+        if crash_once_marker is not None and not crash_once_marker.exists():
+            crash_once_marker.write_text("crashed", encoding="utf-8")
             raise SystemExit(7)
         if delay_turn_events:
             time.sleep(0.1)

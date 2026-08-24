@@ -12,6 +12,7 @@ from pathlib import Path
 import secrets
 import threading
 import time
+from typing import Callable
 
 from .agents.base import AgentEvent, AgentSession, ProviderStatus
 from .agents.gateway import AgentGateway, AgentGatewayError
@@ -24,6 +25,8 @@ from .sessions import AuditEntry, AuditStore, SessionRecord, SessionStore
 
 
 BROWSER_SESSION_SECONDS = 600
+BROWSER_OWNER_RETENTION_SECONDS = 30 * 24 * 60 * 60
+MAX_BROWSER_OWNERS = 1024
 APPROVAL_SECONDS = 300
 MAX_BUFFERED_EVENTS = 256
 MAX_EVENT_BYTES = 1_000_000
@@ -37,9 +40,16 @@ class AgentApiError(ValueError):
 
 
 class BrowserSessions:
-    def __init__(self, lifetime_seconds: int = BROWSER_SESSION_SECONDS) -> None:
+    def __init__(
+        self,
+        lifetime_seconds: int = BROWSER_SESSION_SECONDS,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.lifetime_seconds = lifetime_seconds
-        self._tokens: dict[str, tuple[str, float]] = {}
+        self._clock = clock
+        self._leases: dict[str, tuple[str, str, float]] = {}
+        self._owners: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
 
     def issue(self, cookie_header: str | None = None) -> tuple[str, str]:
@@ -47,8 +57,17 @@ class BrowserSessions:
         csrf_token = secrets.token_urlsafe(32)
         with self._lock:
             self._expire()
-            session_id = current_id if current_id in self._tokens else secrets.token_urlsafe(32)
-            self._tokens[session_id] = (csrf_token, time.monotonic() + self.lifetime_seconds)
+            session_id = current_id if current_id in self._owners else secrets.token_urlsafe(32)
+            owner_id = self._owners.get(session_id, (f"owner-{secrets.token_hex(16)}", 0))[0]
+            now = self._clock()
+            self._owners[session_id] = (owner_id, now)
+            self._leases[session_id] = (owner_id, csrf_token, now + self.lifetime_seconds)
+            if len(self._owners) > MAX_BROWSER_OWNERS:
+                evictable = [key for key in self._owners if key != session_id]
+                if evictable:
+                    oldest = min(evictable, key=lambda key: self._owners[key][1])
+                    self._owners.pop(oldest, None)
+                    self._leases.pop(oldest, None)
         return session_id, csrf_token
 
     def authorize(self, cookie_header: str | None, csrf_token: str | None = None) -> str:
@@ -57,22 +76,34 @@ class BrowserSessions:
             raise AgentApiError(HTTPStatus.FORBIDDEN, "agent request authorization failed")
         with self._lock:
             self._expire()
-            expected = self._tokens.get(session_id)
-        if expected is None or (csrf_token is not None and not secrets.compare_digest(expected[0], csrf_token)):
-            raise AgentApiError(HTTPStatus.FORBIDDEN, "agent request authorization failed")
-        return session_id
+            expected = self._leases.get(session_id)
+            if expected is None or (csrf_token is not None and not secrets.compare_digest(expected[1], csrf_token)):
+                raise AgentApiError(HTTPStatus.FORBIDDEN, "agent request authorization failed")
+            now = self._clock()
+            owner_id = expected[0]
+            self._leases[session_id] = (owner_id, expected[1], now + self.lifetime_seconds)
+            self._owners[session_id] = (owner_id, now)
+        return owner_id
 
     def authorize_mutation(self, cookie_header: str | None, csrf_token: str | None) -> str:
         if not csrf_token:
             raise AgentApiError(HTTPStatus.FORBIDDEN, "agent request authorization failed")
         return self.authorize(cookie_header, csrf_token)
 
+    def heartbeat(self, cookie_header: str | None, csrf_token: str | None) -> str:
+        self.authorize_mutation(cookie_header, csrf_token)
+        session_id = _cookie_value(cookie_header, "d2d2d_session")
+        if session_id is None:
+            raise AgentApiError(HTTPStatus.FORBIDDEN, "agent request authorization failed")
+        return session_id
+
     def _expire(self) -> None:
-        now = time.monotonic()
-        self._tokens = {
+        now = self._clock()
+        self._leases = {session_id: value for session_id, value in self._leases.items() if value[2] > now}
+        self._owners = {
             session_id: value
-            for session_id, value in self._tokens.items()
-            if value[1] > now
+            for session_id, value in self._owners.items()
+            if value[1] + BROWSER_OWNER_RETENTION_SECONDS > now
         }
 
 
@@ -323,9 +354,7 @@ class AgentWebService:
                 )
             )
         except AgentApiError as error:
-            web_session.events.append(
-                AgentEvent("turn.error", {"message": str(error), "code": type(error).__name__})
-            )
+            web_session.events.append(AgentEvent("turn.error", {"message": str(error), "code": type(error).__name__}))
         except Exception:
             web_session.events.append(
                 AgentEvent("turn.error", {"message": "agent turn failed", "code": "AgentTurnFailure"})
@@ -345,7 +374,11 @@ class AgentWebService:
                 self._provider_decision(web_session, request_id, False)
             return AgentEvent(
                 "tool.result",
-                {"call_id": request_id or "invalid-approval", "result": "operation request was rejected", "error": True},
+                {
+                    "call_id": request_id or "invalid-approval",
+                    "result": "operation request was rejected",
+                    "error": True,
+                },
             )
         decision = web_session.broker.evaluate(request)
         if decision.status == "rejected":

@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 from data2doc2data.agents.base import AgentEvent, ProviderStatus
 from data2doc2data.agents.gateway import AgentGateway
 from data2doc2data.config import ProfileStore
+from data2doc2data.agent_api import BrowserSessions
 from data2doc2data.server import MAX_REQUEST_BYTES, create_server
 
 
@@ -94,7 +95,7 @@ class AgentServerTests(unittest.TestCase):
 
     def create_session(self, mode="collaborative", browser=None):
         cookie, csrf = browser or self.authenticate()[:2]
-        status, payload, _ = self.request(
+        status, payload, headers = self.request(
             "POST",
             "/api/agent-sessions",
             {"provider": "fake", "permission_mode": mode},
@@ -117,7 +118,58 @@ class AgentServerTests(unittest.TestCase):
         set_cookie = headers["Set-Cookie"]
         self.assertIn("HttpOnly", set_cookie)
         self.assertIn("SameSite=Strict", set_cookie)
-        self.assertIn("Max-Age=600", set_cookie)
+        self.assertIn("Max-Age=2592000", set_cookie)
+
+    def test_expired_lease_renews_without_changing_the_stable_owner(self):
+        now = [100.0]
+        sessions = BrowserSessions(lifetime_seconds=10, clock=lambda: now[0])
+        cookie_value, csrf = sessions.issue()
+        owner = sessions.authorize(f"d2d2d_session={cookie_value}", csrf)
+        now[0] = 111.0
+
+        renewed_cookie, renewed_csrf = sessions.issue(f"d2d2d_session={cookie_value}")
+
+        self.assertEqual(renewed_cookie, cookie_value)
+        self.assertNotEqual(renewed_csrf, csrf)
+        self.assertEqual(
+            sessions.authorize(f"d2d2d_session={renewed_cookie}", renewed_csrf),
+            owner,
+        )
+
+    def test_authenticated_activity_slides_the_browser_lease(self):
+        now = [100.0]
+        sessions = BrowserSessions(lifetime_seconds=10, clock=lambda: now[0])
+        cookie_value, csrf = sessions.issue()
+        cookie = f"d2d2d_session={cookie_value}"
+        now[0] = 109.0
+        sessions.authorize(cookie, csrf)
+        now[0] = 118.0
+
+        self.assertTrue(sessions.authorize(cookie, csrf).startswith("owner-"))
+
+    def test_browser_heartbeat_renews_an_authenticated_lease(self):
+        cookie, csrf, _ = self.authenticate()
+
+        status, payload, headers = self.request(
+            "POST",
+            "/api/agents/heartbeat",
+            {},
+            cookie=cookie,
+            csrf=csrf,
+        )
+
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload, {"alive": True, "expires_in": 600})
+        self.assertEqual(headers["Set-Cookie"].split(";", 1)[0], cookie)
+        self.assertIn("Max-Age=2592000", headers["Set-Cookie"])
+        denied, error, _ = self.request(
+            "POST",
+            "/api/agents/heartbeat",
+            {},
+            cookie=cookie,
+            csrf="wrong",
+        )
+        self.assertEqual(denied, 403, error)
 
     def test_workbench_provider_api_exposes_status_and_redacted_api_config(self):
         cookie, csrf, _ = self.authenticate()

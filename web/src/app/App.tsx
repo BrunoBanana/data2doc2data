@@ -31,6 +31,7 @@ export interface WorkbenchApi {
   interruptAgent: WorkbenchClient['interruptAgent']
   decideAgentApproval: WorkbenchClient['decideAgentApproval']
   openAgentEventStream: WorkbenchClient['openAgentEventStream']
+  heartbeat: WorkbenchClient['heartbeat']
 }
 
 interface AppProps {
@@ -55,6 +56,12 @@ export function App({ client: suppliedClient }: AppProps) {
     })
     return () => { active = false }
   }, [client])
+
+  useEffect(() => {
+    if (!workspace) return
+    const timer = window.setInterval(() => client.heartbeat().catch(() => undefined), 120_000)
+    return () => window.clearInterval(timer)
+  }, [client, workspace])
 
   if (error) {
     return <main className="startup-state"><p className="eyebrow">LOCAL SERVICE</p><h1>工作台暂时无法启动</h1><p role="alert">{error}</p><button className="button button--primary" type="button" onClick={() => window.location.reload()}>重新连接</button></main>

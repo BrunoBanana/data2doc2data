@@ -8,6 +8,7 @@ import threading
 import unittest
 
 from data2doc2data.agents.gateway import AgentGateway, NotAuthenticated, ProviderUnavailable
+from data2doc2data.agents.base import AgentSession
 from data2doc2data.agents.workbuddy import (
     WorkBuddyProvider,
     _decode_sse_response,
@@ -39,6 +40,7 @@ class FakeWorkBuddy:
         self.blocking_permission_stream = blocking_permission_stream
         self.empty_permission_response = empty_permission_response
         self.permission_gate = threading.Event()
+        self.connect_count = 0
         state = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -67,7 +69,11 @@ class FakeWorkBuddy:
                 state.requests.append(("POST", self.path, dict(self.headers)))
                 payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
                 if self.path == "/api/v1/acp/connect":
-                    self._json(200, {"data": {"connectionId": "connection-1", "sessionToken": "secret-token"}})
+                    state.connect_count += 1
+                    self._json(
+                        200,
+                        {"data": {"connectionId": f"connection-{state.connect_count}", "sessionToken": "secret-token"}},
+                    )
                     return
                 if self.path != "/api/v1/acp":
                     self._json(404, {"error": {"message": "not found"}})
@@ -87,10 +93,13 @@ class FakeWorkBuddy:
                         self._json(200, response)
                         return
                     result = {"sessionId": "workbuddy-session"}
+                elif method in {"session/resume", "session/load"}:
+                    result = {"sessionId": payload.get("params", {}).get("sessionId")}
                 elif method == "session/prompt":
                     stream = FIXTURE.read_text(encoding="utf-8").replace("SESSION", "workbuddy-session")
                     result_event = (
-                        'data: {"jsonrpc":"2.0","id":' + str(payload.get("id"))
+                        'data: {"jsonrpc":"2.0","id":'
+                        + str(payload.get("id"))
                         + ',"result":{"stopReason":"end_turn"}}\n\n'
                     )
                     if state.blocking_permission_stream:
@@ -180,6 +189,44 @@ class FakeWorkBuddy:
 
 
 class WorkBuddyAdapterTests(unittest.TestCase):
+    def test_closed_sse_reconnects_and_resumes_the_existing_session(self):
+        fake = FakeWorkBuddy()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(
+                    workspace,
+                    endpoint=fake.endpoint,
+                    request_timeout=2,
+                    reconnect_delays=(0.01, 0.02),
+                )
+                provider.connect()
+                self.assertEqual(provider.create_session(workspace), "workbuddy-session")
+
+                fake.events.put(None)
+                deadline = __import__("time").monotonic() + 2
+                while fake.connect_count < 2 and __import__("time").monotonic() < deadline:
+                    __import__("time").sleep(0.01)
+
+                self.assertGreaterEqual(fake.connect_count, 2)
+                self.assertTrue(provider.detect().connected)
+                session = AgentSession(
+                    "local-session",
+                    "workbuddy",
+                    "workbuddy-session",
+                    workspace.resolve(),
+                )
+                events = list(provider.stream_turn(session, "after reconnect"))
+                self.assertEqual(
+                    [event.payload.get("state") for event in events[:2]],
+                    ["reconnecting", "connected"],
+                )
+                resumed = [request for request in fake.requests if request[0] == "POST" and request[1] == "/api/v1/acp"]
+                self.assertTrue(any("connection-2" in headers.values() for _, _, headers in resumed))
+                provider.close()
+        finally:
+            fake.close()
+
     def test_public_acp_stream_is_normalized_through_gateway(self):
         fake = FakeWorkBuddy()
         try:

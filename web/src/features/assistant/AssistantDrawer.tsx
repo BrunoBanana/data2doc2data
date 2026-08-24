@@ -61,6 +61,24 @@ export function AssistantDrawer(props: AssistantDrawerProps) {
       })
       return
     }
+    if (event.kind === 'provider.status') {
+      const state = String(payload.state ?? '')
+      if (state === 'reconnecting') {
+        setNotice('助手连接正在恢复，当前会话会自动续接…')
+      } else if (state === 'connected') {
+        setNotice('助手连接已恢复。')
+      } else if (state === 'auth_required') {
+        setTurnActive(false)
+        setSession(null)
+        setNotice('助手登录已失效，请重新认证后连接。')
+        closeStream.current?.()
+        closeStream.current = null
+      } else if (state === 'failed') {
+        setTurnActive(false)
+        setNotice('助手连接恢复失败，请重新连接。')
+      }
+      return
+    }
     const operation = operationFromEvent(event)
     if (operation) {
       setOperations((current) => {

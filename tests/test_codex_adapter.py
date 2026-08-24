@@ -63,6 +63,28 @@ class CodexAdapterTests(unittest.TestCase):
             self.assertEqual(analyze("retention", Profile.demo()).signal.metric, "retention_rate")
             provider.close()
 
+    def test_next_turn_reconnects_and_resumes_after_app_server_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            marker = workspace / "crash-once.marker"
+            provider = self.make_provider(workspace, "--crash-once", str(marker))
+            provider.connect()
+            session_id = provider.create_session(workspace)
+            from data2doc2data.agents.base import AgentSession
+
+            session = AgentSession("local-1", "codex", session_id, workspace.resolve())
+            first = list(provider.stream_turn(session, "first"))
+            second = list(provider.stream_turn(session, "second"))
+
+            self.assertEqual(first[-1].kind, "provider.error")
+            self.assertEqual(second[-1].kind, "turn.completed")
+            self.assertEqual(
+                [event.payload.get("state") for event in second[:2]],
+                ["reconnecting", "connected"],
+            )
+            self.assertEqual(second[2].payload["text"], "hello from codex")
+            provider.close()
+
     def test_initialize_timeout_is_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
             provider = self.make_provider(Path(directory), "--hang-on-initialize", timeout=0.05)
