@@ -33,6 +33,23 @@ EVENT_KINDS = frozenset(
         "conclusion.created",
         "approval.requested",
         "approval.decided",
+        "plan.created",
+        "plan.revised",
+        "step.added",
+        "tool.started",
+        "tool.progress",
+        "tool.result",
+        "tool.failed",
+        "node.added",
+        "node.updated",
+        "edge.added",
+        "edge.activated",
+        "conflict.detected",
+        "knowledge.candidate",
+        "knowledge.verified",
+        "knowledge.superseded",
+        "dashboard.updated",
+        "report.generated",
     }
 )
 _FORBIDDEN_SUMMARY_KEYS = frozenset({"raw", "raw_data", "raw_rows", "records", "rows_data", "chain_of_thought"})

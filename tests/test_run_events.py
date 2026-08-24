@@ -4,6 +4,40 @@ from data2doc2data.run_events import RunEvent, RunEventError, validate_event_str
 
 
 class RunEventContractTests(unittest.TestCase):
+    def test_flow_events_cover_live_graph_tool_and_knowledge_lifecycle(self):
+        kinds = (
+            "plan.created",
+            "plan.revised",
+            "step.added",
+            "tool.started",
+            "tool.progress",
+            "tool.result",
+            "tool.failed",
+            "node.added",
+            "node.updated",
+            "edge.added",
+            "edge.activated",
+            "conflict.detected",
+            "knowledge.candidate",
+            "knowledge.verified",
+            "knowledge.superseded",
+            "dashboard.updated",
+            "report.generated",
+        )
+
+        events = tuple(
+            RunEvent.create(
+                "run-live",
+                sequence,
+                kind,
+                "flow",
+                {"node_id": "node-1", "progress": sequence},
+            )
+            for sequence, kind in enumerate(kinds, 1)
+        )
+
+        self.assertEqual(validate_event_stream(events), events)
+
     def test_event_round_trip_has_stable_sequence_and_artifact_references(self):
         event = RunEvent.create(
             run_id="run-1",
