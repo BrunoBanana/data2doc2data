@@ -47,6 +47,9 @@ describe('analysis workbench shell', () => {
     expect(screen.getByRole('main')).toHaveTextContent('业务分析工作台')
     expect(screen.getByRole('complementary', { name: '分析员笔记' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '移动工作台视图' })).toHaveTextContent('分析过程助手')
+    expect(document.querySelector('.workbench-grid')).toHaveAttribute('data-viewport-shell', 'true')
+    expect(screen.getByRole('navigation', { name: '案例与资产' })).toHaveAttribute('data-scroll-owner', 'asset-rail')
+    expect(screen.getByRole('main')).toHaveAttribute('data-scroll-owner', 'analysis-canvas')
   })
 
   it('offers deterministic analysis when no assistant is connected', async () => {

@@ -31,6 +31,16 @@ function setup() {
 }
 
 describe('AssistantDrawer', () => {
+  it('keeps the console chrome fixed and gives history one scroll owner', () => {
+    setup()
+    const drawer = screen.getByRole('complementary', { name: '分析员笔记' })
+
+    expect(drawer).toHaveAttribute('data-viewport-panel', 'true')
+    expect(drawer.querySelector('[data-fixed-region="header"]')).toHaveClass('assistant-heading')
+    expect(drawer.querySelector('[data-scroll-owner="assistant-history"]')).toHaveClass('assistant-history')
+    expect(drawer.querySelector('[data-fixed-region="composer"]')).toHaveClass('assistant-composer')
+  })
+
   it('prefers WorkBuddy and sends bounded task identity with the message', async () => {
     const { api } = setup()
     expect(screen.getByLabelText('本地助手')).toHaveValue('workbuddy')

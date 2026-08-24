@@ -157,13 +157,13 @@ export function TaskShell(props: TaskShellProps) {
       <button type="button" aria-pressed={mobileView === 'process'} onClick={() => { setMobileView('process'); setActiveTab('证据') }}>过程</button>
       <button type="button" aria-pressed={mobileView === 'assistant'} onClick={() => { setAssistantOpen(true); setMobileView('assistant') }}>助手</button>
     </nav>
-    <div className={`workbench-grid workbench-grid--mobile-${mobileView}${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
-      <nav className="asset-rail" aria-label="案例与资产">
+    <div data-viewport-shell="true" className={`workbench-grid workbench-grid--mobile-${mobileView}${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
+      <nav className="asset-rail" aria-label="案例与资产" data-scroll-owner="asset-rail">
         <div className="rail-heading"><span>案例与资产</span><button className="icon-button rail-create-button" type="button" aria-label="新建分析任务" onClick={onCreateTask}>新建</button></div>
         <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">当前案例</span><strong>{task.title}</strong><span>{task.goal}</span></button>
         <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => setActiveTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
       </nav>
-      <main className="analysis-canvas">
+      <main className="analysis-canvas" data-scroll-owner="analysis-canvas">
         <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{running ? <button className="button button--quiet" type="button" onClick={stopAnalysis}>停止当前任务</button> : datasets ? <button className="button button--primary" type="button" onClick={() => runAnalysis([])}>运行分析</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
         <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}

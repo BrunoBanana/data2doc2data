@@ -466,3 +466,74 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Viewport ownership ------------------------------------------------------ */
+.app-frame {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.topbar, .mobile-view-switcher { flex: 0 0 auto; }
+.workbench-grid {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.asset-rail, .analysis-canvas, .assistant-drawer { min-height: 0; }
+.asset-rail, .analysis-canvas {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assistant-drawer {
+  height: 100%;
+  overflow: hidden;
+}
+.assistant-heading,
+.assistant-connect-panel,
+.assistant-context,
+.assistant-notice,
+.assistant-composer { flex: 0 0 auto; }
+.assistant-history {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.assistant-operation-queue {
+  max-height: none;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.assistant-conversation {
+  min-height: 190px;
+  flex: 1 0 auto;
+  overflow: visible;
+}
+.assistant-composer {
+  position: relative;
+  z-index: 2;
+  background: var(--surface-2);
+}
+.task-home-canvas, .onboarding-frame { min-height: 0; overflow: auto; }
+
+@media (max-width: 1000px) {
+  .assistant-drawer { height: auto; }
+}
+
+@media (max-width: 680px) {
+  .workbench-grid { height: auto; min-height: 0; }
+  .workbench-grid--mobile-analysis .analysis-canvas,
+  .workbench-grid--mobile-process .analysis-canvas,
+  .workbench-grid--mobile-assistant .assistant-drawer { height: 100%; }
+  .workbench-grid--mobile-assistant .assistant-drawer { min-height: 0; }
+}

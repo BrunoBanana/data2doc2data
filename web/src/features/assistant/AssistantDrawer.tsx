@@ -142,8 +142,8 @@ export function AssistantDrawer(props: AssistantDrawerProps) {
     }
   }
 
-  return <aside className="assistant-drawer" aria-label="分析员笔记">
-    <div className="assistant-heading"><div><p className="eyebrow">ANALYST MARGIN</p><h2>分析员笔记</h2></div><span className={`connection-badge${session ? ' connection-badge--ready' : ''}`}>{session ? '已连接' : '本地'}</span></div>
+  return <aside className="assistant-drawer" aria-label="分析员笔记" data-viewport-panel="true">
+    <div className="assistant-heading" data-fixed-region="header"><div><p className="eyebrow">ANALYST MARGIN</p><h2>分析员笔记</h2></div><span className={`connection-badge${session ? ' connection-badge--ready' : ''}`}>{session ? '已连接' : '本地'}</span></div>
     {!session && <div className="assistant-connect-panel">
       <label>本地助手<select aria-label="本地助手" value={provider} onChange={(event) => setProvider(event.target.value)} disabled={!usable.length}>{usable.length ? usable.map((agent) => <option value={agent.name} key={agent.name}>{providerLabel(agent.name)}</option>) : <option value="">未发现可用助手</option>}</select></label>
       <label>权限模式<select aria-label="权限模式" value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}><option value="read_only">只读</option><option value="collaborative">协作 · 每次变更需批准</option><option value="trusted_session">信任本次会话</option></select></label>
@@ -151,14 +151,16 @@ export function AssistantDrawer(props: AssistantDrawerProps) {
     </div>}
     <div className="assistant-context"><span>当前任务</span><strong>{props.task.title}</strong><small>{props.task.snapshot_refs.length} 项锁定资产 · 不发送原始数据</small></div>
     <p className="assistant-notice" role="status">{notice}</p>
-    <div className="assistant-operation-queue" aria-label="助手操作">
-      {approvals.map((approval) => <ApprovalCard key={approval.request_id} approval={approval} decide={(approved) => session ? props.decideApproval(session.id, approval.request_id, approved) : Promise.reject(new Error('助手未连接'))} />)}
-      {operations.map((operation) => <article className="assistant-operation" key={operation.key}><strong>{operation.title}</strong><pre>{operation.text}</pre></article>)}
+    <div className="assistant-history" data-scroll-owner="assistant-history">
+      <div className="assistant-operation-queue" aria-label="助手操作">
+        {approvals.map((approval) => <ApprovalCard key={approval.request_id} approval={approval} decide={(approved) => session ? props.decideApproval(session.id, approval.request_id, approved) : Promise.reject(new Error('助手未连接'))} />)}
+        {operations.map((operation) => <article className="assistant-operation" key={operation.key}><strong>{operation.title}</strong><pre>{operation.text}</pre></article>)}
+      </div>
+      <div className="assistant-conversation" role="log" aria-live="polite" aria-busy={turnActive}>
+        {messages.length ? messages.map((item) => <article className={`assistant-message assistant-message--${item.role}`} key={item.id}><span>{item.role === 'user' ? '你' : '助手'}</span><SafeMarkdown text={item.text} /></article>) : <div className="assistant-empty"><strong>{session ? '可以继续分析' : '先连接本地助手'}</strong><p>Dashboard、计算过程和证据链仍是工作台中心。</p></div>}
+      </div>
     </div>
-    <div className="assistant-conversation" role="log" aria-live="polite" aria-busy={turnActive}>
-      {messages.length ? messages.map((item) => <article className={`assistant-message assistant-message--${item.role}`} key={item.id}><span>{item.role === 'user' ? '你' : '助手'}</span><SafeMarkdown text={item.text} /></article>) : <div className="assistant-empty"><strong>{session ? '可以继续分析' : '先连接本地助手'}</strong><p>Dashboard、计算过程和证据链仍是工作台中心。</p></div>}
-    </div>
-    <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-message">发送给助手</label><textarea id="assistant-message" rows={3} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="解释证据、提出假设或建议下一步…" disabled={!session || turnActive} maxLength={20_000} /><div><button className="button button--quiet" type="button" aria-label="停止当前任务" disabled={!turnActive} onClick={stop}>停止</button><button className="button button--primary" type="submit" disabled={!session || turnActive || !message.trim()}>发送</button></div></form>
+    <form className="assistant-composer" data-fixed-region="composer" onSubmit={submit}><label htmlFor="assistant-message">发送给助手</label><textarea id="assistant-message" rows={3} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="解释证据、提出假设或建议下一步…" disabled={!session || turnActive} maxLength={20_000} /><div><button className="button button--quiet" type="button" aria-label="停止当前任务" disabled={!turnActive} onClick={stop}>停止</button><button className="button button--primary" type="submit" disabled={!session || turnActive || !message.trim()}>发送</button></div></form>
   </aside>
 }
 

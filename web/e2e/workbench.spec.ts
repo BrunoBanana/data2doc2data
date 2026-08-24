@@ -95,3 +95,23 @@ test('keeps the complete workbench usable at 390px and honors reduced motion', a
   }
   await expect(page.getByRole('complementary', { name: '分析员笔记' })).toBeVisible()
 })
+
+test('keeps all workbench columns and the agent composer inside a 1440x1024 viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1024 })
+  await page.goto('/')
+  await page.getByRole('button', { name: '加载案例：增长提速、留存承压' }).click()
+
+  const drawer = page.getByRole('complementary', { name: '分析员笔记' })
+  const composer = drawer.locator('[data-fixed-region="composer"]')
+  await expect(drawer).toBeVisible()
+  await expect(composer).toBeVisible()
+  const initialComposer = await composer.boundingBox()
+  expect(initialComposer?.y).toBeGreaterThan(0)
+  expect((initialComposer?.y ?? 0) + (initialComposer?.height ?? 0)).toBeLessThanOrEqual(1024)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(1024)
+
+  await page.getByRole('main').evaluate((element) => { element.scrollTop = element.scrollHeight })
+  const afterScrollComposer = await composer.boundingBox()
+  expect(afterScrollComposer?.y).toBe(initialComposer?.y)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+})
