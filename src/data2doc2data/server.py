@@ -115,7 +115,7 @@ def create_server(
     server.agent_service = agent_service
     server.provider_registry = ProviderRegistry(agent_service.gateway)
     server.workbench_store = WorkspaceStore(store.workspace_database_path)
-    server.workbench_service = WorkbenchService(server.workbench_store)
+    server.workbench_service = WorkbenchService(server.workbench_store, agent_service.gateway, workspace)
     return server
 
 

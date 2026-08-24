@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 from data2doc2data.config import ProfileStore
 from data2doc2data.agent_api import BrowserSessions
+from data2doc2data.agents.base import AgentEvent, AgentSession
 from data2doc2data.run_events import RunEvent
 from data2doc2data.server import create_server
 from data2doc2data.workspace import SnapshotRef
@@ -157,7 +158,20 @@ class WorkbenchApiTests(unittest.TestCase):
             csrf=self.csrf,
         )
         self.assertEqual(status, 201, analysis)
-        self.assertIn("H1", [node["node_id"] for node in analysis["evidence_graph"]["nodes"]])
+        demo_nodes = {node["node_id"]: node for node in analysis["evidence_graph"]["nodes"]}
+        self.assertEqual(demo_nodes["H1"]["status"], "supported")
+        self.assertEqual(demo_nodes["H2"]["status"], "supported")
+        self.assertEqual(demo_nodes["H3"]["status"], "contradicted")
+        self.assertEqual(
+            len(
+                [
+                    event
+                    for event in analysis["events"]
+                    if event["kind"] == "tool.result" and event["summary"].get("tool") == "test_hypothesis"
+                ]
+            ),
+            3,
+        )
 
         other_cookie, _ = self.authenticate()
         status, hidden, _ = self.request("GET", f"/api/workbench/tasks/{task['task_id']}", cookie=other_cookie)
@@ -178,58 +192,43 @@ class WorkbenchApiTests(unittest.TestCase):
 
         artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
         self.assertEqual(artifact["journey"], "connected")
-        status, missing_plan, _ = self.request(
+        class PlannerGateway:
+            def __init__(self):
+                self.messages = []
+
+            def create_session(self, provider, workspace, resume_id=None):
+                return AgentSession("planner-session", provider, "planner-thread", workspace)
+
+            def send(self, provider, session, message):
+                self.messages.append(message)
+                decision = {
+                    "round_number": 1,
+                    "action": "continue",
+                    "tool": "detect_anomalies",
+                    "arguments": {"metric": "activation_rate", "window": 5, "threshold": 4},
+                    "rationale_summary": "先识别激活率异常。",
+                    "prior_artifact_refs": [],
+                    "evidence_gaps": [],
+                    "stop_reason": None,
+                }
+                yield AgentEvent("message.delta", {"text": json.dumps(decision, ensure_ascii=False)})
+                yield AgentEvent("turn.completed", {})
+
+        gateway = PlannerGateway()
+        self.server.workbench_service.gateway = gateway
+        status, analysis, _ = self.request(
             "POST",
             f"/api/workbench/tasks/{task['task_id']}/runs",
             {"execute": True, "proposal": {"hypotheses": []}},
             cookie=self.cookie,
             csrf=self.csrf,
         )
-        self.assertEqual(status, 422, missing_plan)
-        self.assertIn("flow_plan", missing_plan["error"])
-
-        flow_plan = {
-            "plan_id": "codex-cross-reasoning",
-            "steps": [
-                {
-                    "step_id": "inspect",
-                    "tool": "inspect_sources",
-                    "purpose": "识别输入",
-                    "dependencies": [],
-                    "arguments": {},
-                },
-                {
-                    "step_id": "profile",
-                    "tool": "profile_data",
-                    "purpose": "计算画像",
-                    "dependencies": ["inspect"],
-                    "arguments": {},
-                },
-                {
-                    "step_id": "extract",
-                    "tool": "extract_claims",
-                    "purpose": "抽取主张",
-                    "dependencies": ["inspect"],
-                    "arguments": {},
-                },
-                {
-                    "step_id": "align",
-                    "tool": "align_evidence",
-                    "purpose": "交叉验证",
-                    "dependencies": ["profile", "extract"],
-                    "arguments": {},
-                },
-            ],
-        }
-        status, analysis, _ = self.request(
-            "POST",
-            f"/api/workbench/tasks/{task['task_id']}/runs",
-            {"execute": True, "proposal": {"hypotheses": []}, "flow_plan": flow_plan},
-            cookie=self.cookie,
-            csrf=self.csrf,
-        )
         self.assertEqual(status, 201, analysis)
         self.assertEqual(analysis["events"][0]["summary"]["runner"], "connected")
+        self.assertTrue(
+            any(event["kind"] == "tool.result" and event["summary"].get("tool") == "detect_anomalies" for event in analysis["events"])
+        )
+        self.assertNotIn("/Users/", gateway.messages[0])
         node_ids = [node["node_id"] for node in analysis["evidence_graph"]["nodes"]]
         self.assertNotIn("H1", node_ids)
 

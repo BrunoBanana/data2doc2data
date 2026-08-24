@@ -11,11 +11,13 @@ import re
 import threading
 from typing import Any, Mapping
 
+from .analysis_cycle import AnalysisCycle, CyclePlanError
+from .cycle_planner import ConnectedCyclePlanner, PlannerWaiting
 from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
 from .flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
-from .flow_engine import ConnectedFlowRunner, DemoFlowRunner, FlowCancelled, FlowPlanError, validate_flow_plan
+from .flow_engine import ConnectedFlowRunner, DemoFlowRunner, FlowCancelled
 from .orchestrator import AnalysisOrchestrator
 from .reporting import HtmlReportArtifact, build_html_report
 from .text_dashboard import build_text_dashboard
@@ -30,8 +32,10 @@ class WorkbenchApiError(ValueError):
 
 
 class WorkbenchService:
-    def __init__(self, store: WorkspaceStore) -> None:
+    def __init__(self, store: WorkspaceStore, gateway=None, agent_workspace: Path | None = None) -> None:
         self.store = store
+        self.gateway = gateway
+        self.agent_workspace = (agent_workspace or Path.cwd()).expanduser().resolve()
         self.flagship_cases = FlagshipCaseCatalog.load()
         self._retry_lock = threading.Lock()
         self._run_lock = threading.Lock()
@@ -184,7 +188,12 @@ class WorkbenchService:
             try:
                 proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
                 if task.analysis_mode == "connected":
-                    flow_plan = _connected_flow_plan(body.get("flow_plan"))
+                    if "flow_plan" in body:
+                        raise WorkbenchApiError(
+                            HTTPStatus.UNPROCESSABLE_ENTITY,
+                            "browser-authored flow_plan is no longer accepted; the backend planner owns connected runs",
+                        )
+                    flow_plan = self._backend_connected_flow_plan(task, data_path, document_paths)
                     result = ConnectedFlowRunner(self.store).run(task, data_path, document_paths, flow_plan, proposal)
                 else:
                     result = AnalysisOrchestrator(self.store).run(task, data_path, document_paths, proposal)
@@ -403,6 +412,96 @@ class WorkbenchService:
             raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return {"events": [event.to_dict() for event in events]}
 
+    def _backend_connected_flow_plan(
+        self,
+        task: AnalysisTask,
+        data_path: Path,
+        document_paths: tuple[Path, ...],
+    ) -> dict[str, object]:
+        if self.gateway is None or not task.agent_provider:
+            raise WorkbenchApiError(HTTPStatus.SERVICE_UNAVAILABLE, "connected backend planner is unavailable")
+        dataset = next((ref for ref in task.snapshot_refs if ref.kind == "dataset"), None)
+        if dataset is None:
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires a dataset")
+        profile = profile_standard_csv(data_path, dataset.snapshot_id)
+        projection = {
+            "tool": "profile_data",
+            "status": "completed",
+            "summary": {
+                "task_title": task.title,
+                "task_goal": task.goal,
+                "row_count": profile.row_count,
+                "metrics": list(profile.metrics),
+                "dimensions": list(profile.dimensions),
+                "date_range": list(profile.date_range),
+                "document_count": len(document_paths),
+            },
+            "artifact_refs": [dataset.snapshot_id],
+        }
+        cycle = AnalysisCycle.start(f"cycle-plan-{secrets.token_hex(8)}")
+        planner = ConnectedCyclePlanner(
+            self.gateway,
+            task.agent_provider,
+            self.agent_workspace,
+            ConnectedFlowRunner.REGISTERED_TOOLS,
+        )
+        try:
+            planned = planner.decide(cycle, (projection,))
+        except PlannerWaiting as exc:
+            raise WorkbenchApiError(HTTPStatus.SERVICE_UNAVAILABLE, str(exc)) from exc
+        except CyclePlanError as exc:
+            raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"invalid backend planner decision: {exc}") from exc
+        steps: list[dict[str, object]] = [
+            {
+                "step_id": "inspect",
+                "tool": "inspect_sources",
+                "purpose": "识别本地输入模态与质量诊断",
+                "dependencies": [],
+                "arguments": {},
+            },
+            {
+                "step_id": "profile",
+                "tool": "profile_data",
+                "purpose": "在本地计算数据画像",
+                "dependencies": ["inspect"],
+                "arguments": {},
+            },
+        ]
+        terminal_dependencies = ["profile"]
+        if document_paths:
+            steps.extend(
+                [
+                    {
+                        "step_id": "extract",
+                        "tool": "extract_claims",
+                        "purpose": "在本地抽取带引用的文本主张",
+                        "dependencies": ["inspect"],
+                        "arguments": {},
+                    },
+                    {
+                        "step_id": "align",
+                        "tool": "align_evidence",
+                        "purpose": "对齐数据指标与文本主张",
+                        "dependencies": ["profile", "extract"],
+                        "arguments": {},
+                    },
+                ]
+            )
+            terminal_dependencies = ["align"]
+        decision = planned.decision
+        existing_tools = {str(step["tool"]) for step in steps}
+        if decision.action == "continue" and decision.tool not in existing_tools:
+            steps.append(
+                {
+                    "step_id": "agent-round-1",
+                    "tool": decision.tool,
+                    "purpose": decision.rationale_summary,
+                    "dependencies": terminal_dependencies,
+                    "arguments": dict(decision.arguments),
+                }
+            )
+        return {"plan_id": f"backend-{cycle.cycle_id}", "steps": steps}
+
     def _start_streamed_run(
         self,
         task: AnalysisTask,
@@ -410,7 +509,12 @@ class WorkbenchService:
     ) -> dict[str, object]:
         data_path, document_paths = self._execution_inputs(task)
         proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
-        flow_plan = _connected_flow_plan(body.get("flow_plan")) if task.analysis_mode == "connected" else None
+        if task.analysis_mode == "connected" and "flow_plan" in body:
+            raise WorkbenchApiError(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                "browser-authored flow_plan is no longer accepted; the backend planner owns connected runs",
+            )
+        flow_plan = self._backend_connected_flow_plan(task, data_path, document_paths) if task.analysis_mode == "connected" else None
         first_event = threading.Event()
         cancel = threading.Event()
         state: dict[str, str] = {}
@@ -513,11 +617,14 @@ class WorkbenchService:
         raw_items = hypotheses.get("hypotheses") if isinstance(hypotheses, Mapping) else None
         if not isinstance(raw_items, list):
             return proposal
-        seeded = [
-            {"hypothesis_id": item.get("id"), "text": item.get("text")}
-            for item in raw_items[:20]
-            if isinstance(item, Mapping) and isinstance(item.get("id"), str) and isinstance(item.get("text"), str)
-        ]
+        seeded = []
+        for item in raw_items[:20]:
+            if not isinstance(item, Mapping) or not isinstance(item.get("id"), str) or not isinstance(item.get("text"), str):
+                continue
+            hypothesis = {"hypothesis_id": item.get("id"), "text": item.get("text")}
+            if isinstance(item.get("clauses"), list):
+                hypothesis["clauses"] = item.get("clauses")
+            seeded.append(hypothesis)
         return {"hypotheses": seeded}
 
 
@@ -534,28 +641,6 @@ def _analysis_journey(analysis_mode: object, agent_provider: object) -> None:
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires an agent_provider")
     if analysis_mode == "demo" and agent_provider is not None:
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "demo analysis cannot set an agent_provider")
-
-
-def _connected_flow_plan(payload: object) -> dict[str, object]:
-    if payload is None:
-        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires a flow_plan")
-    try:
-        plan = validate_flow_plan(payload, ConnectedFlowRunner.REGISTERED_TOOLS)
-    except FlowPlanError as exc:
-        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"invalid flow_plan: {exc}") from exc
-    return {
-        "plan_id": plan.plan_id,
-        "steps": [
-            {
-                "step_id": step.step_id,
-                "tool": step.tool,
-                "purpose": step.purpose,
-                "dependencies": list(step.dependencies),
-                "arguments": dict(step.arguments),
-            }
-            for step in plan.steps
-        ],
-    }
 
 
 def _file_digest(path: Path) -> str | None:

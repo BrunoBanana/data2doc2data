@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import type { CombinedDashboard, DashboardSpec, TextDashboardSpec } from '../../contracts/dashboard'
-import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, FlowPlanPayload, RunEvent, RunHistoryItem } from '../../contracts/run-events'
+import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../../contracts/run-events'
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
 import { AssistantDrawer } from '../assistant/AssistantDrawer'
 import { DataImport } from '../assets/DataImport'
@@ -11,8 +11,8 @@ import { TextDashboard } from '../documents/TextDashboard'
 import { EvidenceGraph } from '../evidence/EvidenceGraph'
 import { HypothesisPanel } from '../evidence/HypothesisPanel'
 import { RunHistory } from '../history/RunHistory'
-import { requestConnectedFlowPlan } from './agent-flow-planner'
 import { createTrailingRefresh } from './graph-refresh-queue'
+import { createRunEventBuffer } from './run-event-buffer'
 import { ReportExport } from '../reports/ReportExport'
 
 const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as const
@@ -28,7 +28,7 @@ interface TaskShellProps {
   applyImport: (path: string, plan: Record<string, string>) => Promise<void>
   loadDashboard: () => Promise<CombinedDashboard>
   importDocuments: (paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
-  startAnalysis: (hypotheses: string[], flowPlan?: FlowPlanPayload) => Promise<AnalysisRunStart>
+  startAnalysis: (hypotheses: string[]) => Promise<AnalysisRunStart>
   loadEvidenceGraph: (runId: string) => Promise<EvidenceGraphSpec>
   openRunEventStream: (runId: string, after: number, onEvent: (event: RunEvent, cursor: number) => void, onError: () => void) => () => void
   cancelRun: (runId: string) => Promise<void>
@@ -111,15 +111,12 @@ export function TaskShell(props: TaskShellProps) {
     setRunning(true)
     setDashboardError('')
     try {
-      let flowPlan: FlowPlanPayload | undefined
       if (task.analysis_mode === 'connected') {
-        setFlowNotice(`${task.agent_provider ?? 'Agent'} 正在生成受约束的分析计划…`)
-        flowPlan = await requestConnectedFlowPlan({ task, createSession: createAgentSession, sendMessage: sendAgentMessage, openEventStream: openAgentEventStream })
-        setFlowNotice(`Agent 计划已验证 · ${flowPlan.steps.length} 个本地工具步骤`)
+        setFlowNotice(`${task.agent_provider ?? 'Agent'} 正在由后端规划受约束的本地分析轮次…`)
       } else {
         setFlowNotice('确定性 Demo Flow 正在本地执行…')
       }
-      const started = await startAnalysis(hypotheses, flowPlan)
+      const started = await startAnalysis(hypotheses)
       const runId = started.run.run_id
       const emptyGraph: EvidenceGraphSpec = { contract_version: 1, graph_id: `graph-${runId}`, nodes: [], edges: [] }
       setRunResult({ run: started.run, events: [], evidence_graph: emptyGraph })
@@ -139,12 +136,22 @@ export function TaskShell(props: TaskShellProps) {
       () => loadEvidenceGraph(runId),
       (graph) => setRunResult((current) => current?.run.run_id === runId ? { ...current, evidence_graph: graph } : current),
     )
-    closeRunStream.current = openRunEventStream(runId, after, (event) => {
+    const eventBuffer = createRunEventBuffer((batch) => {
       setRunResult((current) => {
-        if (!current || current.run.run_id !== runId || current.events.some((item) => item.sequence === event.sequence)) return current
-        const terminalStatus = event.kind === 'run.completed' ? 'completed' : event.kind === 'run.failed' ? 'failed' : event.kind === 'run.interrupted' ? 'interrupted' : current.run.status
-        return { ...current, run: { ...current.run, status: terminalStatus }, events: [...current.events, event].sort((left, right) => left.sequence - right.sequence) }
+        if (!current || current.run.run_id !== runId) return current
+        const known = new Set(current.events.map((item) => item.sequence))
+        const additions = batch.filter((event) => !known.has(event.sequence))
+        if (additions.length === 0) return current
+        let terminal: RunEvent | undefined
+        for (const event of additions) {
+          if (['run.completed', 'run.failed', 'run.interrupted'].includes(event.kind)) terminal = event
+        }
+        const terminalStatus = terminal?.kind === 'run.completed' ? 'completed' : terminal?.kind === 'run.failed' ? 'failed' : terminal?.kind === 'run.interrupted' ? 'interrupted' : current.run.status
+        return { ...current, run: { ...current.run, status: terminalStatus }, events: [...current.events, ...additions].sort((left, right) => left.sequence - right.sequence) }
       })
+    })
+    const closeSource = openRunEventStream(runId, after, (event) => {
+      eventBuffer.push(event)
       if (event.kind === 'node.added' || event.kind === 'node.updated' || event.kind === 'edge.added' || event.kind === 'edge.activated') {
         graphRefresh.schedule()
       }
@@ -155,6 +162,10 @@ export function TaskShell(props: TaskShellProps) {
         listTaskRuns().then(setRuns).catch(() => undefined)
       }
     }, () => setDashboardError('实时过程暂时断开，正在等待浏览器自动续接。'))
+    closeRunStream.current = () => {
+      eventBuffer.dispose()
+      closeSource()
+    }
   }
 
   async function stopAnalysis() {
