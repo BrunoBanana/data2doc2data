@@ -150,6 +150,7 @@ export function TaskShell(props: TaskShellProps) {
       }
       if (event.kind === 'run.completed' || event.kind === 'run.failed' || event.kind === 'run.interrupted') {
         setRunning(false)
+        setFlowNotice('')
         graphRefresh.schedule()
         listTaskRuns().then(setRuns).catch(() => undefined)
       }

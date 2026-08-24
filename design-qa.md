@@ -1,30 +1,25 @@
-# Paper Analysis Desk Design QA
+# Agent Flow Workbench Design QA
 
 ## Comparison Target
 
 - Source visual truth: `docs/design-references/2026-08-23/selected-evidence-blueprint.png`
-- Final desktop implementation: `docs/design-references/2026-08-23/implementation-qa-pass3.png`
-- Final mobile implementation: `docs/design-references/2026-08-23/implementation-mobile-qa-pass4.png`
-- Final report rendering: `docs/design-references/2026-08-23/paper-report-final.png`
-- Full-view comparison: `docs/design-references/2026-08-23/qa-comparison-pass3.png`
-- Focused header/signals comparison: `docs/design-references/2026-08-23/qa-focus-header-signals-pass3.png`
+- Final desktop implementation: `docs/design-references/2026-08-24/final/implementation-1440x1024.png`
+- Normalized source: `docs/design-references/2026-08-24/final/reference-1440x1024.png`
+- Side-by-side comparison: `docs/design-references/2026-08-24/final/comparison-2880x1024.png`
 
 ## Normalization
 
-- Source pixels: 1487 × 1058.
-- Implementation pixels: 1440 × 1058 at a 1440 × 1058 CSS viewport and `deviceScaleFactor: 1`.
-- Comparison normalization: source scaled proportionally to 1440 × 1025 and vertically padded to 1440 × 1058; implementation retained at native capture size. The combined comparison is 2880 × 1058.
-- Focus comparison: two 930 × 500 center-workspace crops combined at equal density.
-- State: synthetic retail flagship case loaded, deterministic analysis completed, evidence playback paused on the first persisted event, assistant available but not connected.
+- Source and implementation: 1440 × 1024 at `deviceScaleFactor: 1`; combined comparison: 2880 × 1024.
+- State: synthetic SaaS flagship Demo completed, all public flow events projected, evidence inspector visible, fixed Agent Console available but not connected.
 
 ## Required Fidelity Surfaces
 
 - Fonts and typography: both use a system sans stack with heavy display headlines, compact monospaced eyebrows, readable 10–12 px metadata, and controlled Chinese wrapping. The implementation intentionally uses a larger case title than the concept image to preserve the approved Paper Neo-Brutalism hierarchy; no truncation or collision remains.
-- Spacing and layout rhythm: the 220 px asset rail, flexible analysis center, and 280 px analyst margin preserve the concept's three-region structure. Hard black rules, square corners, paper gutters, and green offset shadows are consistent. Desktop and 390 px mobile have zero horizontal overflow.
+- Spacing and layout rhythm: the 220 px asset rail, flexible analysis center, and 280 px Agent Console preserve the concept's three-region structure. The compact 420 px live-canvas stage keeps the complete flow and bottom navigator in the first desktop viewport. Hard black rules, square corners, paper gutters, and green offset shadows are consistent. Desktop and 390 px mobile have zero horizontal overflow.
 - Colors and visual tokens: paper `#f4f1e8`, ink `#151511`, sheet `#fffdf7`, and signal green `#08d36c` map directly across workbench and report. Semantic conflict, warning, pending, and verified states remain distinguishable.
 - Image quality and asset fidelity: the visible brand uses the repository's real favicon asset rather than a text/CSS approximation. The source has no photographic product imagery. The evidence canvas is a functional XYFlow rendering, not a decorative raster substitute.
-- Copy and content: labels distinguish deterministic local computation, auditable event playback, hypotheses, evidence state, assistant notes, and report export. The implementation replaces the concept's fictional warehouse tables and approval inbox with the product's actual locked files, run events, and permissioned local assistant controls.
-- Interaction and accessibility: tabs, playback, range input, speed, evidence filters, node details, assistant collapse/switcher, report download, focus states, reduced motion, and mobile analysis/process/assistant views were exercised in Chromium. No console or page errors were observed.
+- Copy and content: labels distinguish Demo versus connected mode, Agent-authored plan, host-owned local tools, hypotheses, evidence state, assistant notes, and report export. The implementation replaces the concept's fictional warehouse tables with locked assets, public typed flow events, cross-evidence branches, and permissioned local Agent controls.
+- Interaction and accessibility: onboarding modes, live node/edge growth, fit-to-view, node inspector, tabs, assistant collapse/switcher, report download, focus states, reduced motion, and mobile analysis/process/assistant views were exercised in Chromium. No console or page errors were observed.
 
 ## Comparison History
 
@@ -42,19 +37,26 @@
 - Fixes: rendered the repository favicon asset, removed the decorative assistant shape, stacked mobile heading actions below the goal, and placed the report notice in normal flow at full width.
 - Evidence: `implementation-qa-pass2.png` before; `implementation-qa-pass3.png` and `implementation-mobile-qa-pass4.png` after. The final mobile bounding-box check reported `overlap: false`, horizontal overflow `0`, and no console errors.
 
-### Iteration 3 — passed
+### Iteration 3 — blocked
 
-- Recompared the normalized full view and focused header/signals region after the fixes.
-- No actionable P0, P1, or P2 differences remain. The source's warehouse inventory tree, dense trend chart, and approval cards are treated as concept content; the implementation preserves their hierarchy using actual case assets, a deterministic evidence scorecard, event timeline, evidence graph, and real local-agent permission controls.
+- The first Agent Flow capture still showed a completed Demo notice and placed most graph nodes below the fold.
+- Fixes: clear transient flow notices on terminal events; compact the title, tabs, KPI brief, lane spacing, and node width; reduce the canvas stage to 420 px; auto-fit after node growth.
+
+### Iteration 4 — passed
+
+- Recompared the complete 1440 × 1024 reference and implementation after the flow-canvas fixes.
+- At least 12 live-flow nodes intersect the first viewport, the complete five-lane graph remains readable, the inspector and navigator stay usable, and the fixed Agent Console composer never leaves the viewport.
+- No actionable P0, P1, or P2 differences remain. The source's warehouse content is concept material; the implementation preserves its hierarchy with actual case assets, a live Agent Flow canvas, evidence links, and local-agent controls.
 
 ## Primary Browser Interactions Tested
 
 - Loaded each flagship case from onboarding.
 - Opened data and text dashboards and verified three cited claims per case.
-- Ran deterministic analysis, paused/sought/skipped playback, filtered evidence, and opened node details.
+- Ran both no-model Demos and watched public events construct the five-lane canvas from empty state to report.
 - Downloaded and opened the standalone HTML report with no external network requests.
 - Switched all three 390 px mobile workspace modes with reduced motion enabled.
 - Connected the installed Tencent CodeBuddy/WorkBuddy CLI in read-only mode and received bounded task context without approvals.
+- Exercised connected Codex planning failure at its 120-second bound; no Demo fallback or host tool execution occurred.
 
 ## Residual P3 Polish
 

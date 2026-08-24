@@ -1,7 +1,7 @@
 import { Background, Controls, MarkerType, MiniMap, ReactFlow, type Edge, type ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useReducedMotion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { EvidenceGraphSpec, RunEvent } from '../../contracts/run-events'
 import { FlowInspector } from './FlowInspector'
@@ -36,7 +36,7 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
     return {
       id: node.id,
       type: 'agentFlow',
-      position: { x: laneIndex * 260 + 36, y: row * 150 + 64 },
+      position: { x: laneIndex * 200 + 28, y: row * 150 + 64 },
       data: { label: node.label, kind: node.kind, lane: node.lane, status: node.status, active: activeNodes.has(node.id), addedAt: node.addedAt },
     }
   })
@@ -53,6 +53,14 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
       style: { stroke: relationshipColors[edge.relationship] ?? '#6f6b60', strokeWidth: activeEdges.has(edge.id) ? 3 : 1.5 },
       className: edge.conflicted ? 'agent-flow-edge--conflict' : undefined,
     }))
+
+  useEffect(() => {
+    if (!flow || nodes.length === 0) return
+    const frame = window.requestAnimationFrame(() => {
+      flow.fitView({ duration: reducedMotion ? 0 : 240, padding: .14, maxZoom: .9 })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [flow, nodes.length, reducedMotion])
 
   function focusNode(nodeId: string) {
     setSelectedId(nodeId)

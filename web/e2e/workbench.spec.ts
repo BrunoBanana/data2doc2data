@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test'
+import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 test('completes the model-free task journey and downloads an offline report', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1024 })
   const errors: string[] = []
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto('/')
@@ -17,8 +19,18 @@ test('completes the model-free task journey and downloads an offline report', as
   await page.getByRole('button', { name: '运行分析' }).click()
   await expect(page.getByRole('heading', { name: '分析过程与证据联动' })).toBeVisible()
   await expect(page.getByText('这是可审计事件回放，不是模型隐性思维过程。')).toBeVisible()
-  await page.getByRole('button', { name: '跳到结果' }).click()
   await expect(page.getByText('分析完成')).toBeVisible()
+  await expect(page.getByText('确定性 Demo Flow 正在本地执行…')).not.toBeVisible()
+  const visibleNodes = await page.locator('.agent-flow-node').evaluateAll((nodes) => nodes.filter((node) => {
+    const bounds = node.getBoundingClientRect()
+    return bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.bottom > 0 && bounds.left < innerWidth && bounds.top < innerHeight
+  }).length)
+  expect(visibleNodes).toBeGreaterThanOrEqual(12)
+  if (process.env.VISUAL_QA_CAPTURE === '1') {
+    await page.getByRole('main').evaluate((element) => { element.scrollTop = 0 })
+    await page.screenshot({ path: path.resolve('../docs/design-references/2026-08-24/final/implementation-1440x1024.png') })
+  }
+  await page.getByRole('button', { name: '跳到结果' }).click()
 
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: '下载 HTML 报告' }).click()

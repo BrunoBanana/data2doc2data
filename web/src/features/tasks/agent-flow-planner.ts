@@ -45,7 +45,9 @@ export async function requestConnectedFlowPlan(options: ConnectedPlannerOptions)
     close = options.openEventStream(session.id, 0, (event) => {
       const text = typeof event.payload?.text === 'string' ? event.payload.text : ''
       if (event.kind === 'plan.delta' || event.kind === 'message.delta') buffer += text
-      if (event.kind === 'turn.completed') {
+      if (event.kind === 'approval.request') {
+        fail(new Error('Agent 请求了额外操作；规划阶段不允许执行命令或读取文件，请检查本地 Agent 配置后重试。'))
+      } else if (event.kind === 'turn.completed') {
         try { finish(parseFlowPlan(buffer)) } catch (error) { fail(error) }
       } else if (event.kind === 'turn.error' || event.kind === 'provider.error' || event.kind === 'turn.cancelled') {
         fail(new Error(String(event.payload?.message ?? 'Agent 未能完成 Flow 规划。')))
@@ -78,7 +80,7 @@ function buildPlannerPrompt(task: AnalysisTask) {
     : '必须包含 inspect_sources、profile_data。'
   return [
     '你是 Data2Doc2Data 的 Flow 规划器。只输出一个 JSON 对象，不要 Markdown、解释或代码。',
-    '不得读取或返回原始记录；宿主会在本地执行所有计算。不得使用 shell、code、command、raw、rows 或 records 参数。',
+    '这是纯规划任务：不要调用任何工具，不要执行命令，不要检查文件。不得读取或返回原始记录；宿主会在本地执行所有计算。不得使用 shell、code、command、raw、rows 或 records 参数。',
     `任务：${task.title}。目标：${task.goal}。输入：${datasets} 个数据快照，${documents} 份文本材料。`,
     `可用工具：inspect_sources、profile_data、query_data、extract_claims、align_evidence、test_hypothesis。${required}`,
     '格式：{"plan_id":"stable-id","steps":[{"step_id":"stable-id","tool":"registered_tool","purpose":"业务目的","dependencies":[],"arguments":{}}]}。',

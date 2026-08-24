@@ -53,4 +53,21 @@ describe('requestConnectedFlowPlan', () => {
 
     await expect(pending).rejects.toThrow('Agent 未返回可执行的结构化 Flow 计划')
   })
+
+  it('fails immediately when a read-only planning turn requests approval', async () => {
+    let onEvent: ((event: AgentEvent, eventId: number) => void) | undefined
+    const close = vi.fn()
+    const pending = requestConnectedFlowPlan({
+      task,
+      createSession: vi.fn().mockResolvedValue({ id: 'session-1', provider: 'codex', workspace: '/workspace', permission_mode: 'read_only', resumed: false }),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      openEventStream: vi.fn((_id, _after, callback) => { onEvent = callback; return close }),
+      timeoutMs: 60_000,
+    })
+    await vi.waitFor(() => expect(onEvent).toBeTypeOf('function'))
+    onEvent?.({ kind: 'approval.request', payload: { request_id: 'approval-1', operation: 'command' } }, 1)
+
+    await expect(pending).rejects.toThrow('规划阶段不允许执行命令或读取文件')
+    expect(close).toHaveBeenCalledOnce()
+  })
 })

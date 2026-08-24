@@ -19,8 +19,9 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 - Two complete flagship case packs (468 metric rows, 9 documents) plus three focused boundary scenarios
 - User-supplied local CSV data
 - User-supplied local Markdown / text decision documents
-- Three-column evidence workbench for data, deterministic analysis, and assistant collaboration (Chinese)
-- Task-first React workbench with immutable run history, event replay, evidence/hypothesis graphs, and safe retry
+- Paper-style business analysis workbench with a fixed Agent Console and a live five-lane execution canvas (Chinese)
+- Dual runners: a complete no-model Demo flow and Agent-authored connected plans executed by host-owned local tools
+- Task-first React workbench with immutable run history, cursor replay, evidence/hypothesis graphs, and safe retry
 - Standalone, print-ready HTML reports with inline SVG and source provenance; no CDN is required
 - Direct web conversations with a locally installed Codex or Tencent WorkBuddy/CodeBuddy
 - Read-only, per-operation approval, and trusted-session permission modes
@@ -49,9 +50,11 @@ The workbench now starts from an analysis task rather than a chat. Import a loca
 
 Use **Download HTML report** in a task to generate one authenticated, self-contained file. It leads with an analysis conclusion and evidence-verification scorecard, then includes KPI findings, inline SVG charts, text claims with line citations, evidence/hypothesis status, next steps, open questions, caveats, locked snapshot IDs, and expandable calculation provenance. The downloaded file has no external resources, agent-authored markup, local paths, raw records, or secrets and can be opened offline or printed.
 
-## Guided Demo
+## Demo and connected journeys
 
-Open the setup page, keep **Built-in demo**, and choose one of the three scenarios. Each scenario contains a small CSV and Markdown strategy note clearly labeled as fictional synthetic data. Selecting a scenario updates the suggested question but does not run analysis; save the workspace, then select **Start analysis**.
+The first screen has two explicit paths. **Try Demo now** runs a complete deterministic experience without an API or local model. **Connect an Agent** selects Codex or Tencent WorkBuddy/CodeBuddy, then lets the user load either flagship material pack or their own data/documents. The packs contain 468 synthetic metric records and 9 documents in total; connected mode receives the material, not the Demo's expected hypotheses or answers.
+
+Both runners emit the same typed public events. The blank flow canvas grows as the host profiles data, extracts claims, aligns evidence, tests hypotheses, and produces the report. It shows tool inputs/outputs, evidence links, status, and provenance—not model-private chain-of-thought.
 
 The scenarios intentionally demonstrate three boundaries:
 
@@ -108,7 +111,7 @@ Run the deterministic engine as a tool server for any MCP-capable agent (Codex, 
 data2doc2data mcp
 ```
 
-It speaks MCP over stdio and exposes three tools: `analyze` (deterministic evidence analysis), `check_rules` (validate a declarative rules JSON file), and `source_profile` (dataset profile without raw rows). Raw CSV rows are never written to the client.
+It speaks MCP over stdio and exposes four tools: `analyze` (deterministic evidence analysis), `check_rules` (validate a declarative rules JSON file), `source_profile` (dataset profile without raw rows), and `generate_html_report` (the same self-contained report contract used by Web and CLI). Raw CSV rows are never written to the client.
 
 Verify the full local contract before connecting a host:
 
@@ -150,11 +153,12 @@ Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档
 
 ## 本版本可用能力
 
-- 三套内置虚构合成数据：证据支持、策略冲突、证据不足
+- 两套完整旗舰材料包（共 468 条指标记录、9 份文档），并附带三个边界场景
 - 使用者自有的本地 CSV 数据
 - 使用者自有的本地 Markdown 与文本决策文档
-- 数据、确定性分析、助手协作一体化的三栏工作台
-- 任务优先的 React 工作台：不可变运行历史、事件回放、证据/假设图与安全重试
+- Paper 风格三栏工作台：固定 Agent Console 与五泳道动态执行画布
+- 双运行器：无需模型的完整 Demo Flow，以及由 Agent 规划、宿主本地工具执行的连接模式
+- 任务优先的 React 工作台：不可变运行历史、游标回放、证据/假设图与安全重试
 - 可下载、可打印的单文件 HTML 报告：内联 SVG 与完整来源口径，无需 CDN
 - 在网页中直接连接本机 Codex 或腾讯 WorkBuddy/CodeBuddy
 - 只读、逐次审批和会话级受限信任三种权限模式
@@ -183,9 +187,11 @@ data2doc2data setup
 
 任务顶部的“下载 HTML 报告”会生成一个经过会话授权的自包含文件。报告依次提供 Executive Summary、KPI 与内联 SVG 图表、带行号引用的文本主张、证据/假设状态、下一步、待回答问题、局限、锁定快照与可展开的计算口径。文件不含外链资源、Agent 生成的 HTML、本地路径、原始数据行或凭据，可离线打开和打印。
 
-## 三套内置演示
+## Demo 与连接 Agent 两条体验路径
 
-打开配置页，保留“内置演示”，然后选择一个场景。每套场景都包含小型 CSV 和 Markdown 策略资料，并明确标注为虚构合成数据。切换场景只会更新建议问题，不会自动分析；先保存工作区，再点击“开始分析”。
+首屏提供两条明确路径：“立即体验 Demo”无需 API 或本地模型即可运行完整确定性流程；“连接 Agent 开始分析”先选择 Codex 或腾讯 WorkBuddy/CodeBuddy，再使用两套旗舰材料包或导入自己的数据/文档。旗舰材料包共含 468 条虚构合成数据记录与 9 份文档；连接模式只复用材料，不会注入 Demo 的预设假设和答案。
+
+两种运行器产生相同的类型化公开事件。空白画布会随本地数据画像、文本主张抽取、证据对齐、假设检验和报告生成逐步生长，展示工具输入输出、证据关系、状态和口径，但不会展示模型私有思维链。
 
 三套演示分别展示：
 
@@ -242,7 +248,7 @@ data2doc2data analyze --question "发生了什么变化？" --metric retention_r
 data2doc2data mcp
 ```
 
-它通过 stdio 传输 MCP 协议，暴露三个工具：`analyze`（确定性证据分析）、`check_rules`（校验声明式规则 JSON 文件）与 `source_profile`（不含原始数据行的数据画像）。原始 CSV 永不写入客户端。
+它通过 stdio 传输 MCP 协议，暴露四个工具：`analyze`（确定性证据分析）、`check_rules`（校验声明式规则 JSON 文件）、`source_profile`（不含原始数据行的数据画像）与 `generate_html_report`（生成与 Web/CLI 相同契约的自包含 HTML 报告）。原始 CSV 永不写入客户端。
 
 接入宿主前，先运行只读自检：
 

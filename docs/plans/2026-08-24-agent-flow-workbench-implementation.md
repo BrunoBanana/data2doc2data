@@ -388,3 +388,6 @@ Expected: all suites pass, coverage remains at least 80%, downloaded reports ope
 
 Commit: `test: validate the complete live agent flow workbench`
 
+## Completion
+
+Completed on 2026-08-24. All eleven tasks were implemented. Three use-test rounds, full regression, visual comparison, and release diagnostics are recorded in `docs/testing/2026-08-24-agent-flow-use-tests.md` and `design-qa.md`.
