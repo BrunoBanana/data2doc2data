@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest'
+
+import type { RunEvent } from '../../contracts/run-events'
+import { emptyFlowProjection, projectFlowEvent, projectFlowEvents } from './flow-projection'
+
+function event(sequence: number, kind: RunEvent['kind'], summary: Record<string, unknown> = {}, artifactRefs: string[] = []): RunEvent {
+  return {
+    contract_version: 1,
+    run_id: 'run-live',
+    sequence,
+    kind,
+    phase: 'cross-reasoning',
+    summary,
+    artifact_refs: artifactRefs,
+    created_at: `2026-08-24T00:00:${String(sequence).padStart(2, '0')}Z`,
+  }
+}
+
+describe('flow event projection', () => {
+  it('starts empty and grows only when persisted graph mutations arrive', () => {
+    let projection = emptyFlowProjection()
+    projection = projectFlowEvent(projection, event(1, 'run.started'))
+    projection = projectFlowEvent(projection, event(2, 'plan.created', { plan_id: 'plan-1' }))
+    projection = projectFlowEvent(projection, event(3, 'tool.started', { step_id: 'profile', tool: 'profile_data' }))
+    expect(projection.nodes).toEqual([])
+
+    projection = projectFlowEvent(projection, event(4, 'node.added', {
+      node_id: 'data-signal', node_kind: 'data_signal', label: '本地数据画像', status: 'verified',
+    }, ['data-signal', 'dashboard-1']))
+    expect(projection.nodes.map((node) => node.id)).toEqual(['data-signal'])
+    expect(projection.nodes[0]).toMatchObject({ lane: 'compute', artifactRef: 'dashboard-1' })
+  })
+
+  it('updates tool activity, retains revised branches, activates edges, and converges at the report', () => {
+    const events = [
+      event(1, 'node.added', { node_id: 'claim-a', node_kind: 'claim', label: '增长来自产品改版', status: 'pending' }),
+      event(2, 'node.added', { node_id: 'claim-b', node_kind: 'claim', label: '增长来自渠道扩量', status: 'pending' }),
+      event(3, 'node.added', { node_id: 'validation-1', node_kind: 'validation', label: '交叉核验', status: 'insufficient' }),
+      event(4, 'edge.added', { edge_id: 'edge-a', source: 'claim-a', target: 'validation-1', relationship: 'tests' }),
+      event(5, 'edge.activated', { edge_id: 'edge-a', source: 'claim-a', target: 'validation-1', relationship: 'tests' }),
+      event(6, 'plan.revised', { revision: 1, reason: '新增反证分支' }),
+      event(7, 'edge.added', { edge_id: 'edge-conflict', source: 'claim-a', target: 'claim-b', relationship: 'contradicts' }),
+      event(8, 'conflict.detected', { left_claim_id: 'claim-a', right_claim_id: 'claim-b' }, ['edge-conflict']),
+      event(9, 'tool.progress', { step_id: 'align', tool: 'align_evidence', progress: 0.7 }),
+      event(10, 'node.updated', { node_id: 'validation-1', status: 'supported', label: '交叉核验完成' }),
+      event(11, 'report.generated', { filename: 'report.html', sha256: 'a'.repeat(64) }),
+    ]
+
+    const projection = projectFlowEvents(events)
+
+    expect(projection.nodes.map((node) => node.id)).toEqual(['claim-a', 'claim-b', 'validation-1'])
+    expect(projection.nodes.find((node) => node.id === 'validation-1')).toMatchObject({ status: 'supported', label: '交叉核验完成' })
+    expect(projection.edges.map((edge) => edge.id)).toEqual(['edge-a', 'edge-conflict'])
+    expect(projection.activeEdgeIds).toContain('edge-conflict')
+    expect(projection.conflictCount).toBe(1)
+    expect(projection.planRevisionCount).toBe(1)
+    expect(projection.activeTool).toMatchObject({ stepId: 'align', name: 'align_evidence', state: 'running' })
+    expect(projection.converged).toBe(true)
+    expect(projection.report).toMatchObject({ filename: 'report.html' })
+  })
+
+  it('does not project private or raw event payloads into nodes', () => {
+    const projection = projectFlowEvents([
+      event(1, 'tool.result', { tool: 'query_data', row_count: 120, result: 'bounded summary' }),
+    ])
+
+    expect(JSON.stringify(projection)).not.toContain('raw_rows')
+    expect(projection.nodes).toEqual([])
+  })
+})

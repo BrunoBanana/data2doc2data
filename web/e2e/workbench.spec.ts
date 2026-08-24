@@ -71,10 +71,12 @@ for (const caseName of ['增长提速、留存承压', '大促增收、利润与
     await expect(page.locator('.claim-card')).toHaveCount(3)
     await page.getByRole('button', { name: '运行分析' }).click()
     await expect(page.getByRole('heading', { name: '数据证据摘要' })).toBeVisible()
+    await expect(page.getByLabel('实时 Agent Flow 画布')).toBeVisible()
     await expect(page.getByRole('heading', { name: '执行轨道' })).toBeVisible()
     await page.getByRole('button', { name: '跳到结果' }).click()
     await expect(page.getByText('分析完成')).toBeVisible()
-    await expect(page.getByText(/\d+ 个节点 · \d+ 条关系/)).toBeVisible()
+    await expect(page.getByLabel('Flow 图统计')).toContainText(/\d+节点.*\d+关系/)
+    expect(await page.locator('.agent-flow-node').count()).toBeGreaterThan(4)
     expect(errors).toEqual([])
   })
 }

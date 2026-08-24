@@ -14,7 +14,7 @@ import { RunHistory } from '../history/RunHistory'
 import { ReportExport } from '../reports/ReportExport'
 
 const tabs = ['总览', '数据', '文本', '证据', '假设', '历史'] as const
-const RunPlayback = lazy(() => import('../runs/RunPlayback').then((module) => ({ default: module.RunPlayback })))
+const AgentFlowCanvas = lazy(() => import('../flow/AgentFlowCanvas').then((module) => ({ default: module.AgentFlowCanvas })))
 
 interface TaskShellProps {
   task: AnalysisTask
@@ -172,7 +172,7 @@ export function TaskShell(props: TaskShellProps) {
         {!loadingDashboard && activeTab === '数据' && (datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />)}
         {!loadingDashboard && activeTab === '文本' && <><DocumentImport importDocuments={addDocuments} />{combined?.text_dashboard && <TextDashboard dashboard={combined.text_dashboard} />}</>}
         {!loadingDashboard && activeTab === '假设' && <><HypothesisPanel onRun={runAnalysis} disabled={!datasets || running} />{runResult && <EvidenceGraph graph={runResult.evidence_graph} />}</>}
-        {!loadingDashboard && activeTab === '证据' && (runResult ? <><EvidenceBrief dashboard={combined?.dashboard ?? null} graph={runResult.evidence_graph} /><Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载过程回放…</section>}><RunPlayback events={runResult.events} graph={runResult.evidence_graph} /></Suspense></> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
+        {!loadingDashboard && activeTab === '证据' && (runResult ? <><EvidenceBrief dashboard={combined?.dashboard ?? null} graph={runResult.evidence_graph} /><Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载实时 Flow 画布…</section>}><AgentFlowCanvas events={runResult.events} graph={runResult.evidence_graph} /></Suspense></> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
         {!loadingDashboard && activeTab === '历史' && <RunHistory runs={runs} loadRun={loadRun} retryRun={retryRun} onReplay={async (result) => { setRunResult(result); setActiveTab('证据'); setRuns(await listTaskRuns().catch(() => runs)) }} />}
       </main>
       {assistantOpen && <AssistantDrawer task={task} agents={agents} createSession={createAgentSession} sendMessage={sendAgentMessage} interrupt={interruptAgent} decideApproval={decideAgentApproval} openEventStream={openAgentEventStream} />}
