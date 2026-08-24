@@ -177,9 +177,11 @@ def _resolve_sources(profile: Profile) -> tuple[Path, list[Path]]:
         return metrics_path, [document_path]
 
     csv_path = Path(profile.data_path).expanduser()
-    document_root = Path(profile.knowledge_path).expanduser()
     if not csv_path.is_file():
         raise InputValidationError("CSV file does not exist")
+    if not profile.knowledge_path.strip():
+        return csv_path, []
+    document_root = Path(profile.knowledge_path).expanduser()
     if not document_root.is_dir():
         raise InputValidationError("document directory does not exist")
     document_paths = sorted(

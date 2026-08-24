@@ -72,6 +72,20 @@ class SourceProfileTests(unittest.TestCase):
         self.assertEqual(second.record_count, 3)
         self.assertNotEqual(first.fingerprint, second.fingerprint)
 
+    def test_local_profile_treats_an_empty_optional_document_path_as_no_documents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path = Path(directory) / "metrics.csv"
+            csv_path.write_text(
+                "date,metric,value\n2026-01-01,revenue,10\n2026-01-02,revenue,12\n",
+                encoding="utf-8",
+            )
+
+            profile = build_source_profile(Profile("local", str(csv_path), ""))
+
+        self.assertEqual(profile.record_count, 2)
+        self.assertEqual(profile.document_count, 0)
+        self.assertEqual(len(profile.source_hashes), 1)
+
 
 class EvidenceSnapshotTests(unittest.TestCase):
     def test_data_size_question_gets_compact_local_facts_without_raw_csv_rows(self):

@@ -9,7 +9,7 @@ from typing import Mapping
 
 from .config import ProfileStore
 from .flagship_cases import FlagshipCaseCatalog
-from .mcp_server import PROTOCOL_VERSION, handle_message
+from .mcp_server import PROTOCOL_VERSION, TOOL_NAMES, handle_message
 
 
 TEMPLATE_FILES = {
@@ -85,13 +85,14 @@ def run_doctor(store: ProfileStore) -> dict[str, object]:
         init_result = initialized.get("result", {}) if isinstance(initialized, dict) else {}
         tools_result = listed.get("result", {}) if isinstance(listed, dict) else {}
         tools = tools_result.get("tools", []) if isinstance(tools_result, dict) else []
+        tool_names = {tool.get("name") for tool in tools if isinstance(tool, dict)}
         checks.append(
             {
                 "id": "mcp_protocol",
-                "ok": init_result.get("protocolVersion") == PROTOCOL_VERSION and len(tools) == 4,
+                "ok": init_result.get("protocolVersion") == PROTOCOL_VERSION and tool_names == TOOL_NAMES,
                 "protocol_version": init_result.get("protocolVersion"),
                 "tool_count": len(tools),
-                "tools": [tool.get("name") for tool in tools if isinstance(tool, dict)],
+                "tools": sorted(name for name in tool_names if isinstance(name, str)),
             }
         )
     except Exception as error:  # pragma: no cover - defensive diagnostics boundary

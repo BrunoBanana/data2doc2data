@@ -15,7 +15,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `PYTHONPATH=../src python -m data2doc2data.cli --config /tmp/data2doc2data-playwright-${runId}/config.json setup --port ${port} --no-browser`,
+    command: `PYTHONPATH=../src uv run --project .. python -m data2doc2data.cli --config /tmp/data2doc2data-playwright-${runId}/config.json setup --port ${port} --no-browser`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 30_000,
