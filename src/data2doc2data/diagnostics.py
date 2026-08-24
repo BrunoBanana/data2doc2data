@@ -7,7 +7,8 @@ from datetime import date
 import hashlib
 import json
 import math
-from statistics import fmean, median, pstdev
+import random
+from statistics import fmean, median, pstdev, variance
 from types import MappingProxyType
 from typing import Mapping
 
@@ -339,6 +340,190 @@ def decompose_change(
         limitations=("加法贡献表示总体变化的数值构成，不单独证明驱动机制。",),
         source_refs=(table.snapshot_id,),
     )
+
+
+def correlate_metrics(
+    leading: tuple[SeriesPoint, ...],
+    lagging: tuple[SeriesPoint, ...],
+    *,
+    max_lag: int = 3,
+    minimum_overlap: int = 3,
+    source_refs: tuple[str, ...] = (),
+) -> AnalyticalArtifact:
+    if max_lag < 0 or max_lag > 30:
+        raise ValueError("maximum lag must be between zero and thirty")
+    if minimum_overlap < 3:
+        raise ValueError("minimum overlap must be at least three")
+    leading_by_date = {point.date: point.value for point in _ordered(leading)}
+    lagging_by_date = {point.date: point.value for point in _ordered(lagging)}
+    shared_dates = sorted(set(leading_by_date) & set(lagging_by_date))
+    x = [leading_by_date[item_date] for item_date in shared_dates]
+    y = [lagging_by_date[item_date] for item_date in shared_dates]
+    parameters = {
+        "method": "bounded_lag_pearson",
+        "max_lag": max_lag,
+        "minimum_overlap": minimum_overlap,
+        "positive_lag_meaning": "leading series precedes lagging series",
+    }
+    if len(shared_dates) < minimum_overlap:
+        return _unavailable(
+            "correlate_metrics",
+            len(shared_dates),
+            parameters,
+            "两个指标没有足够的重叠日期。",
+            source_refs,
+        )
+    lag_results = []
+    for lag in range(-max_lag, max_lag + 1):
+        if lag < 0:
+            left, right = x[-lag:], y[: len(y) + lag]
+        elif lag > 0:
+            left, right = x[: len(x) - lag], y[lag:]
+        else:
+            left, right = x, y
+        if len(left) < minimum_overlap:
+            continue
+        coefficient = _pearson(left, right)
+        if coefficient is None:
+            continue
+        lag_results.append({"lag": lag, "correlation": coefficient, "overlap": len(left)})
+    if not lag_results:
+        return _unavailable(
+            "correlate_metrics",
+            len(shared_dates),
+            parameters,
+            "指标方差或有效重叠不足，无法计算相关性。",
+            source_refs,
+        )
+    best = max(
+        lag_results,
+        key=lambda item: (
+            abs(float(item["correlation"])),
+            int(item["overlap"]),
+            -abs(int(item["lag"])),
+            -int(item["lag"]),
+        ),
+    )
+    observations = {
+        "best_lag": best["lag"],
+        "correlation": best["correlation"],
+        "overlap": best["overlap"],
+        "lag_results": lag_results,
+    }
+    return _artifact(
+        "correlate_metrics",
+        "completed",
+        f"最强时间关联出现在滞后 {best['lag']} 个观测周期。",
+        observations,
+        len(shared_dates),
+        parameters,
+        limitations=(
+            "相关与滞后只描述时间关联，不代表因果关系。",
+            "缺失日期、共同趋势和季节性可能抬高相关系数。",
+        ),
+        source_refs=source_refs,
+    )
+
+
+def compare_groups(
+    first: list[float],
+    second: list[float],
+    *,
+    confidence: float = 0.95,
+    bootstrap_samples: int = 2_000,
+    source_refs: tuple[str, ...] = (),
+) -> AnalyticalArtifact:
+    if not 0.8 <= confidence < 1:
+        raise ValueError("confidence must be between 0.8 and 1")
+    if not 100 <= bootstrap_samples <= 20_000:
+        raise ValueError("bootstrap sample count must be between 100 and 20000")
+    if any(not math.isfinite(value) for value in (*first, *second)):
+        raise ValueError("group values must be finite")
+    seed = _stable_seed(first, second, confidence, bootstrap_samples)
+    parameters = {
+        "method": "pooled_effect_deterministic_bootstrap",
+        "confidence": confidence,
+        "bootstrap_samples": bootstrap_samples,
+        "seed": seed,
+    }
+    if len(first) < 2 or len(second) < 2:
+        return _unavailable(
+            "compare_groups",
+            len(first) + len(second),
+            parameters,
+            "组间比较要求每组至少两个观测值。",
+            source_refs,
+        )
+    first_mean, second_mean = fmean(first), fmean(second)
+    difference = first_mean - second_mean
+    pooled_variance = (
+        (len(first) - 1) * variance(first) + (len(second) - 1) * variance(second)
+    ) / (len(first) + len(second) - 2)
+    diagnostics: tuple[Mapping[str, object], ...] = ()
+    if pooled_variance == 0:
+        effect_size = None
+        diagnostics = ({"code": "zero_within_group_variance", "message": "组内方差为零，标准化效应量不适用。"},)
+    else:
+        effect_size = abs(difference) / math.sqrt(pooled_variance)
+    rng = random.Random(seed)
+    bootstrap = sorted(
+        fmean(rng.choice(first) for _ in first) - fmean(rng.choice(second) for _ in second)
+        for _ in range(bootstrap_samples)
+    )
+    tail = (1 - confidence) / 2
+    lower = _quantile(bootstrap, tail)
+    upper = _quantile(bootstrap, 1 - tail)
+    observations = {
+        "first_mean": first_mean,
+        "second_mean": second_mean,
+        "difference": difference,
+        "effect_size": effect_size,
+        "confidence_interval": [lower, upper],
+        "first_count": len(first),
+        "second_count": len(second),
+    }
+    return _artifact(
+        "compare_groups",
+        "completed",
+        "已完成组间差异、标准化效应量和确定性自助法区间计算。",
+        observations,
+        len(first) + len(second),
+        parameters,
+        diagnostics=diagnostics,
+        limitations=(
+            "区间反映当前样本的不确定性，依赖观测独立且分组口径可比。",
+            "观察性组间差异不代表因果效应。",
+        ),
+        source_refs=source_refs,
+    )
+
+
+def _pearson(first: list[float], second: list[float]) -> float | None:
+    first_mean, second_mean = fmean(first), fmean(second)
+    first_centered = [value - first_mean for value in first]
+    second_centered = [value - second_mean for value in second]
+    denominator = math.sqrt(
+        sum(value * value for value in first_centered)
+        * sum(value * value for value in second_centered)
+    )
+    if denominator == 0:
+        return None
+    return sum(left * right for left, right in zip(first_centered, second_centered, strict=True)) / denominator
+
+
+def _stable_seed(first: list[float], second: list[float], confidence: float, samples: int) -> int:
+    encoded = json.dumps([first, second, confidence, samples], separators=(",", ":"), allow_nan=False)
+    return int(hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16], 16)
+
+
+def _quantile(values: list[float], probability: float) -> float:
+    position = (len(values) - 1) * probability
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return values[lower]
+    weight = position - lower
+    return values[lower] * (1 - weight) + values[upper] * weight
 
 
 def _decompose_rate(

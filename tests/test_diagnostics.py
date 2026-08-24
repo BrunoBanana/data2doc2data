@@ -8,6 +8,8 @@ from data2doc2data.analytical_table import load_analytical_table
 from data2doc2data.diagnostics import (
     SeriesPoint,
     compare_periods,
+    compare_groups,
+    correlate_metrics,
     decompose_change,
     detect_anomalies,
     detect_change_points,
@@ -136,6 +138,41 @@ class DiagnosticTests(unittest.TestCase):
 
         self.assertEqual(artifact.status, "unavailable")
         self.assertIn("channel", artifact.limitations[0])
+
+    def test_correlation_reports_best_lag_and_non_causality_limit(self):
+        leading = series([1, 4, 2, 8, 3, 9, 5, 7])
+        lagging = series([0, 1, 4, 2, 8, 3, 9, 5])
+
+        artifact = correlate_metrics(leading, lagging, max_lag=3)
+
+        self.assertEqual(artifact.status, "completed")
+        self.assertEqual(artifact.observations["best_lag"], 1)
+        self.assertGreater(artifact.observations["correlation"], 0.99)
+        self.assertEqual(artifact.observations["overlap"], 7)
+        self.assertTrue(any("因果" in item for item in artifact.limitations))
+
+    def test_correlation_requires_overlap_and_variable_series(self):
+        short = correlate_metrics(series([1, 2]), series([1, 2]), max_lag=1)
+        constant = correlate_metrics(series([1, 1, 1, 1]), series([2, 3, 4, 5]), max_lag=1)
+
+        self.assertEqual(short.status, "unavailable")
+        self.assertEqual(constant.status, "unavailable")
+
+    def test_group_comparison_reports_effect_and_deterministic_interval(self):
+        first = compare_groups([10, 11, 9, 10, 10], [15, 14, 16, 15, 15], bootstrap_samples=500)
+        second = compare_groups([10, 11, 9, 10, 10], [15, 14, 16, 15, 15], bootstrap_samples=500)
+
+        self.assertEqual(first.status, "completed")
+        self.assertGreater(first.observations["effect_size"], 2)
+        self.assertLess(first.observations["confidence_interval"][1], 0)
+        self.assertEqual(first.observations, second.observations)
+        self.assertEqual(first.parameters["seed"], second.parameters["seed"])
+
+    def test_group_comparison_reports_insufficient_samples(self):
+        artifact = compare_groups([1], [2, 3])
+
+        self.assertEqual(artifact.status, "unavailable")
+        self.assertTrue(artifact.limitations)
 
 
 def dimension_table(metric: str, values: list[tuple[str, float, str]]):
