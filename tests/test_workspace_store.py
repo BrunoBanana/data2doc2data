@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from data2doc2data.config import ProfileStore
+from data2doc2data.analysis_cycle import AnalysisCycle, AnalysisRound, RoundDecision
 from data2doc2data.run_events import RunEvent, RunEventError
 from data2doc2data.workspace import AnalysisRun, AnalysisTask, RunStatus, SnapshotRef, TaskStatus
 from data2doc2data.workspace_store import WorkspaceStore, WorkspaceStoreError
@@ -25,7 +26,7 @@ class WorkspaceStoreTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection:
             version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
 
-        self.assertEqual(version, "3")
+        self.assertEqual(version, "4")
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
@@ -43,7 +44,7 @@ class WorkspaceStoreTests(unittest.TestCase):
             task_artifacts = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_artifacts'"
             ).fetchone()
-        self.assertEqual(version, "3")
+        self.assertEqual(version, "4")
         self.assertEqual(task_artifacts, ("task_artifacts",))
 
     def test_version_two_database_adds_append_only_knowledge_history(self):
@@ -59,7 +60,7 @@ class WorkspaceStoreTests(unittest.TestCase):
             knowledge = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_versions'"
             ).fetchone()
-        self.assertEqual(version, "3")
+        self.assertEqual(version, "4")
         self.assertEqual(knowledge, ("knowledge_versions",))
 
     def test_task_crud_keeps_versioned_contracts(self):
@@ -181,6 +182,38 @@ class WorkspaceStoreTests(unittest.TestCase):
         self.assertEqual(profile_store.workspace_database_path.name, "workbench.sqlite3")
         self.assertEqual(profile_store.workspace_database_path.parent, profile_store.path.parent)
         self.assertFalse(profile_store.workspace_database_path.exists())
+
+    def test_analysis_cycle_and_tool_execution_are_persisted_idempotently(self):
+        task = AnalysisTask.create("task-cycle-store", "循环", "诊断")
+        self.store.save_task(task)
+        decision = RoundDecision(1, "continue", "detect_anomalies", {"metric": "gmv"}, "检查异常")
+        cycle = AnalysisCycle.start("cycle-store").complete_round(
+            AnalysisRound.completed(decision, ("artifact-1",))
+        )
+
+        self.store.save_analysis_cycle(cycle, task.task_id, {"data_path": "/local/metrics.csv", "document_paths": []})
+        first = self.store.save_cycle_execution(
+            cycle.cycle_id,
+            1,
+            "detect_anomalies",
+            "execution-key",
+            ("artifact-1",),
+            {"status": "completed"},
+        )
+        second = self.store.save_cycle_execution(
+            cycle.cycle_id,
+            1,
+            "detect_anomalies",
+            "execution-key",
+            ("artifact-1",),
+            {"status": "completed"},
+        )
+
+        self.assertEqual(self.store.get_analysis_cycle(cycle.cycle_id), cycle)
+        self.assertEqual(self.store.get_analysis_cycle_context(cycle.cycle_id)["data_path"], "/local/metrics.csv")
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(self.store.cycle_execution_count(cycle.cycle_id, 1), 1)
 
 
 if __name__ == "__main__":

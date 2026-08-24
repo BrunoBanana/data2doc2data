@@ -10,12 +10,13 @@ import sqlite3
 import threading
 from typing import Iterator
 
+from .analysis_cycle import AnalysisCycle
 from .knowledge import KnowledgeRecord
 from .run_events import RunEvent, RunEventError
 from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class WorkspaceStoreError(ValueError):
@@ -330,6 +331,108 @@ class WorkspaceStore:
             except sqlite3.IntegrityError as exc:
                 raise WorkspaceStoreError("idempotency key already has a response") from exc
 
+    def save_analysis_cycle(
+        self,
+        cycle: AnalysisCycle,
+        task_id: str,
+        context: dict[str, object],
+    ) -> AnalysisCycle:
+        payload = _json(cycle.to_dict())
+        encoded_context = _json(context)
+        if len(payload.encode("utf-8")) > 1_000_000 or len(encoded_context.encode("utf-8")) > 100_000:
+            raise WorkspaceStoreError("analysis cycle payload is too large")
+        with self._lock, self._connection() as connection:
+            existing = connection.execute(
+                "SELECT task_id, context FROM analysis_cycles WHERE cycle_id = ?", (cycle.cycle_id,)
+            ).fetchone()
+            if existing is not None and tuple(existing) != (task_id, encoded_context):
+                raise WorkspaceStoreError("analysis cycle task and context are immutable")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO analysis_cycles (cycle_id, task_id, status, payload, context)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(cycle_id) DO UPDATE SET status = excluded.status, payload = excluded.payload
+                    """,
+                    (cycle.cycle_id, task_id, cycle.status, payload, encoded_context),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("analysis cycle requires an existing task") from exc
+        return cycle
+
+    def get_analysis_cycle(self, cycle_id: str) -> AnalysisCycle | None:
+        with self._connection() as connection:
+            row = connection.execute("SELECT payload FROM analysis_cycles WHERE cycle_id = ?", (cycle_id,)).fetchone()
+        return None if row is None else AnalysisCycle.from_dict(json.loads(row[0]))
+
+    def get_analysis_cycle_context(self, cycle_id: str) -> dict[str, object]:
+        with self._connection() as connection:
+            row = connection.execute("SELECT context FROM analysis_cycles WHERE cycle_id = ?", (cycle_id,)).fetchone()
+        if row is None:
+            raise WorkspaceStoreError("analysis cycle does not exist")
+        value = json.loads(row[0])
+        if not isinstance(value, dict):
+            raise WorkspaceStoreError("analysis cycle context is invalid")
+        return value
+
+    def save_cycle_execution(
+        self,
+        cycle_id: str,
+        round_number: int,
+        tool: str,
+        execution_key: str,
+        artifact_refs: tuple[str, ...],
+        projection: dict[str, object],
+    ) -> bool:
+        refs = _json(list(artifact_refs))
+        encoded_projection = _json(projection)
+        with self._lock, self._connection() as connection:
+            existing = connection.execute(
+                """SELECT tool, execution_key, artifact_refs, projection
+                   FROM analysis_round_executions WHERE cycle_id = ? AND round_number = ?""",
+                (cycle_id, round_number),
+            ).fetchone()
+            expected = (tool, execution_key, refs, encoded_projection)
+            if existing is not None:
+                if tuple(existing) != expected:
+                    raise WorkspaceStoreError("cycle round execution is immutable")
+                return False
+            try:
+                connection.execute(
+                    """INSERT INTO analysis_round_executions
+                       (cycle_id, round_number, tool, execution_key, artifact_refs, projection)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (cycle_id, round_number, tool, execution_key, refs, encoded_projection),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("cycle round execution requires an existing cycle") from exc
+        return True
+
+    def get_cycle_execution(self, cycle_id: str, round_number: int) -> dict[str, object] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """SELECT tool, execution_key, artifact_refs, projection
+                   FROM analysis_round_executions WHERE cycle_id = ? AND round_number = ?""",
+                (cycle_id, round_number),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "tool": row[0],
+            "execution_key": row[1],
+            "artifact_refs": json.loads(row[2]),
+            "projection": json.loads(row[3]),
+        }
+
+    def cycle_execution_count(self, cycle_id: str, round_number: int) -> int:
+        with self._connection() as connection:
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM analysis_round_executions WHERE cycle_id = ? AND round_number = ?",
+                    (cycle_id, round_number),
+                ).fetchone()[0]
+            )
+
     def append_knowledge_version(self, record: KnowledgeRecord) -> KnowledgeRecord:
         encoded = _json(record.to_dict())
         if len(encoded.encode("utf-8")) > 100_000:
@@ -502,12 +605,30 @@ class WorkspaceStore:
             );
             CREATE INDEX IF NOT EXISTS knowledge_project_state
                 ON knowledge_versions(project_id, state, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS analysis_cycles (
+                cycle_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                context TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS analysis_cycles_task_status
+                ON analysis_cycles(task_id, status, cycle_id);
+            CREATE TABLE IF NOT EXISTS analysis_round_executions (
+                cycle_id TEXT NOT NULL REFERENCES analysis_cycles(cycle_id) ON DELETE CASCADE,
+                round_number INTEGER NOT NULL CHECK(round_number BETWEEN 1 AND 3),
+                tool TEXT NOT NULL,
+                execution_key TEXT NOT NULL,
+                artifact_refs TEXT NOT NULL,
+                projection TEXT NOT NULL,
+                PRIMARY KEY(cycle_id, round_number)
+            );
             """
         )
         row = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()
         if row is None:
             connection.execute("INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        elif row[0] in {"1", "2"}:
+        elif row[0] in {"1", "2", "3"}:
             connection.execute("UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
         elif row[0] != str(SCHEMA_VERSION):
             raise WorkspaceStoreError(f"unsupported workspace schema version: {row[0]}")
