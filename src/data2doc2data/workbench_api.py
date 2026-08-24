@@ -15,7 +15,7 @@ from .run_events import RunEvent, RunEventError
 from .data_profile import DataProfileError, build_default_dashboard, profile_standard_csv
 from .documents import build_document_corpus
 from .flagship_cases import FlagshipCaseCatalog, FlagshipCaseError
-from .flow_engine import DemoFlowRunner, FlowCancelled
+from .flow_engine import ConnectedFlowRunner, DemoFlowRunner, FlowCancelled, FlowPlanError, validate_flow_plan
 from .orchestrator import AnalysisOrchestrator
 from .reporting import HtmlReportArtifact, build_html_report
 from .text_dashboard import build_text_dashboard
@@ -183,7 +183,11 @@ class WorkbenchService:
             data_path, document_paths = self._execution_inputs(task)
             try:
                 proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
-                result = AnalysisOrchestrator(self.store).run(task, data_path, document_paths, proposal)
+                if task.analysis_mode == "connected":
+                    flow_plan = _connected_flow_plan(body.get("flow_plan"))
+                    result = ConnectedFlowRunner(self.store).run(task, data_path, document_paths, flow_plan, proposal)
+                else:
+                    result = AnalysisOrchestrator(self.store).run(task, data_path, document_paths, proposal)
                 graph = result.evidence_graph.to_dict()
                 self.store.save_run_artifact(result.run.run_id, "evidence_graph", graph)
             except (ValueError, WorkspaceStoreError) as exc:
@@ -406,6 +410,7 @@ class WorkbenchService:
     ) -> dict[str, object]:
         data_path, document_paths = self._execution_inputs(task)
         proposal = self._proposal_with_case_hypotheses(task.task_id, body.get("proposal"))
+        flow_plan = _connected_flow_plan(body.get("flow_plan")) if task.analysis_mode == "connected" else None
         first_event = threading.Event()
         cancel = threading.Event()
         state: dict[str, str] = {}
@@ -421,14 +426,25 @@ class WorkbenchService:
 
         def execute() -> None:
             try:
-                DemoFlowRunner(self.store).run(
-                    task,
-                    data_path,
-                    document_paths,
-                    proposal,
-                    on_event=observe,
-                    cancelled=cancel.is_set,
-                )
+                if flow_plan is None:
+                    DemoFlowRunner(self.store).run(
+                        task,
+                        data_path,
+                        document_paths,
+                        proposal,
+                        on_event=observe,
+                        cancelled=cancel.is_set,
+                    )
+                else:
+                    ConnectedFlowRunner(self.store).run(
+                        task,
+                        data_path,
+                        document_paths,
+                        flow_plan,
+                        proposal,
+                        on_event=observe,
+                        cancelled=cancel.is_set,
+                    )
             except FlowCancelled:
                 pass
             except Exception:
@@ -518,6 +534,28 @@ def _analysis_journey(analysis_mode: object, agent_provider: object) -> None:
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires an agent_provider")
     if analysis_mode == "demo" and agent_provider is not None:
         raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "demo analysis cannot set an agent_provider")
+
+
+def _connected_flow_plan(payload: object) -> dict[str, object]:
+    if payload is None:
+        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "connected analysis requires a flow_plan")
+    try:
+        plan = validate_flow_plan(payload, ConnectedFlowRunner.REGISTERED_TOOLS)
+    except FlowPlanError as exc:
+        raise WorkbenchApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"invalid flow_plan: {exc}") from exc
+    return {
+        "plan_id": plan.plan_id,
+        "steps": [
+            {
+                "step_id": step.step_id,
+                "tool": step.tool,
+                "purpose": step.purpose,
+                "dependencies": list(step.dependencies),
+                "arguments": dict(step.arguments),
+            }
+            for step in plan.steps
+        ],
+    }
 
 
 def _file_digest(path: Path) -> str | None:

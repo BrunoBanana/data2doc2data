@@ -71,6 +71,19 @@ export interface AnalysisRunStart {
   stream_url: string
 }
 
+export interface FlowPlanStep {
+  step_id: string
+  tool: string
+  purpose: string
+  dependencies: string[]
+  arguments: Record<string, unknown>
+}
+
+export interface FlowPlanPayload {
+  plan_id: string
+  steps: FlowPlanStep[]
+}
+
 export interface RunHistoryItem extends AnalysisRun {
   stale: boolean
   event_count: number

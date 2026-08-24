@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import type { CombinedDashboard, DashboardSpec, TextDashboardSpec } from '../../contracts/dashboard'
-import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../../contracts/run-events'
+import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, FlowPlanPayload, RunEvent, RunHistoryItem } from '../../contracts/run-events'
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, PreparedSource, ProviderConnection, SourcePreview } from '../../contracts/workbench'
 import { AssistantDrawer } from '../assistant/AssistantDrawer'
 import { DataImport } from '../assets/DataImport'
@@ -11,6 +11,7 @@ import { TextDashboard } from '../documents/TextDashboard'
 import { EvidenceGraph } from '../evidence/EvidenceGraph'
 import { HypothesisPanel } from '../evidence/HypothesisPanel'
 import { RunHistory } from '../history/RunHistory'
+import { requestConnectedFlowPlan } from './agent-flow-planner'
 import { createTrailingRefresh } from './graph-refresh-queue'
 import { ReportExport } from '../reports/ReportExport'
 
@@ -27,7 +28,7 @@ interface TaskShellProps {
   applyImport: (path: string, plan: Record<string, string>) => Promise<void>
   loadDashboard: () => Promise<CombinedDashboard>
   importDocuments: (paths: string[]) => Promise<{ task: AnalysisTask; text_dashboard: TextDashboardSpec }>
-  startAnalysis: (hypotheses: string[]) => Promise<AnalysisRunStart>
+  startAnalysis: (hypotheses: string[], flowPlan?: FlowPlanPayload) => Promise<AnalysisRunStart>
   loadEvidenceGraph: (runId: string) => Promise<EvidenceGraphSpec>
   openRunEventStream: (runId: string, after: number, onEvent: (event: RunEvent, cursor: number) => void, onError: () => void) => () => void
   cancelRun: (runId: string) => Promise<void>
@@ -52,6 +53,7 @@ export function TaskShell(props: TaskShellProps) {
   const [mobileView, setMobileView] = useState<'analysis' | 'process' | 'assistant'>('analysis')
   const [combined, setCombined] = useState<CombinedDashboard | null>(null)
   const [dashboardError, setDashboardError] = useState('')
+  const [flowNotice, setFlowNotice] = useState('')
   const [loadingDashboard, setLoadingDashboard] = useState(false)
   const [runResult, setRunResult] = useState<AnalysisRunResult | null>(null)
   const [running, setRunning] = useState(false)
@@ -109,7 +111,15 @@ export function TaskShell(props: TaskShellProps) {
     setRunning(true)
     setDashboardError('')
     try {
-      const started = await startAnalysis(hypotheses)
+      let flowPlan: FlowPlanPayload | undefined
+      if (task.analysis_mode === 'connected') {
+        setFlowNotice(`${task.agent_provider ?? 'Agent'} 正在生成受约束的分析计划…`)
+        flowPlan = await requestConnectedFlowPlan({ task, createSession: createAgentSession, sendMessage: sendAgentMessage, openEventStream: openAgentEventStream })
+        setFlowNotice(`Agent 计划已验证 · ${flowPlan.steps.length} 个本地工具步骤`)
+      } else {
+        setFlowNotice('确定性 Demo Flow 正在本地执行…')
+      }
+      const started = await startAnalysis(hypotheses, flowPlan)
       const runId = started.run.run_id
       const emptyGraph: EvidenceGraphSpec = { contract_version: 1, graph_id: `graph-${runId}`, nodes: [], edges: [] }
       setRunResult({ run: started.run, events: [], evidence_graph: emptyGraph })
@@ -117,6 +127,7 @@ export function TaskShell(props: TaskShellProps) {
       attachRunStream(runId, 0)
     } catch (error) {
       setRunning(false)
+      setFlowNotice('')
       setDashboardError(error instanceof Error ? error.message : '分析运行失败。')
       throw error
     }
@@ -172,6 +183,7 @@ export function TaskShell(props: TaskShellProps) {
         <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{running ? <button className="button button--quiet" type="button" onClick={stopAnalysis}>停止当前任务</button> : datasets ? <button className="button button--primary" type="button" onClick={() => runAnalysis([])}>运行分析</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
         <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}
+        {flowNotice && <p className="form-notice" role="status">{flowNotice}</p>}
         {loadingDashboard && <section className="dashboard-loading" aria-busy="true">正在基于锁定快照生成 Dashboard…</section>}
         {!loadingDashboard && activeTab === '总览' && <>{datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />}{datasets > 0 && <DocumentImport importDocuments={addDocuments} />}{combined?.text_dashboard && <TextDashboard dashboard={combined.text_dashboard} />}</>}
         {!loadingDashboard && activeTab === '数据' && (datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />)}

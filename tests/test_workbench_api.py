@@ -178,14 +178,58 @@ class WorkbenchApiTests(unittest.TestCase):
 
         artifact = self.server.workbench_store.get_task_artifact(task["task_id"], "flagship_case")
         self.assertEqual(artifact["journey"], "connected")
-        status, analysis, _ = self.request(
+        status, missing_plan, _ = self.request(
             "POST",
             f"/api/workbench/tasks/{task['task_id']}/runs",
             {"execute": True, "proposal": {"hypotheses": []}},
             cookie=self.cookie,
             csrf=self.csrf,
         )
+        self.assertEqual(status, 422, missing_plan)
+        self.assertIn("flow_plan", missing_plan["error"])
+
+        flow_plan = {
+            "plan_id": "codex-cross-reasoning",
+            "steps": [
+                {
+                    "step_id": "inspect",
+                    "tool": "inspect_sources",
+                    "purpose": "识别输入",
+                    "dependencies": [],
+                    "arguments": {},
+                },
+                {
+                    "step_id": "profile",
+                    "tool": "profile_data",
+                    "purpose": "计算画像",
+                    "dependencies": ["inspect"],
+                    "arguments": {},
+                },
+                {
+                    "step_id": "extract",
+                    "tool": "extract_claims",
+                    "purpose": "抽取主张",
+                    "dependencies": ["inspect"],
+                    "arguments": {},
+                },
+                {
+                    "step_id": "align",
+                    "tool": "align_evidence",
+                    "purpose": "交叉验证",
+                    "dependencies": ["profile", "extract"],
+                    "arguments": {},
+                },
+            ],
+        }
+        status, analysis, _ = self.request(
+            "POST",
+            f"/api/workbench/tasks/{task['task_id']}/runs",
+            {"execute": True, "proposal": {"hypotheses": []}, "flow_plan": flow_plan},
+            cookie=self.cookie,
+            csrf=self.csrf,
+        )
         self.assertEqual(status, 201, analysis)
+        self.assertEqual(analysis["events"][0]["summary"]["runner"], "connected")
         node_ids = [node["node_id"] for node in analysis["evidence_graph"]["nodes"]]
         self.assertNotIn("H1", node_ids)
 

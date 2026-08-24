@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentProviderStatus, AgentSession, AnalysisTask, FlagshipCaseSummary, PreparedSource, ProviderConnection, SnapshotRef, SourcePreview, TaskLaunchOptions } from '../contracts/workbench'
 import type { CombinedDashboard, TextDashboardSpec } from '../contracts/dashboard'
-import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, RunEvent, RunHistoryItem } from '../contracts/run-events'
+import type { AnalysisRunResult, AnalysisRunStart, EvidenceGraphSpec, FlowPlanPayload, RunEvent, RunHistoryItem } from '../contracts/run-events'
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -135,7 +135,7 @@ export class WorkbenchClient {
     return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/documents`, { paths })
   }
 
-  async startAnalysis(taskId: string, hypotheses: string[]): Promise<AnalysisRunStart> {
+  async startAnalysis(taskId: string, hypotheses: string[], flowPlan?: FlowPlanPayload): Promise<AnalysisRunStart> {
     await this.ensureSession()
     return this.mutate(`/api/workbench/tasks/${encodeURIComponent(taskId)}/runs`, {
       execute: true,
@@ -146,6 +146,7 @@ export class WorkbenchClient {
           text: hypothesis.slice(0, 500),
         })),
       },
+      ...(flowPlan ? { flow_plan: flowPlan } : {}),
     })
   }
 
