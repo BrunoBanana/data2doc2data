@@ -60,6 +60,7 @@ export function TaskShell(props: TaskShellProps) {
   const [running, setRunning] = useState(false)
   const [runs, setRuns] = useState<RunHistoryItem[]>([])
   const closeRunStream = useRef<(() => void) | null>(null)
+  const userSelectedTab = useRef(false)
   const readyProvider = providers.find((provider) => provider.state === 'ready' || provider.state === 'connected')
   const datasets = task.snapshot_refs.filter((ref) => ref.kind === 'dataset').length
   const documents = task.snapshot_refs.filter((ref) => ref.kind === 'document').length
@@ -78,6 +79,7 @@ export function TaskShell(props: TaskShellProps) {
 
   useEffect(() => {
     let active = true
+    userSelectedTab.current = false
     listTaskRuns().then((items) => {
       if (!active) return
       setRuns(items)
@@ -89,7 +91,7 @@ export function TaskShell(props: TaskShellProps) {
           setRunResult(result)
           const stillRunning = result.run.status === 'running' || result.run.status === 'queued'
           setRunning(stillRunning)
-          setActiveTab('证据')
+          if (!userSelectedTab.current) setActiveTab('证据')
           if (stillRunning) {
             attachRunStream(restorable.run_id, Math.max(0, ...result.events.map((event) => event.sequence)))
           } else {
@@ -107,6 +109,11 @@ export function TaskShell(props: TaskShellProps) {
     const imported = await importDocuments(paths)
     setCombined((current) => ({ dashboard: current?.dashboard ?? null, text_dashboard: imported.text_dashboard }))
     onTaskUpdate(imported.task)
+  }
+
+  function selectTab(tab: (typeof tabs)[number]) {
+    userSelectedTab.current = true
+    setActiveTab(tab)
   }
 
   async function runAnalysis(hypotheses: string[]) {
@@ -185,26 +192,26 @@ export function TaskShell(props: TaskShellProps) {
     </header>
     <nav className="mobile-view-switcher" aria-label="移动工作台视图">
       <button type="button" aria-pressed={mobileView === 'analysis'} onClick={() => setMobileView('analysis')}>分析</button>
-      <button type="button" aria-pressed={mobileView === 'process'} onClick={() => { setMobileView('process'); setActiveTab('证据') }}>过程</button>
+      <button type="button" aria-pressed={mobileView === 'process'} onClick={() => { setMobileView('process'); selectTab('证据') }}>过程</button>
       <button type="button" aria-pressed={mobileView === 'assistant'} onClick={() => { setAssistantOpen(true); setMobileView('assistant') }}>助手</button>
     </nav>
     <div data-viewport-shell="true" className={`workbench-grid workbench-grid--mobile-${mobileView}${assistantOpen ? '' : ' workbench-grid--assistant-closed'}`}>
       <nav className="asset-rail" aria-label="案例与资产" data-scroll-owner="asset-rail">
         <div className="rail-heading"><span>案例与资产</span><button className="icon-button rail-create-button" type="button" aria-label="新建分析任务" onClick={onCreateTask}>新建</button></div>
         <button className="task-card task-card--active" type="button" onClick={onBack}><span className="task-card__eyebrow">{task.analysis_mode === 'connected' ? 'CONNECTED TASK' : 'DETERMINISTIC DEMO'}</span><strong>{task.title}</strong><span>{task.goal}</span></button>
-        <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => setActiveTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => setActiveTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => setActiveTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
+        <div className="rail-section"><h2>锁定资产</h2><button type="button" onClick={() => selectTab('数据')}>数据集 <b>{datasets}</b></button><button type="button" onClick={() => selectTab('文本')}>文档材料 <b>{documents}</b></button><button type="button" onClick={() => selectTab('历史')}>运行记录 <b>{runs.length}</b></button></div>
       </nav>
       <main className="analysis-canvas" data-scroll-owner="analysis-canvas">
-        <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{running ? <button className="button button--quiet" type="button" onClick={stopAnalysis}>停止当前任务</button> : datasets ? <button className="button button--primary" type="button" onClick={() => runAnalysis([])}>运行分析</button> : <button className="button button--primary" type="button" onClick={() => setActiveTab('数据')}>接入数据</button>}</div></div>
-        <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => setActiveTab(tab)}>{tab}</button>)}</div>
+        <div className="canvas-heading"><div><p className="eyebrow">ANALYSIS BLUEPRINT</p><h1>{task.title}</h1><p>{task.goal}</p></div><div className="task-actions"><ReportExport download={downloadTaskReport} />{running ? <button className="button button--quiet" type="button" onClick={stopAnalysis}>停止当前任务</button> : datasets ? <button className="button button--primary" type="button" onClick={() => runAnalysis([])}>运行分析</button> : <button className="button button--primary" type="button" onClick={() => selectTab('数据')}>接入数据</button>}</div></div>
+        <div className="tabs" role="tablist" aria-label="分析视图">{tabs.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'tab tab--active' : 'tab'} onClick={() => selectTab(tab)}>{tab}</button>)}</div>
         {dashboardError && <p className="form-notice" role="alert">{dashboardError}</p>}
         {flowNotice && <p className="form-notice" role="status">{flowNotice}</p>}
         {loadingDashboard && <section className="dashboard-loading" aria-busy="true">正在基于锁定快照生成 Dashboard…</section>}
         {!loadingDashboard && activeTab === '总览' && <>{datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />}{datasets > 0 && <DocumentImport importDocuments={addDocuments} />}{combined?.text_dashboard && <TextDashboard dashboard={combined.text_dashboard} />}</>}
         {!loadingDashboard && activeTab === '数据' && (datasets === 0 ? <DataImport previewLocalPath={previewLocalPath} uploadFile={uploadFile} previewApi={previewApi} applyImport={applyImport} /> : combined?.dashboard && <DashboardCanvas dashboard={combined.dashboard} />)}
         {!loadingDashboard && activeTab === '文本' && <><DocumentImport importDocuments={addDocuments} />{combined?.text_dashboard && <TextDashboard dashboard={combined.text_dashboard} />}</>}
-        {!loadingDashboard && activeTab === '假设' && <><HypothesisPanel onRun={runAnalysis} disabled={!datasets || running} />{runResult && <EvidenceGraph graph={runResult.evidence_graph} />}</>}
-        {!loadingDashboard && activeTab === '证据' && (runResult ? <><EvidenceBrief dashboard={combined?.dashboard ?? null} graph={runResult.evidence_graph} />{runResult.artifact_dashboard && <DiagnosticBlocks dashboard={runResult.artifact_dashboard} />}<Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载实时 Flow 画布…</section>}><AgentFlowCanvas events={runResult.events} graph={runResult.evidence_graph} /></Suspense></> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
+        {!loadingDashboard && activeTab === '假设' && <><HypothesisPanel onRun={runAnalysis} disabled={!datasets || running} />{runResult && <EvidenceGraph graph={runResult.evidence_graph} question={task.goal} />}</>}
+        {!loadingDashboard && activeTab === '证据' && (runResult ? <><EvidenceBrief dashboard={combined?.dashboard ?? null} graph={runResult.evidence_graph} /><Suspense fallback={<section className="dashboard-loading" aria-busy="true">正在加载实时 Flow 画布…</section>}><AgentFlowCanvas events={runResult.events} graph={runResult.evidence_graph} /></Suspense>{runResult.artifact_dashboard && <DiagnosticBlocks dashboard={runResult.artifact_dashboard} />}</> : <section className="empty-workspace" aria-labelledby="view-title"><div className="empty-visual" aria-hidden="true"><span className="empty-node" /><span className="empty-line" /><span className="empty-node empty-node--accent" /></div><p className="eyebrow">EVIDENCE</p><h2 id="view-title">运行一次可观察分析</h2><p>系统将展示计算事件、文档抽取、证据关系与假设验证状态。</p></section>)}
         {!loadingDashboard && activeTab === '历史' && <RunHistory runs={runs} loadRun={loadRun} retryRun={retryRun} onReplay={async (result) => { setRunResult(result); setActiveTab('证据'); setRuns(await listTaskRuns().catch(() => runs)) }} />}
       </main>
       {assistantOpen && <AssistantDrawer task={task} agents={agents} createSession={createAgentSession} sendMessage={sendAgentMessage} interrupt={interruptAgent} decideApproval={decideAgentApproval} openEventStream={openAgentEventStream} />}

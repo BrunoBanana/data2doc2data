@@ -211,7 +211,7 @@ class WorkspaceStore:
         return None if row is None else AnalysisRun.from_dict(json.loads(row[0]))
 
     def save_run_artifact(self, run_id: str, kind: str, payload: object) -> None:
-        if kind not in {"evidence_graph", "analysis_cycle", "artifact_dashboard"}:
+        if kind not in {"evidence_graph", "analysis_cycle", "artifact_dashboard", "business_evidence"}:
             raise WorkspaceStoreError("unsupported run artifact kind")
         encoded = _json(payload)
         if len(encoded.encode("utf-8")) > 2_000_000:
@@ -233,7 +233,7 @@ class WorkspaceStore:
         return None if row is None else json.loads(row[0])
 
     def save_task_artifact(self, task_id: str, kind: str, payload: object) -> None:
-        if kind not in {"text_dashboard", "flagship_case"}:
+        if kind not in {"text_dashboard", "flagship_case", "plugin_session"}:
             raise WorkspaceStoreError("unsupported task artifact kind")
         encoded = _json(payload)
         if len(encoded.encode("utf-8")) > 2_000_000:

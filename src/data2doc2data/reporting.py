@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from .analysis_cycle import AnalysisCycle
 from .artifacts import ArtifactStore
+from .dashboard import build_artifact_dashboard
 from .evidence_graph import build_cycle_evidence_graph
 from .workspace import AnalysisTask
 
@@ -64,6 +65,7 @@ def build_html_report(
     *,
     run_count: int,
     artifact_dashboard: Mapping[str, Any] | None = None,
+    business_findings: Mapping[str, Any] | None = None,
 ) -> HtmlReportArtifact:
     blocks = _list(dashboard, "blocks")
     kpis = [block for block in blocks if block.get("kind") == "kpi"]
@@ -75,7 +77,7 @@ def build_html_report(
     pending = sum(node.get("status") in {"pending", "insufficient"} for node in nodes) + sum(
         claim.get("status") == "pending" for claim in claims
     )
-    summary = _executive_summary(kpis, documents, claims, nodes, run_count)
+    summary = _executive_summary(kpis, documents, claims, nodes, run_count, business_findings)
     body = f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
@@ -87,7 +89,8 @@ def build_html_report(
 {_kpi_strip(kpis)}
 <section><h2>关键发现</h2>{_findings(findings, dashboard is not None)}</section>
 {_text_findings(text_dashboard, claims)}
-{_evidence_findings(nodes, evidence_graph)}
+{_evidence_findings(task.goal, nodes, evidence_graph)}
+{_business_findings(business_findings)}
 {_diagnostic_findings(artifact_dashboard)}
 <section><h2>推荐下一步</h2><ol>{_recommendations(pending, failures, bool(dashboard), bool(text_dashboard))}</ol></section>
 <section><h2>仍需回答的问题</h2><ul>{_questions(claims, nodes)}</ul></section>
@@ -135,16 +138,120 @@ def _diagnostic_findings(dashboard: Mapping[str, Any] | None) -> str:
     return '<section><p class="eyebrow">AUDITABLE DIAGNOSTICS</p><h2>深度诊断产物</h2>' + "".join(cards) + "</section>"
 
 
+def _business_findings(findings: Mapping[str, Any] | None) -> str:
+    if not isinstance(findings, Mapping):
+        return ""
+    metrics = findings.get("metric_findings")
+    metric_items = metrics if isinstance(metrics, list) else []
+    verdicts = findings.get("rule_verdicts")
+    rules = verdicts.get("results", []) if isinstance(verdicts, Mapping) else []
+    metric_rows = []
+    for item in metric_items[:50]:
+        if not isinstance(item, Mapping):
+            continue
+        signal = item.get("signal") if isinstance(item.get("signal"), Mapping) else {}
+        spec = signal.get("spec") if isinstance(signal.get("spec"), Mapping) else {}
+        unit = str(spec.get("unit", "")) if spec.get("unit") is not None else ""
+        validation = item.get("validation") if isinstance(item.get("validation"), Mapping) else {}
+        metric_rows.append(
+            {
+                "指标": item.get("metric", "—"),
+                "基线": _business_value(signal.get("baseline"), unit),
+                "当前": _business_value(signal.get("current"), unit),
+                "判定阈值": _business_threshold(spec.get("threshold"), unit),
+                "变化方向": _business_label(signal.get("direction", "—")),
+                "交叉验证": _business_label(validation.get("status", item.get("status", "—"))),
+            }
+        )
+    cards = []
+    for rule in rules[:50] if isinstance(rules, list) else []:
+        if not isinstance(rule, Mapping):
+            continue
+        clauses = rule.get("clauses") if isinstance(rule.get("clauses"), list) else []
+        clause_rows = [
+            {
+                "指标": clause.get("metric", "—"),
+                "预期方向": _business_label(clause.get("expected_direction", "—")),
+                "实测方向": _business_label(clause.get("observed_direction", "—")),
+                "验证结果": _business_label(clause.get("status", "—")),
+            }
+            for clause in clauses
+            if isinstance(clause, Mapping)
+        ]
+        cards.append(
+            '<article class="finding">'
+            f'<p class="eyebrow">RULE · {escape(str(rule.get("rule_id", "unknown")))}</p>'
+            f'<h3>{escape(str(rule.get("name", "业务假设")))}</h3>'
+            f'<p>{escape(str(rule.get("description", "")))}</p>'
+            f'<div class="meta"><span>实证状态 {escape(_business_label(rule.get("status", "unavailable")))}</span></div>'
+            f'{_table(clause_rows)}</article>'
+        )
+    if not metric_rows and not cards:
+        return ""
+    return (
+        '<section><p class="eyebrow">VERIFIED BUSINESS EVIDENCE</p><h2>指标变化与业务假设实证</h2>'
+        f'{_table(metric_rows)}{"".join(cards)}</section>'
+    )
+
+
+def _business_label(value: object) -> str:
+    labels = {
+        "up": "上升",
+        "down": "下降",
+        "flat": "持平",
+        "confirmed": "数据支持",
+        "supported": "数据支持",
+        "contradicted": "存在冲突",
+        "unavailable": "证据不足",
+        "insufficient": "证据不足",
+        "mixed": "证据混合",
+        "pending": "待验证",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _business_value(value: object, unit: str) -> str:
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
+        return "—" if value is None else str(value)
+    if unit == "ratio":
+        return f"{value * 100:.2f}%"
+    if abs(value) >= 1_000:
+        return f"{value:,.2f}".rstrip("0").rstrip(".")
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _business_threshold(value: object, unit: str) -> str:
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
+        return "未声明"
+    if unit == "ratio":
+        return f"{value * 100:.2f} 个百分点"
+    formatted = _business_value(value, unit)
+    return f"{formatted} {unit}" if unit else f"{formatted}%"
+
+
 def build_html_report_from_cycle(
     task: AnalysisTask,
     cycle: AnalysisCycle,
     artifact_store: ArtifactStore,
     *,
     run_count: int = 1,
+    dashboard: Mapping[str, Any] | None = None,
+    text_dashboard: Mapping[str, Any] | None = None,
+    artifact_dashboard: Mapping[str, Any] | None = None,
+    business_findings: Mapping[str, Any] | None = None,
 ) -> HtmlReportArtifact:
     """Build the same standalone report contract directly from persisted artifacts."""
     graph = build_cycle_evidence_graph(cycle, artifact_store)
-    base = build_html_report(task, None, None, graph.to_dict(), run_count=run_count)
+    diagnostics = artifact_dashboard or build_artifact_dashboard(cycle, artifact_store).to_dict()
+    base = build_html_report(
+        task,
+        dashboard,
+        text_dashboard,
+        graph.to_dict(),
+        run_count=run_count,
+        artifact_dashboard=diagnostics,
+        business_findings=business_findings,
+    )
     cards = []
     for index, artifact_ref in enumerate(cycle.artifact_refs, 1):
         record = artifact_store.load(artifact_ref)
@@ -197,6 +304,7 @@ def _executive_summary(
     claims: Sequence[Mapping[str, Any]],
     nodes: Sequence[Mapping[str, Any]],
     run_count: int,
+    business_findings: Mapping[str, Any] | None = None,
 ) -> list[str]:
     values = {str(block.get("title")): block.get("value") for block in kpis}
     if values:
@@ -204,6 +312,24 @@ def _executive_summary(
             f"{escape(label)}为 <strong>{escape(str(value))}</strong>" for label, value in list(values.items())[:4]
         )
         first = f"<strong>当前数据底盘已形成。</strong> {headline}。"
+    elif isinstance(business_findings, Mapping) and isinstance(business_findings.get("metric_findings"), list):
+        items = []
+        for finding in business_findings["metric_findings"][:3]:
+            if not isinstance(finding, Mapping):
+                continue
+            signal = finding.get("signal") if isinstance(finding.get("signal"), Mapping) else {}
+            spec = signal.get("spec") if isinstance(signal.get("spec"), Mapping) else {}
+            unit = str(spec.get("unit", "")) if spec.get("unit") is not None else ""
+            items.append(
+                f'{escape(str(finding.get("metric", "指标")))} '
+                f'{escape(_business_value(signal.get("baseline"), unit))} → '
+                f'{escape(_business_value(signal.get("current"), unit))}'
+            )
+        first = (
+            f"<strong>已形成可验证的指标变化。</strong> {'；'.join(items)}。"
+            if items
+            else "<strong>尚无可量化结论。</strong> 当前任务尚未接入可分析的数据快照。"
+        )
     else:
         first = "<strong>尚无可量化结论。</strong> 当前任务尚未接入可分析的数据快照。"
     second = (
@@ -226,7 +352,17 @@ def _executive_summary(
         "、".join(f"{escape(labels.get(key, key))} {value}" for key, value in sorted(statuses.items())) or "尚未生成"
     )
     third = f"<strong>证据过程可审计。</strong> 已保存 {run_count} 次运行；当前证据状态为 {status_text}。"
-    return [first, second, third]
+    summary = [first, second, third]
+    if isinstance(business_findings, Mapping):
+        verdicts = business_findings.get("rule_verdicts")
+        if isinstance(verdicts, Mapping) and int(verdicts.get("rule_count", 0)):
+            summary.append(
+                "<strong>业务假设已逐条实测。</strong> "
+                f"支持 {escape(str(verdicts.get('confirmed_count', 0)))} 条，"
+                f"冲突 {escape(str(verdicts.get('contradicted_count', 0)))} 条，"
+                f"证据不足 {escape(str(verdicts.get('unavailable_count', 0)))} 条。"
+            )
+    return summary
 
 
 def _kpi_strip(kpis: Sequence[Mapping[str, Any]]) -> str:
@@ -361,14 +497,96 @@ def _text_findings(text: Mapping[str, Any] | None, claims: Sequence[Mapping[str,
     return f'<section><h2>文本材料与主张</h2><div class="tags">{topics}</div><div class="claims">{claims_html}</div></section>'
 
 
-def _evidence_findings(nodes: Sequence[Mapping[str, Any]], graph: Mapping[str, Any] | None) -> str:
+def _evidence_findings(
+    question: str, nodes: Sequence[Mapping[str, Any]], graph: Mapping[str, Any] | None
+) -> str:
     if not graph:
         return '<section><h2>证据与假设</h2><article class="empty"><strong>尚未运行可观察分析。</strong></article></section>'
+    tree = _hypothesis_tree(question, nodes, _list(graph, "edges"))
     rows = "".join(
         f"<tr><td>{escape(str(node.get('kind', '')))}</td><td>{escape(str(node.get('label', '')))}</td><td>{escape(str(node.get('status', '')))}</td><td>{escape(str(node.get('artifact_ref') or '—'))}</td></tr>"
         for node in nodes[:200]
     )
-    return f'<section><h2>证据与假设</h2><p>图谱包含 {len(nodes)} 个节点与 {len(_list(graph, "edges"))} 条显式关系；下表只显示可审计状态。</p><div class="table-wrap"><table><thead><tr><th>类型</th><th>内容</th><th>状态</th><th>制品</th></tr></thead><tbody>{rows}</tbody></table></div></section>'
+    return f'{tree}<section><h2>完整证据明细</h2><p>图谱包含 {len(nodes)} 个节点与 {len(_list(graph, "edges"))} 条显式关系；下表只显示可审计状态。</p><div class="table-wrap"><table><thead><tr><th>类型</th><th>内容</th><th>状态</th><th>制品</th></tr></thead><tbody>{rows}</tbody></table></div></section>'
+
+
+def _hypothesis_tree(
+    question: str,
+    nodes: Sequence[Mapping[str, Any]],
+    edges: Sequence[Mapping[str, Any]],
+) -> str:
+    by_id = {str(node.get("node_id")): node for node in nodes if node.get("node_id")}
+    hypotheses = [node for node in nodes if node.get("kind") == "hypothesis"][:12]
+    status_labels = {
+        "pending": "待验证",
+        "verified": "已验证",
+        "supported": "获得支持",
+        "contradicted": "存在冲突",
+        "insufficient": "证据不足",
+    }
+    relationship_labels = {
+        "derived_from": "派生自",
+        "supports": "支持",
+        "contradicts": "反证",
+        "tests": "检验",
+        "insufficient_for": "证据不足",
+    }
+    branches = []
+    for index, hypothesis in enumerate(hypotheses, start=1):
+        hypothesis_id = str(hypothesis.get("node_id", ""))
+        validation = None
+        for edge in edges:
+            if edge.get("relationship") != "tests":
+                continue
+            source = by_id.get(str(edge.get("source", "")))
+            target = by_id.get(str(edge.get("target", "")))
+            if str(edge.get("target", "")) == hypothesis_id and source and source.get("kind") == "validation":
+                validation = source
+                break
+            if str(edge.get("source", "")) == hypothesis_id and target and target.get("kind") == "validation":
+                validation = target
+                break
+        evidence_relationships = []
+        if validation:
+            validation_id = str(validation.get("node_id", ""))
+            for edge in edges:
+                if edge.get("relationship") == "tests" or validation_id not in {
+                    str(edge.get("source", "")), str(edge.get("target", ""))
+                }:
+                    continue
+                relationship = str(edge.get("relationship", ""))
+                label = relationship_labels.get(relationship, relationship)
+                if label and label not in evidence_relationships:
+                    evidence_relationships.append(label)
+        status = str((validation or hypothesis).get("status", "pending"))
+        evidence_summary = " · ".join(evidence_relationships) or "等待证据接入"
+        validation_label = str(validation.get("label")) if validation else "尚未生成验证步骤"
+        branches.append(
+            f'<article class="tree-branch" data-status="{escape(status)}">'
+            f'<div><small>02 · HYPOTHESIS {index:02d}</small><strong>{escape(str(hypothesis.get("label", "未命名假设")))}</strong></div>'
+            '<i aria-hidden="true"></i>'
+            f'<div><small>03 · DETERMINISTIC CHECK</small><strong>{escape(validation_label)}</strong><span>{len(evidence_relationships)} 类显式证据 · {escape(evidence_summary)}</span></div>'
+            f'<b>{escape(status_labels.get(status, status))}</b></article>'
+        )
+    conclusion = next((node for node in nodes if node.get("kind") == "conclusion"), None)
+    action = next((node for node in nodes if node.get("kind") == "action"), None)
+    branch_html = "".join(branches) or (
+        '<article class="tree-empty"><strong>尚未生成结构化假设</strong>'
+        '<span>运行分析后，系统会把注册工具结果投影为可审计分支。</span></article>'
+    )
+    conclusion_label = escape(str(conclusion.get("label"))) if conclusion else "等待所有假设完成验证"
+    action_label = escape(str(action.get("label"))) if action else "根据证据缺口安排下一轮分析"
+    return (
+        '<section class="hypothesis-tree-report">'
+        '<p class="eyebrow">OBSERVABLE HYPOTHESIS TREE</p><h2>假设生成与验证树</h2>'
+        '<p class="tree-boundary">只展示公开决策摘要、确定性工具结果和显式证据关系；不展示模型私有思维链。</p>'
+        f'<article class="tree-question"><small>01 · BUSINESS QUESTION</small><strong>{escape(question)}</strong></article>'
+        f'<div class="tree-branches">{branch_html}</div>'
+        '<div class="tree-outcome">'
+        f'<article><small>05 · CONCLUSION</small><strong>{conclusion_label}</strong></article>'
+        f'<article class="tree-action"><small>NEXT EVIDENCE / ACTION</small><strong>{action_label}</strong></article>'
+        '</div></section>'
+    )
 
 
 def _recommendations(pending: int, failures: int, has_dashboard: bool, has_text: bool) -> str:
@@ -440,5 +658,5 @@ def _field(encoding: Mapping[str, Any], channel: str) -> str:
 
 
 _STYLES = """
-:root{color-scheme:light;--paper:#f4f1e8;--sheet:#fffdf7;--ink:#151511;--muted:#6f6b60;--line:#151511;--line-soft:#d9d3c4;--signal:#08d36c;--signal-dark:#008e47;--warn:#9a5d0c;--danger:#b52e2e}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--paper);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:min(1080px,calc(100% - 32px));margin:32px auto;padding:52px;border:2px solid var(--line);background:var(--sheet);box-shadow:8px 8px 0 var(--signal)}h1{max-width:850px;margin:8px 0 10px;font-size:48px;line-height:1.02;letter-spacing:-.05em}h2{margin:42px 0 16px;padding-top:12px;border-top:2px solid var(--line);font-size:24px}h3{margin:20px 0 8px;font-size:18px}.eyebrow{margin:0;color:var(--signal-dark);font:800 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em}.goal{max-width:760px;color:var(--muted);font-size:18px}.meta,.legend,.tags{display:flex;flex-wrap:wrap;gap:8px}.meta span,.tags span{padding:5px 9px;border:1px solid var(--line);border-radius:2px;color:var(--ink);background:var(--paper);font-size:12px}.executive{margin-top:32px;padding:24px 28px;border:2px solid var(--line);background:#effff4;box-shadow:4px 4px 0 var(--ink)}.executive h2{margin:5px 0 12px;padding:0;border:0;font-size:30px}.executive li{margin:9px 0}.verification{display:grid;grid-template-columns:1.4fr repeat(3,1fr);margin:24px 0;border:2px solid var(--line)}.verification>div{display:grid;gap:4px;padding:14px 16px;border-left:1px solid var(--line)}.verification>div:first-child{border-left:0;background:var(--ink);color:var(--sheet)}.verification span{color:var(--muted);font-size:11px}.verification>div:first-child span{color:#c8c4b9}.verification strong{font-size:20px}.kpi-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:20px 0;border:1px solid var(--line)}.kpi{display:grid;gap:5px;padding:16px;border-left:1px solid var(--line)}.kpi:first-child{border-left:0}.kpi>span{color:var(--muted);font-size:12px}.kpi>strong{font-size:24px}.finding,.claim,.empty{margin:12px 0;padding:18px;border:1px solid var(--line);border-radius:2px;background:var(--sheet)}.finding{border-top:3px solid var(--signal)}.finding>p,.empty p{color:var(--muted)}.chart{width:100%;height:auto;margin:12px 0;background:var(--sheet)}.chart line{stroke:#8e897e;stroke-width:1}.chart text{fill:var(--muted);font-size:10px}.legend i{display:inline-block;width:8px;height:8px;margin-right:5px}.legend span{font-size:11px}.table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line)}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}th{color:var(--muted);background:#ece7db}details{margin-top:10px;color:var(--muted);font-size:11px}summary{cursor:pointer;color:var(--signal-dark);font-weight:700}dl{display:grid;grid-template-columns:90px 1fr;gap:5px;margin:8px 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}.claims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.claim{margin:0}.claim>span{color:var(--warn);font-size:10px;text-transform:uppercase}.claim p{margin:7px 0}.claim small{color:var(--muted)}.sources{font-size:12px}footer{padding:18px;text-align:center;color:var(--muted);font-size:11px}@media(max-width:700px){main{width:100%;margin:0;padding:24px;border-width:0;box-shadow:none}h1{font-size:34px}.verification,.kpi-strip,.claims{grid-template-columns:1fr 1fr}.verification>div:nth-child(3){border-left:0;border-top:1px solid var(--line)}.verification>div:nth-child(4){border-top:1px solid var(--line)}}@media print{body{background:white}main{width:100%;margin:0;padding:12mm;border:0;box-shadow:none}details{display:block}section,.finding,.kpi{break-inside:avoid}.report-header{break-after:avoid}footer{display:none}}
+:root{color-scheme:light;--paper:#f4f1e8;--sheet:#fffdf7;--ink:#151511;--muted:#6f6b60;--line:#151511;--line-soft:#d9d3c4;--signal:#08d36c;--signal-dark:#008e47;--warn:#9a5d0c;--danger:#b52e2e}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--paper);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:min(1080px,calc(100% - 32px));margin:32px auto;padding:52px;border:2px solid var(--line);background:var(--sheet);box-shadow:8px 8px 0 var(--signal)}h1{max-width:850px;margin:8px 0 10px;font-size:48px;line-height:1.02;letter-spacing:-.05em}h2{margin:42px 0 16px;padding-top:12px;border-top:2px solid var(--line);font-size:24px}h3{margin:20px 0 8px;font-size:18px}.eyebrow{margin:0;color:var(--signal-dark);font:800 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em}.goal{max-width:760px;color:var(--muted);font-size:18px}.meta,.legend,.tags{display:flex;flex-wrap:wrap;gap:8px}.meta span,.tags span{padding:5px 9px;border:1px solid var(--line);border-radius:2px;color:var(--ink);background:var(--paper);font-size:12px}.executive{margin-top:32px;padding:24px 28px;border:2px solid var(--line);background:#effff4;box-shadow:4px 4px 0 var(--ink)}.executive h2{margin:5px 0 12px;padding:0;border:0;font-size:30px}.executive li{margin:9px 0}.verification{display:grid;grid-template-columns:1.4fr repeat(3,1fr);margin:24px 0;border:2px solid var(--line)}.verification>div{display:grid;gap:4px;padding:14px 16px;border-left:1px solid var(--line)}.verification>div:first-child{border-left:0;background:var(--ink);color:var(--sheet)}.verification span{color:var(--muted);font-size:11px}.verification>div:first-child span{color:#c8c4b9}.verification strong{font-size:20px}.kpi-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:20px 0;border:1px solid var(--line)}.kpi{display:grid;gap:5px;padding:16px;border-left:1px solid var(--line)}.kpi:first-child{border-left:0}.kpi>span{color:var(--muted);font-size:12px}.kpi>strong{font-size:24px}.finding,.claim,.empty{margin:12px 0;padding:18px;border:1px solid var(--line);border-radius:2px;background:var(--sheet)}.finding{border-top:3px solid var(--signal)}.finding>p,.empty p{color:var(--muted)}.chart{width:100%;height:auto;margin:12px 0;background:var(--sheet)}.chart line{stroke:#8e897e;stroke-width:1}.chart text{fill:var(--muted);font-size:10px}.legend i{display:inline-block;width:8px;height:8px;margin-right:5px}.legend span{font-size:11px}.table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line)}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}th{color:var(--muted);background:#ece7db}details{margin-top:10px;color:var(--muted);font-size:11px}summary{cursor:pointer;color:var(--signal-dark);font-weight:700}dl{display:grid;grid-template-columns:90px 1fr;gap:5px;margin:8px 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}.claims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.claim{margin:0}.claim>span{color:var(--warn);font-size:10px;text-transform:uppercase}.claim p{margin:7px 0}.claim small{color:var(--muted)}.hypothesis-tree-report{margin-top:42px;padding:22px;border:2px solid var(--line);background:#f8f5ec;box-shadow:5px 5px 0 var(--signal)}.hypothesis-tree-report h2{margin:4px 0 8px;padding:0;border:0}.tree-boundary{margin:0 0 18px;color:var(--muted);font-size:11px}.tree-question{width:min(680px,92%);display:grid;gap:6px;margin:0 auto 28px;padding:14px;border:2px solid var(--line);background:#effff4;text-align:center;box-shadow:3px 3px 0 var(--line)}.tree-question small,.tree-branch small,.tree-outcome small{color:var(--signal-dark);font:800 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}.tree-question strong{font-size:18px}.tree-branches{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.tree-branches:before{content:"";position:absolute;top:-16px;left:12%;right:12%;border-top:2px solid var(--line)}.tree-branch{position:relative;display:grid;grid-template-rows:auto 20px auto auto;border:1px solid var(--line);border-top:5px solid var(--warn);background:var(--sheet);box-shadow:3px 3px 0 var(--line-soft)}.tree-branch:before{content:"";position:absolute;top:-16px;left:50%;height:16px;border-left:2px solid var(--line)}.tree-branch[data-status="supported"],.tree-branch[data-status="verified"]{border-top-color:var(--signal)}.tree-branch[data-status="contradicted"]{border-top-color:var(--danger)}.tree-branch>div{display:grid;align-content:start;gap:6px;padding:12px}.tree-branch>div strong{font-size:12px;line-height:1.4}.tree-branch>div span{color:var(--muted);font-size:9px}.tree-branch>i{position:relative}.tree-branch>i:after{content:"";position:absolute;top:0;bottom:0;left:50%;border-left:1px solid var(--line)}.tree-branch>b{padding:9px 12px;border-top:1px solid var(--line-soft);font-size:11px}.tree-empty{display:grid;gap:5px;padding:18px;border:1px dashed var(--line);color:var(--muted);text-align:center}.tree-outcome{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}.tree-outcome article{display:grid;gap:6px;padding:14px;border:1px solid var(--line);background:var(--sheet)}.tree-outcome strong{font-size:12px}.tree-outcome .tree-action{color:var(--sheet);background:var(--ink)}.sources{font-size:12px}footer{padding:18px;text-align:center;color:var(--muted);font-size:11px}@media(max-width:700px){main{width:100%;margin:0;padding:24px;border-width:0;box-shadow:none}h1{font-size:34px}.verification,.kpi-strip,.claims{grid-template-columns:1fr 1fr}.verification>div:nth-child(3){border-left:0;border-top:1px solid var(--line)}.verification>div:nth-child(4){border-top:1px solid var(--line)}.tree-branches,.tree-outcome{grid-template-columns:1fr}.tree-branches:before,.tree-branch:before{display:none}}@media print{*{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{background:white}main{width:100%;margin:0;padding:12mm;border:0;box-shadow:none}details{display:block}section,.finding,.kpi,.tree-branch{break-inside:avoid}.report-header{break-after:avoid}footer{display:none}}
 """

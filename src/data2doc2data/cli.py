@@ -6,6 +6,7 @@ import argparse
 from http import HTTPStatus
 import json
 from pathlib import Path
+import subprocess
 import sys
 import webbrowser
 
@@ -48,6 +49,26 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
             )
             print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), file=output)
             return 0
+        if args.command == "analyze-case":
+            from .plugin_service import PluginService
+
+            service = PluginService(store)
+            result = service.analyze_business_case(
+                args.question,
+                args.sources,
+                title=args.title,
+                rules_path=args.rules,
+            )
+            artifact = service.workbench.local_task_report(str(result["task_id"]))
+            path, digest = write_html_report(artifact, Path(args.output))
+            result["report"] = {
+                "output": str(path),
+                "mime_type": "text/html; charset=utf-8",
+                "byte_count": path.stat().st_size,
+                "sha256": digest,
+            }
+            print(json.dumps(result, ensure_ascii=False, indent=2), file=output)
+            return 0
         if args.command == "check-rules":
             ruleset = load_ruleset(Path(args.rules))
             summary = {
@@ -74,6 +95,35 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
                 for check in report["checks"]:
                     print(f"- {check['id']}: {'ok' if check['ok'] else 'failed'}", file=output)
             return 0 if report["ok"] else 1
+        if args.command == "install-mcp":
+            executable = Path(sys.executable).parent / "data2doc2data"
+            if not executable.is_file():
+                raise InputValidationError("data2doc2data must first be installed in the active Python environment")
+            command = (
+                ["codebuddy", "mcp", "add", "--scope", args.scope, "data2doc2data", "--", str(executable), "mcp"]
+                if args.host in {"codebuddy", "workbuddy"}
+                else ["codex", "mcp", "add", "data2doc2data", "--", str(executable), "mcp"]
+            )
+            if args.dry_run:
+                print(json.dumps({"host": args.host, "scope": args.scope, "status": "dry_run", "command": command}, ensure_ascii=False), file=output)
+                return 0
+            try:
+                completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
+            except FileNotFoundError as error:
+                raise InputValidationError(f"{args.host} CLI is unavailable; install it and sign in before registering MCP") from error
+            except subprocess.TimeoutExpired as error:
+                raise InputValidationError(f"{args.host} MCP registration timed out") from error
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()[:500]
+                raise InputValidationError(f"{args.host} MCP registration failed: {detail}")
+            print(
+                json.dumps(
+                    {"host": args.host, "scope": args.scope, "status": "installed", "command": command, "message": completed.stdout.strip()[:500]},
+                    ensure_ascii=False,
+                ),
+                file=output,
+            )
+            return 0
         if args.command == "report":
             service = WorkbenchService(WorkspaceStore(store.workspace_database_path))
             artifact = service.local_task_report(args.task)
@@ -159,6 +209,12 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--question", required=True)
     analyze_parser.add_argument("--metric", dest="metric_override", help="Optional exact metric name override.")
     analyze_parser.add_argument("--rules", help="Optional declarative rules JSON file.")
+    business_case = commands.add_parser("analyze-case", help="Analyze local business materials and deliver HTML without a task ID.")
+    business_case.add_argument("--question", required=True, help="Business question to answer.")
+    business_case.add_argument("--source", dest="sources", action="append", required=True, help="Local source directory or file; repeat for multiple materials.")
+    business_case.add_argument("--output", required=True, help="Destination standalone HTML report.")
+    business_case.add_argument("--title", help="Optional analysis task title.")
+    business_case.add_argument("--rules", help="Optional declarative rules JSON file.")
 
     check_rules = commands.add_parser("check-rules", help="Validate a declarative rules JSON file.")
     check_rules.add_argument("--rules", required=True, help="Path to the rules JSON file.")
@@ -166,6 +222,10 @@ def _build_parser() -> argparse.ArgumentParser:
     commands.add_parser("mcp", help="Run the MCP stdio tool server for cross-harness tool calls.")
     doctor = commands.add_parser("doctor", help="Verify cases, MCP tools, and host templates without spawning agents.")
     doctor.add_argument("--json", action="store_true", help="Print a machine-readable diagnostic report.")
+    install = commands.add_parser("install-mcp", help="Register this Python environment's MCP server with a local host.")
+    install.add_argument("--host", required=True, choices=("codebuddy", "workbuddy", "codex"), help="Local MCP-capable host CLI.")
+    install.add_argument("--scope", default="user", choices=("local", "project", "user"), help="CodeBuddy registration scope.")
+    install.add_argument("--dry-run", action="store_true", help="Print the exact registration command without changing the host.")
     report = commands.add_parser("report", help="Generate a standalone HTML report for a workbench task.")
     report.add_argument("--task", required=True, help="Workbench task ID.")
     report.add_argument("--output", required=True, help="Destination .html file.")

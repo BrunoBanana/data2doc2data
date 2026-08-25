@@ -22,7 +22,7 @@ from .agent_api import (
 )
 from .agents.gateway import AgentGateway, AgentGatewayError
 from .analysis import InputValidationError, analyze, load_profile_ruleset, validate_profile
-from .config import Profile, ProfileError, ProfileStore
+from .config import Profile, ProfileError, ProfileStore, default_store
 from .demo_scenarios import DemoScenarioCatalog, DemoScenarioError
 from .evidence_context import build_source_profile
 from .ingestion import (
@@ -46,6 +46,7 @@ from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 8_000_000
+MAX_PRESENTATION_BYTES = 2_000_000
 SESSION_EVENTS_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/events")
 SESSION_MESSAGES_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/messages")
 SESSION_INTERRUPT_ROUTE = re.compile(r"/api/agent-sessions/([A-Za-z0-9._:-]{1,200})/interrupt")
@@ -374,6 +375,12 @@ class CompanionHandler(BaseHTTPRequestHandler):
         if not self._allow_local_origin():
             return
         path = urlparse(self.path).path
+        if path == "/__presentation":
+            self._serve_local_presentation()
+            return
+        if path == "/__presentation/report":
+            self._serve_local_presentation_report()
+            return
         if path == "/api/agents":
             browser_session, csrf_token = self._agents().browser_sessions.issue(self.headers.get("Cookie"))
             self._send_json(
@@ -1053,6 +1060,94 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError("request body must be JSON") from error
 
+    def _serve_local_presentation(self) -> None:
+        """Serve an explicitly allowlisted private deck from the workbench origin."""
+        variants = parse_qs(urlparse(self.path).query, keep_blank_values=True).get("variant", ["minimal"])
+        presentations = {
+            "minimal": "data2doc2data-defense.html",
+            "detailed": "data2doc2data-defense-detailed.html",
+        }
+        if len(variants) != 1 or variants[0] not in presentations:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "local presentation is unavailable"})
+            return
+
+        workspace = self._agents().workspace
+        project_root = Path(__file__).resolve().parents[2]
+        roots = [workspace]
+        if project_root != workspace and project_root in workspace.parents:
+            roots.append(project_root)
+
+        for root in roots:
+            candidate = root / "docs" / "pitch" / presentations[variants[0]]
+            if candidate.is_symlink():
+                continue
+            try:
+                presentation = candidate.resolve(strict=True)
+                if not presentation.is_file() or root not in presentation.parents:
+                    continue
+                if presentation.stat().st_size > MAX_PRESENTATION_BYTES:
+                    continue
+                payload = presentation.read_bytes()
+            except OSError:
+                continue
+
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_security_headers(
+                "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+                "img-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'"
+            )
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        self._send_json(HTTPStatus.NOT_FOUND, {"error": "local presentation is unavailable"})
+
+    def _serve_local_presentation_report(self) -> None:
+        """Expose one known demo report only to an authenticated local browser."""
+        try:
+            self._agents().browser_sessions.authorize(self.headers.get("Cookie"))
+        except AgentApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+            return
+
+        roots = [self._store().path.parent.resolve()]
+        default_root = default_store().path.parent.resolve()
+        if default_root not in roots:
+            roots.append(default_root)
+
+        for root in roots:
+            report_directory = root / "reports"
+            candidate = report_directory / "workbuddy-live-retail-review.html"
+            if report_directory.is_symlink() or candidate.is_symlink():
+                break
+            try:
+                report = candidate.resolve(strict=True)
+                if not report.is_file() or report_directory not in report.parents:
+                    break
+                if report.stat().st_size > MAX_PRESENTATION_BYTES:
+                    break
+                payload = report.read_bytes()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                break
+
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Disposition", 'inline; filename="workbuddy-live-retail-review.html"')
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_security_headers(
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+                "base-uri 'none'; form-action 'none'"
+            )
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        self._send_json(HTTPStatus.NOT_FOUND, {"error": "local presentation report is unavailable"})
+
     def _serve_static(self, path: str) -> None:
         dist_root = (STATIC_ROOT / "dist").resolve()
         if path in {"/", "/index.html"} and (dist_root / "index.html").is_file():
@@ -1176,8 +1271,11 @@ class CompanionHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
-    def _send_security_headers(self) -> None:
-        self.send_header("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'")
+    def _send_security_headers(
+        self,
+        content_security_policy: str = "default-src 'self'; base-uri 'none'; form-action 'self'",
+    ) -> None:
+        self.send_header("Content-Security-Policy", content_security_policy)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")

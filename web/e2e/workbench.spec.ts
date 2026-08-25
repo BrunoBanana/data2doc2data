@@ -37,12 +37,17 @@ test('completes the model-free task journey and downloads an offline report', as
     return bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.bottom > 0 && bounds.left < innerWidth && bounds.top < innerHeight
   }).length)
   expect(visibleNodes).toBeGreaterThanOrEqual(12)
+  await page.getByRole('tab', { name: '假设' }).click()
+  await expect(page.getByRole('heading', { name: '假设生成与验证树' })).toBeVisible()
+  const hypothesisTree = page.getByLabel('可验证假设树')
+  await expect(hypothesisTree).toContainText('02 · HYPOTHESIS')
+  await expect(hypothesisTree).toContainText('03 · DETERMINISTIC CHECK')
+  await expect(hypothesisTree).toContainText('NEXT EVIDENCE / ACTION')
+  await page.getByRole('button', { name: '重放生成过程' }).click()
   if (process.env.VISUAL_QA_CAPTURE === '1') {
     await page.getByRole('main').evaluate((element) => { element.scrollTop = 0 })
     await page.screenshot({ path: path.resolve('../docs/design-references/2026-08-24/final/implementation-1440x1024.png') })
   }
-  await page.getByRole('button', { name: '跳到结果' }).click()
-
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: '下载 HTML 报告' }).click()
   const download = await downloadPromise
@@ -58,7 +63,10 @@ test('completes the model-free task journey and downloads an offline report', as
   await expect(reportPage).toHaveTitle('增长提速、留存承压 · Data2Doc2Data 分析报告')
   await expect(reportPage.getByRole('heading', { name: '分析结论' })).toBeVisible()
   await expect(reportPage.getByLabel('证据验证')).toBeVisible()
-  await expect(reportPage.getByRole('heading', { name: '证据与假设' })).toBeVisible()
+  await expect(reportPage.getByRole('heading', { name: '假设生成与验证树' })).toBeVisible()
+  await expect(reportPage.getByRole('heading', { name: '完整证据明细' })).toBeVisible()
+  await expect(reportPage.locator('.tree-branch').first()).toBeVisible()
+  await expect(reportPage.locator('.tree-action')).toBeVisible()
   await expect(reportPage.getByRole('heading', { name: '来源与计算口径' })).toBeVisible()
   await expect(reportPage.getByText(/customer-research\.md · 第/).first()).toBeVisible()
   await expect(reportPage.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute('content', /default-src 'none'/)

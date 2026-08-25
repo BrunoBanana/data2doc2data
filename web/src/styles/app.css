@@ -204,6 +204,37 @@
 .hypothesis-panel form, .hypothesis-panel label { display: grid; gap: 8px; }
 .hypothesis-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text); background: var(--surface-1); resize: vertical; }
 .evidence-graph { margin-top: 26px; }
+.hypothesis-tree-product { margin-top: 26px; border: 2px solid var(--line); background: var(--surface-1); box-shadow: 5px 5px 0 var(--accent); }
+.hypothesis-tree__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 2px solid var(--line); background: #050505; }
+.hypothesis-tree__header h2 { margin: 4px 0 0; color: var(--surface-1); font-size: 22px; }
+.hypothesis-tree__header .button { color: var(--surface-1); border-color: #77746b; }
+.hypothesis-tree__body { padding: 20px; background-image: radial-gradient(circle, var(--line-soft) 1px, transparent 1px); background-size: 18px 18px; }
+.hypothesis-tree__question { width: min(640px, 92%); display: grid; gap: 7px; margin: 0 auto 28px; padding: 14px 16px; border: 2px solid var(--line); background: #effff4; box-shadow: 3px 3px 0 var(--line); text-align: center; }
+.hypothesis-tree__question span, .hypothesis-tree__stage span, .hypothesis-tree__verdict span, .hypothesis-tree__outcome span { color: var(--accent-strong); font: 800 9px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.hypothesis-tree__question strong { font-size: 18px; line-height: 1.4; }
+.hypothesis-tree__branches { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.hypothesis-tree__branches::before { content: ""; position: absolute; top: -16px; left: 12%; right: 12%; border-top: 2px solid var(--line); }
+.hypothesis-tree__branch { position: relative; min-width: 0; display: grid; grid-template-rows: auto 24px auto auto; border: 1px solid var(--line); background: var(--surface-1); box-shadow: 3px 3px 0 var(--line-soft); }
+.hypothesis-tree__branch::before { content: ""; position: absolute; top: -16px; left: 50%; height: 16px; border-left: 2px solid var(--line); }
+.hypothesis-tree__branch[data-status="supported"], .hypothesis-tree__branch[data-status="verified"] { border-top: 5px solid var(--accent); }
+.hypothesis-tree__branch[data-status="contradicted"] { border-top: 5px solid var(--danger); }
+.hypothesis-tree__branch[data-status="insufficient"], .hypothesis-tree__branch[data-status="pending"] { border-top: 5px solid #d89b2b; }
+.hypothesis-tree__stage { min-width: 0; display: grid; align-content: start; gap: 7px; padding: 13px; }
+.hypothesis-tree__stage strong { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.hypothesis-tree__stage small { color: var(--muted); font-size: 10px; }
+.hypothesis-tree__connector { position: relative; display: grid; place-items: center; }
+.hypothesis-tree__connector::before { content: ""; position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+.hypothesis-tree__connector i { z-index: 1; width: 7px; height: 7px; border: 1px solid var(--line); border-radius: 50%; background: var(--accent); }
+.hypothesis-tree__verdict { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 13px; border-top: 1px solid var(--line-soft); background: var(--surface-2); }
+.hypothesis-tree__verdict b { font-size: 11px; }
+.hypothesis-tree__branch[data-status="contradicted"] .hypothesis-tree__verdict b { color: var(--danger); }
+.hypothesis-tree__branch[data-status="insufficient"] .hypothesis-tree__verdict b { color: #7f5510; }
+.hypothesis-tree__empty { display: grid; gap: 5px; padding: 18px; border: 1px dashed var(--line); color: var(--muted); text-align: center; }
+.hypothesis-tree__outcome { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+.hypothesis-tree__outcome article { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--line); background: var(--surface-1); }
+.hypothesis-tree__outcome strong { font-size: 13px; line-height: 1.45; }
+.hypothesis-tree__outcome .hypothesis-tree__action { color: var(--surface-1); background: #050505; }
+.hypothesis-tree__boundary { margin: 0; padding: 11px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 .graph-filters { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .graph-filters button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface-1); cursor: pointer; }
 .graph-filters button[aria-pressed="true"] { border-color: #527cc5; color: var(--text); background: #1b2c4b; }
@@ -292,6 +323,10 @@
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .document-import, .text-summary { grid-template-columns: 1fr; }
   .hypothesis-panel { grid-template-columns: 1fr; }
+  .hypothesis-tree__header { flex-direction: column; }
+  .hypothesis-tree__header .button { width: 100%; }
+  .hypothesis-tree__branches, .hypothesis-tree__outcome { grid-template-columns: 1fr; }
+  .hypothesis-tree__branches::before, .hypothesis-tree__branch::before { display: none; }
   .dashboard-heading { align-items: flex-start; flex-direction: column; }
   .playback-controls { grid-template-columns: 1fr; }
 }
@@ -301,10 +336,14 @@
   .assistant-orb { animation: orb-breathe 3s ease-in-out infinite; }
   .button, .tab, .task-card { transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease; }
   .button:not(:disabled):active { transform: translateY(1px); }
+  .hypothesis-tree__question { animation: hypothesis-enter 360ms ease both; }
+  .hypothesis-tree__branch { animation: hypothesis-enter 420ms ease both; animation-delay: calc(180ms + var(--branch-index) * 140ms); }
+  .hypothesis-tree__outcome { animation: hypothesis-enter 420ms ease both; animation-delay: 720ms; }
 }
 
 @keyframes node-pulse { 50% { box-shadow: 0 0 28px rgb(76 130 247 / 38%); } }
 @keyframes orb-breathe { 50% { transform: scale(1.04); filter: brightness(1.08); } }
+@keyframes hypothesis-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Paper Analysis Desk ------------------------------------------------------ */
 .app-frame { background: var(--surface-0); }

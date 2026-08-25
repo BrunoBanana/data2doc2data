@@ -18,12 +18,13 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 
 - Two complete flagship case packs (468 metric rows, 9 documents) plus three focused boundary scenarios
 - User-supplied local CSV data
-- User-supplied local Markdown / text decision documents
+- Native local CSV/XLSX data, Markdown/TXT decisions, and mixed HTML/DOCX reports containing both narrative and tables
 - Paper-style business analysis workbench with a fixed Agent Console and a live five-lane execution canvas (Chinese)
 - Dual runners: a complete no-model Demo flow and Agent-authored connected plans executed by host-owned local tools
 - Task-first React workbench with immutable run history, cursor replay, evidence/hypothesis graphs, and safe retry
 - Standalone, print-ready HTML reports with inline SVG and source provenance; no CDN is required
 - Direct web conversations with a locally installed Codex or Tencent WorkBuddy/CodeBuddy
+- Native Codex and WorkBuddy plugin manifests, an auto-discovered host Skill, and a shared local MCP runtime
 - Read-only, per-operation approval, and trusted-session permission modes
 - CLI for configuration, analysis, status, MCP serving, and read-only integration diagnostics
 - Explicit metric specification when a question cannot uniquely identify one
@@ -111,7 +112,26 @@ Run the deterministic engine as a tool server for any MCP-capable agent (Codex, 
 data2doc2data mcp
 ```
 
-It speaks MCP over stdio and exposes four tools: `analyze` (deterministic evidence analysis), `check_rules` (validate a declarative rules JSON file), `source_profile` (dataset profile without raw rows), and `generate_html_report` (the same self-contained report contract used by Web and CLI). Raw CSV rows are never written to the client.
+It exposes 15 tools over stdio. The preferred `analyze_business_case` workflow discovers a directory or a mixed HTML/DOCX report, creates an isolated task, locks local snapshots, profiles data, runs deep numerical/text diagnostics, evaluates every declared business-rule clause, and returns a standalone HTML report. For agent-directed work, combine `inspect_sources`, `create_analysis_task`, `analyze_task_metric`, `run_diagnostic_step`, and `evaluate_task_rules`; use `get_analysis_trace`, `run_analysis_cycle`, `resume_analysis_cycle`, and `list_cycle_artifacts` for observation and recovery. `generate_html_report` and `generate_cycle_html_report` share the same truthful persisted run state. `analyze`, `check_rules`, and `source_profile` remain available for compatibility. Task-scoped tools never modify the global profile or return raw rows and absolute source paths.
+
+The repository is also a native plugin, not merely an MCP endpoint: `.codex-plugin/plugin.json` and `.codebuddy-plugin/plugin.json` declare the host integrations, while `skills/data2doc2data/SKILL.md` teaches the host Agent when and how to orchestrate the tools. The plugin launcher always prefers this project's `.venv` over an unrelated executable on global `PATH`. Validate the WorkBuddy plugin with `codebuddy plugin validate .`, or load the local plugin for development with `codebuddy --plugin-dir /absolute/path/to/data2doc2data`.
+
+Register the executable from the current Python environment with one command:
+
+```bash
+data2doc2data install-mcp --host codebuddy --scope user
+data2doc2data install-mcp --host codex
+```
+
+Append `--dry-run` to inspect the exact host command without changing its configuration. The host may require a one-time MCP security approval or a refreshed conversation. For optional PDF conversion, install `python -m pip install -e '.[documents]'`; scanned images and chart pixels are not claimed as extracted evidence without an explicit OCR/vision adapter.
+
+If a host cannot reload newly registered MCP tools in its current conversation, the same complete local workflow is also available without any manual task ID:
+
+```bash
+data2doc2data analyze-case --question "Did promotion growth hurt margin and fulfillment?" \
+  --source src/data2doc2data/sample/cases/retail-promotion-fulfillment \
+  --output business-review.html
+```
 
 Verify the full local contract before connecting a host:
 
@@ -137,7 +157,7 @@ This project is licensed under [MIT](LICENSE). Generate a public upload bundle f
 python scripts/build_skill_bundle.py dist/data2doc2data-v3.0.0.zip
 ```
 
-Upload the ZIP to your target SkillHub. It includes only the explicit public-resource allowlist: `SKILL.md`, the local helper UI, runtime code, the connector guide, and `LICENSE.md` (MIT). It excludes tests, build caches, hidden files, symlinks, and unlisted files such as accidental business exports. The builder rejects included resources containing prohibited private markers, email addresses, or common credential patterns. `--draft` is for local experimentation only — never publish.
+Upload the ZIP to your target SkillHub. It includes only the explicit public-resource allowlist: the root and host-discovered Skills, the two explicitly approved native plugin manifests, the local helper UI, runtime code, the connector guide, and `LICENSE.md` (MIT). All other hidden files, tests, build caches, symlinks, private presentations, and unlisted files such as accidental business exports are excluded. The builder rejects included resources containing prohibited private markers, email addresses, or common credential patterns. `--draft` is for local experimentation only — never publish.
 
 ---
 
@@ -154,13 +174,13 @@ Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档
 ## 本版本可用能力
 
 - 两套完整旗舰材料包（共 468 条指标记录、9 份文档），并附带三个边界场景
-- 使用者自有的本地 CSV 数据
-- 使用者自有的本地 Markdown 与文本决策文档
+- 原生识别本地 CSV / XLSX 数据、Markdown / TXT 文档，以及同时包含文字和表格的 HTML / DOCX 复盘报告
 - Paper 风格三栏工作台：固定 Agent Console 与五泳道动态执行画布
 - 双运行器：无需模型的完整 Demo Flow，以及由 Agent 规划、宿主本地工具执行的连接模式
 - 任务优先的 React 工作台：不可变运行历史、游标回放、证据/假设图与安全重试
 - 可下载、可打印的单文件 HTML 报告：内联 SVG 与完整来源口径，无需 CDN
 - 在网页中直接连接本机 Codex 或腾讯 WorkBuddy/CodeBuddy
+- Codex / WorkBuddy 原生插件清单、可自动发现的宿主 Skill，以及共享的本地 MCP 工具服务
 - 只读、逐次审批和会话级受限信任三种权限模式
 - 命令行配置、分析与状态检查
 - 当问题不能唯一定位指标时，支持显式指定指标
@@ -248,7 +268,28 @@ data2doc2data analyze --question "发生了什么变化？" --metric retention_r
 data2doc2data mcp
 ```
 
-它通过 stdio 传输 MCP 协议，暴露四个工具：`analyze`（确定性证据分析）、`check_rules`（校验声明式规则 JSON 文件）、`source_profile`（不含原始数据行的数据画像）与 `generate_html_report`（生成与 Web/CLI 相同契约的自包含 HTML 报告）。原始 CSV 永不写入客户端。
+它通过 stdio 暴露 15 个工具。推荐的 `analyze_business_case` 可以从一次自然语言请求直接完成材料识别、隔离建任务、不可变快照锁定、本地深度计算、文本分析、声明式规则逐条实测，以及离线 HTML 报告交付；用户不需要知道或输入 `task_id`。
+
+项目同时也是宿主可识别的原生插件，而不仅仅是 MCP 服务：`.codex-plugin/plugin.json` 和 `.codebuddy-plugin/plugin.json` 分别提供 Codex、WorkBuddy 的插件清单；`skills/data2doc2data/SKILL.md` 让宿主 Agent 知道何时触发、如何调度和怎样交付。启动器优先使用项目自己的 `.venv`，不会误连系统 PATH 中的旧版本。可以通过 `codebuddy plugin validate .` 验证 WorkBuddy 插件，或执行 `codebuddy --plugin-dir /项目绝对路径` 加载本地开发版本。
+
+对于需要 Agent 自主判断的复杂问题，宿主可以依次调用 `inspect_sources`、`create_analysis_task`、`analyze_task_metric`、`run_diagnostic_step` 和 `evaluate_task_rules`，根据已经产生的真实证据继续决定下一步。`get_analysis_trace`、`run_analysis_cycle`、`resume_analysis_cycle`、`list_cycle_artifacts` 提供公开执行轨迹、检查点和恢复能力；`generate_html_report`、`generate_cycle_html_report` 使用同一份已完成运行状态。旧版 `analyze`、`check_rules`、`source_profile` 保持兼容，但 `check_rules` 只是结构校验，不能替代实际规则验证。任务级工具不会修改全局 profile，也不会返回原始数据行或绝对来源路径。
+
+一条命令即可注册当前 Python 环境中的正确可执行文件：
+
+```bash
+data2doc2data install-mcp --host codebuddy --scope user
+data2doc2data install-mcp --host codex
+```
+
+加 `--dry-run` 可以先预览注册命令，不修改宿主。WorkBuddy/CodeBuddy 首次使用可能需要用户批准 MCP 服务或刷新会话。CSV、XLSX、Markdown、TXT、HTML、DOCX 可直接使用；PDF 等可选格式需要执行 `python -m pip install -e '.[documents]'`。未安装专门的 OCR/视觉适配器时，不能把扫描件或图表像素假装成已经提取的证据。
+
+如果宿主当前对话暂时不能动态加载新注册的 MCP 服务，也可直接执行等价的完整本地分析，不需要手动创建任务：
+
+```bash
+data2doc2data analyze-case --question "大促增长是否以利润、履约和复购为代价？" \
+  --source src/data2doc2data/sample/cases/retail-promotion-fulfillment \
+  --output business-review.html
+```
 
 接入宿主前，先运行只读自检：
 
@@ -274,4 +315,4 @@ data2doc2data doctor --json
 python scripts/build_skill_bundle.py dist/data2doc2data-v3.0.0.zip
 ```
 
-将该 ZIP 上传至目标 SkillHub。它仅包含明确列入公开资源白名单的 `SKILL.md`、本地辅助界面、运行时代码、数据连接器指南和 `LICENSE.md` 形式的 MIT 许可证；不包含测试、生成缓存、隐藏文件、符号链接或未列入白名单的意外业务导出文件。构建器还会扫描每个纳入的文本资源，并在发现禁止的私有标记、邮箱地址或常见凭据模式时拒绝构建。`--draft` 仅用于无许可证的本地实验，绝不能发布。
+将该 ZIP 上传至目标 SkillHub。它仅包含明确列入公开资源白名单的根 Skill、宿主自动发现的 Skill、两份已审核的原生插件清单、本地辅助界面、运行时代码、数据连接器指南和 `LICENSE.md` 形式的 MIT 许可证；其他隐藏文件、测试、生成缓存、私人答辩材料、符号链接或未列入白名单的意外业务导出文件均不会进入发布包。构建器还会扫描每个纳入的文本资源，并在发现禁止的私有标记、邮箱地址或常见凭据模式时拒绝构建。`--draft` 仅用于无许可证的本地实验，绝不能发布。

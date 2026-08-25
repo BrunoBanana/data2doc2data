@@ -39,6 +39,110 @@ class LocalServerTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(payload["error"], "agent request authorization failed")
 
+    def test_local_presentation_is_served_from_one_fixed_workspace_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+            presentation = workspace / "docs" / "pitch" / "data2doc2data-defense.html"
+            detailed_presentation = workspace / "docs" / "pitch" / "data2doc2data-defense-detailed.html"
+            presentation.parent.mkdir(parents=True)
+            presentation.write_text("<!doctype html><title>Private local presentation</title>", encoding="utf-8")
+            detailed_presentation.write_text(
+                "<!doctype html><title>Private detailed presentation</title>", encoding="utf-8"
+            )
+            server = create_server(self.store, port=0, agent_workspace=workspace)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with urlopen(f"http://127.0.0.1:{server.server_port}/__presentation", timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertIn("Private local presentation", response.read().decode("utf-8"))
+                    self.assertEqual(
+                        response.headers["Content-Security-Policy"],
+                        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+                        "img-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'",
+                    )
+                    self.assertEqual(response.headers["Cache-Control"], "no-store")
+                with urlopen(
+                    f"http://127.0.0.1:{server.server_port}/__presentation?variant=detailed&live_demo=1",
+                    timeout=2,
+                ) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertIn("Private detailed presentation", response.read().decode("utf-8"))
+                    self.assertEqual(response.headers["Cache-Control"], "no-store")
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(
+                        f"http://127.0.0.1:{server.server_port}/__presentation?variant=unknown",
+                        timeout=2,
+                    )
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_local_presentation_does_not_follow_external_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+            workspace.mkdir()
+            external = Path(directory) / "outside.html"
+            external.write_text("private outside file", encoding="utf-8")
+            presentation = workspace / "docs" / "pitch" / "data2doc2data-defense.html"
+            presentation.parent.mkdir(parents=True)
+            presentation.symlink_to(external)
+            server = create_server(self.store, port=0, agent_workspace=workspace)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(f"http://127.0.0.1:{server.server_port}/__presentation", timeout=2)
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_presentation_report_requires_an_authorized_local_browser_session(self):
+        status, payload = request_json(self.base_url, "GET", "/__presentation/report")
+
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"], "agent request authorization failed")
+
+    def test_presentation_report_serves_one_fixed_private_report_to_its_local_session(self):
+        reports = self.store.path.parent / "reports"
+        reports.mkdir()
+        report = reports / "workbuddy-live-retail-review.html"
+        report.write_text("<!doctype html><title>Private verified report</title>", encoding="utf-8")
+        with urlopen(f"{self.base_url}/api/agents", timeout=2) as session:
+            cookie = session.headers["Set-Cookie"].split(";", maxsplit=1)[0]
+
+        request = Request(f"{self.base_url}/__presentation/report", headers={"Cookie": cookie})
+        with urlopen(request, timeout=2) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("Private verified report", response.read().decode("utf-8"))
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertEqual(
+                response.headers["Content-Security-Policy"],
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+                "base-uri 'none'; form-action 'none'",
+            )
+
+    def test_presentation_report_rejects_symlinks_even_if_a_default_report_exists(self):
+        reports = self.store.path.parent / "reports"
+        reports.mkdir()
+        outside = self.store.path.parent / "outside.html"
+        outside.write_text("unapproved local file", encoding="utf-8")
+        (reports / "workbuddy-live-retail-review.html").symlink_to(outside)
+        with urlopen(f"{self.base_url}/api/agents", timeout=2) as session:
+            cookie = session.headers["Set-Cookie"].split(";", maxsplit=1)[0]
+
+        request = Request(f"{self.base_url}/__presentation/report", headers={"Cookie": cookie})
+        with self.assertRaises(HTTPError) as error:
+            urlopen(request, timeout=2)
+        self.assertEqual(error.exception.code, 404)
+        error.exception.close()
+
     def test_demo_scenario_api_returns_ordered_metadata_without_paths(self):
         status, payload = request_json(self.base_url, "GET", "/api/demo-scenarios")
 

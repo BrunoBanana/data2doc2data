@@ -394,6 +394,7 @@ class WorkbenchService:
         runs = self.store.list_runs(task.task_id)
         graph = None
         artifact_dashboard = None
+        business_findings = None
         for run in runs:
             candidate = self.store.get_run_artifact(run.run_id, "evidence_graph")
             if isinstance(candidate, Mapping):
@@ -401,6 +402,9 @@ class WorkbenchService:
                 diagnostic_candidate = self.store.get_run_artifact(run.run_id, "artifact_dashboard")
                 if isinstance(diagnostic_candidate, Mapping):
                     artifact_dashboard = diagnostic_candidate
+                business_candidate = self.store.get_run_artifact(run.run_id, "business_evidence")
+                if isinstance(business_candidate, Mapping):
+                    business_findings = business_candidate
                 break
         return build_html_report(
             task,
@@ -409,6 +413,7 @@ class WorkbenchService:
             graph if isinstance(graph, Mapping) else None,
             run_count=len(runs),
             artifact_dashboard=artifact_dashboard,
+            business_findings=business_findings,
         )
 
     def events_after(self, owner_id: str, run_id: str, after: object, limit: object) -> dict[str, object]:

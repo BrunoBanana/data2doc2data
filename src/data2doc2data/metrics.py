@@ -100,16 +100,15 @@ class SignalEngine:
         current = self._aggregate(spec.aggregation, current_rows)
         absolute_change = current - baseline
         change_percent = None if baseline == 0 else (absolute_change / abs(baseline)) * 100
-        if change_percent is None:
-            direction = "up" if absolute_change > 0 else "down" if absolute_change < 0 else "flat"
-        else:
-            direction = (
-                "up"
-                if change_percent > spec.threshold
-                else "down"
-                if change_percent < -spec.threshold
-                else "flat"
-            )
+        comparison_change = absolute_change if spec.unit is not None or change_percent is None else change_percent
+        comparison_threshold = 0.0 if spec.unit is None and change_percent is None else spec.threshold
+        direction = (
+            "up"
+            if comparison_change > comparison_threshold
+            else "down"
+            if comparison_change < -comparison_threshold
+            else "flat"
+        )
 
         display_name = spec.display_name or spec.name
         unit = spec.unit or ""

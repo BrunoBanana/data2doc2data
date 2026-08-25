@@ -82,6 +82,29 @@ class MetricTests(unittest.TestCase):
                 self.assertAlmostEqual(signal.baseline, expected[0])
                 self.assertAlmostEqual(signal.current, expected[1])
 
+    def test_unit_backed_business_thresholds_are_applied_in_their_declared_unit(self):
+        rows = [
+            MetricRow(date(2026, 1, 1), "revenue", 4_000_000),
+            MetricRow(date(2026, 1, 8), "revenue", 4_050_000),
+            MetricRow(date(2026, 1, 15), "revenue", 5_000_000),
+            MetricRow(date(2026, 1, 22), "revenue", 5_050_000),
+        ]
+
+        signal = SignalEngine().build(
+            MetricSpec(name="revenue", unit="CNY", threshold=10_000),
+            rows,
+        )
+
+        self.assertEqual(signal.direction, "up")
+
+    def test_unit_backed_ratio_thresholds_use_percentage_point_changes(self):
+        signal = SignalEngine().build(
+            MetricSpec(name="retention_rate", unit="ratio", threshold=0.10),
+            self.rows,
+        )
+
+        self.assertEqual(signal.direction, "flat")
+
     def test_engine_rejects_non_finite_values_from_direct_callers(self):
         rows = [
             MetricRow(date(2026, 1, 1), "revenue", 1.0),

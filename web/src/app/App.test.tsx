@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { App, type WorkbenchApi } from './App'
@@ -119,7 +119,9 @@ describe('analysis workbench shell', () => {
     fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
     fireEvent.click(await screen.findByRole('button', { name: '运行分析' }))
 
-    expect(await screen.findByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
+    const diagnostics = await screen.findByRole('heading', { name: '深度诊断产物' })
+    const liveProcess = await screen.findByRole('heading', { name: '分析过程与证据联动' })
+    expect(liveProcess.compareDocumentPosition(diagnostics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('detect_anomalies')).toBeInTheDocument()
   })
 
@@ -144,5 +146,43 @@ describe('analysis workbench shell', () => {
 
     expect(await screen.findByRole('heading', { name: '深度诊断产物' })).toBeInTheDocument()
     expect(screen.getByText('最近一次周期比较')).toBeInTheDocument()
+  })
+
+  it('does not override a tab the user selects while a previous run is restoring', async () => {
+    const api = client()
+    const completedRun = {
+      contract_version: 1 as const,
+      run_id: 'run-latest',
+      task_id: task.task_id,
+      status: 'completed' as const,
+      snapshot_refs: [],
+      created_at: '2026-08-23T00:00:00Z',
+      started_at: '2026-08-23T00:00:00Z',
+      completed_at: '2026-08-23T00:00:01Z',
+    }
+    api.listTaskRuns = async () => [{
+      ...completedRun,
+      stale: false,
+      event_count: 12,
+      failure_type: null,
+    }]
+    let finishRestoring!: (value: Awaited<ReturnType<WorkbenchApi['loadRun']>>) => void
+    api.loadRun = () => new Promise((resolve) => { finishRestoring = resolve })
+
+    render(<App client={api} />)
+    fireEvent.click(await screen.findByRole('button', { name: /业务分析工作台/ }))
+    await waitFor(() => expect(finishRestoring).toBeTypeOf('function'))
+
+    fireEvent.click(screen.getByRole('tab', { name: '历史' }))
+    expect(screen.getByRole('tab', { name: '历史' })).toHaveAttribute('aria-selected', 'true')
+
+    await act(async () => finishRestoring({
+      run: completedRun,
+      events: [],
+      evidence_graph: { contract_version: 1, graph_id: 'graph-latest', nodes: [], edges: [] },
+    }))
+
+    expect(screen.getByRole('tab', { name: '历史' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: '运行历史' })).toBeInTheDocument()
   })
 })

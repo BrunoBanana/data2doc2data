@@ -89,6 +89,29 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["output"], str(report_path.resolve()))
             self.assertEqual(len(payload["sha256"]), 64)
 
+    def test_one_business_command_creates_the_task_and_exports_a_complete_report(self):
+        root = Path(__file__).resolve().parents[1]
+        case = root / "src" / "data2doc2data" / "sample" / "cases" / "retail-promotion-fulfillment"
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "management-review.html"
+            output = StringIO()
+
+            exit_code = main(
+                [
+                    "--config", str(Path(directory) / "config.json"),
+                    "analyze-case", "--question", "大促增长是否损害利润和履约？",
+                    "--source", str(case), "--output", str(destination),
+                ],
+                stdout=output,
+            )
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["source_summary"]["record_count"], 260)
+            self.assertEqual(payload["rule_verdicts"]["confirmed_count"], 3)
+            self.assertEqual(payload["report"]["output"], str(destination.resolve()))
+            self.assertIn("promotion-margin-conflict", destination.read_text(encoding="utf-8"))
+
     def test_cli_runs_lists_and_reports_a_model_free_cycle(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

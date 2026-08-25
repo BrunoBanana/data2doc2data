@@ -33,7 +33,30 @@ class ReportingTests(unittest.TestCase):
             ],
         }
         text = {"corpus_id": "corpus-1", "document_count": 1, "failure_count": 0, "duplicate_count": 0, "topics": ["收入"], "entities": ["华东区"], "claims": [{"claim_id": "claim-1", "text": "收入将增长", "status": "pending", "citation": {"document": "strategy.md", "sha256": "b" * 64, "start_line": 2, "end_line": 2, "excerpt": "主张：收入将增长"}, "conflicts_with": []}]}
-        graph = {"contract_version": 1, "graph_id": "graph-1", "nodes": [{"node_id": "hypothesis-1", "kind": "hypothesis", "label": "价格影响收入", "status": "insufficient", "artifact_ref": None}], "edges": []}
+        graph = {
+            "contract_version": 1,
+            "graph_id": "graph-1",
+            "nodes": [
+                {"node_id": "signal-1", "kind": "data_signal", "label": "收入下降 8%", "status": "verified", "artifact_ref": "dashboard-1"},
+                {"node_id": "hypothesis-1", "kind": "hypothesis", "label": "价格影响收入", "status": "supported", "artifact_ref": None},
+                {"node_id": "validation-1", "kind": "validation", "label": "收入方向符合假设", "status": "supported", "artifact_ref": "validation-1"},
+                {"node_id": "hypothesis-2", "kind": "hypothesis", "label": "渠道结构没有变化", "status": "contradicted", "artifact_ref": None},
+                {"node_id": "validation-2", "kind": "validation", "label": "渠道变化反驳该假设", "status": "contradicted", "artifact_ref": "validation-2"},
+                {"node_id": "hypothesis-3", "kind": "hypothesis", "label": "仓库延迟导致退款", "status": "insufficient", "artifact_ref": None},
+                {"node_id": "validation-3", "kind": "validation", "label": "缺少仓库维度", "status": "insufficient", "artifact_ref": None},
+                {"node_id": "conclusion-1", "kind": "conclusion", "label": "一项支持、一项冲突、一项待补证", "status": "supported", "artifact_ref": "graph-1"},
+                {"node_id": "action-1", "kind": "action", "label": "补充仓库和渠道明细后重新运行", "status": "pending", "artifact_ref": "graph-1"},
+            ],
+            "edges": [
+                {"edge_id": "edge-1", "source": "validation-1", "target": "hypothesis-1", "relationship": "tests"},
+                {"edge_id": "edge-2", "source": "signal-1", "target": "validation-1", "relationship": "supports"},
+                {"edge_id": "edge-3", "source": "validation-2", "target": "hypothesis-2", "relationship": "tests"},
+                {"edge_id": "edge-4", "source": "signal-1", "target": "validation-2", "relationship": "contradicts"},
+                {"edge_id": "edge-5", "source": "validation-3", "target": "hypothesis-3", "relationship": "tests"},
+                {"edge_id": "edge-6", "source": "signal-1", "target": "validation-3", "relationship": "insufficient_for"},
+                {"edge_id": "edge-7", "source": "conclusion-1", "target": "action-1", "relationship": "derived_from"},
+            ],
+        }
 
         diagnostic = {
             "blocks": [{
@@ -49,9 +72,19 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("<h2>分析结论</h2>", artifact.html)
         self.assertLess(artifact.html.index("分析结论"), artifact.html.index("关键发现"))
         self.assertIn("证据验证", artifact.html)
-        self.assertIn("<span>已验证</span><strong>0</strong>", artifact.html)
-        self.assertIn("<span>待验证</span><strong>1</strong>", artifact.html)
-        self.assertIn("证据不足 1", artifact.html)
+        self.assertIn("假设生成与验证树", artifact.html)
+        self.assertIn("解释收入变化并决定下一步", artifact.html)
+        self.assertIn("价格影响收入", artifact.html)
+        self.assertIn("收入方向符合假设", artifact.html)
+        self.assertIn("获得支持", artifact.html)
+        self.assertIn("存在冲突", artifact.html)
+        self.assertIn("证据不足", artifact.html)
+        self.assertIn("补充仓库和渠道明细后重新运行", artifact.html)
+        self.assertIn("只展示公开决策摘要、确定性工具结果和显式证据关系", artifact.html)
+        self.assertIn('class="hypothesis-tree-report"', artifact.html)
+        self.assertIn("<span>已验证</span><strong>4</strong>", artifact.html)
+        self.assertIn("<span>待验证</span><strong>3</strong>", artifact.html)
+        self.assertIn("证据不足 2", artifact.html)
         self.assertNotIn("insufficient 1", artifact.html)
         self.assertIn("--paper:#f4f1e8", artifact.html)
         self.assertIn("--signal:#08d36c", artifact.html)
@@ -82,6 +115,66 @@ class ReportingTests(unittest.TestCase):
         self.assertNotIn("/Users/", artifact.html)
         self.assertNotIn("sample_rows", artifact.html)
         self.assertIn("当前任务尚未接入可分析的数据快照", artifact.html)
+
+    def test_business_report_formats_units_thresholds_and_verdicts_for_decision_makers(self):
+        task = AnalysisTask.create("task-business-report", "经营复盘", "判断毛利变化")
+        findings = {
+            "metric_findings": [
+                {
+                    "metric": "gross_margin_rate",
+                    "signal": {
+                        "baseline": 0.357,
+                        "current": 0.3035769230769231,
+                        "direction": "down",
+                        "spec": {"unit": "ratio", "threshold": 0.005},
+                    },
+                    "validation": {"status": "supported"},
+                },
+                {
+                    "metric": "gmv",
+                    "signal": {
+                        "baseline": 4_180_000.0,
+                        "current": 5_231_538.461538462,
+                        "direction": "up",
+                        "spec": {"unit": "CNY", "threshold": 10_000},
+                    },
+                    "validation": {"status": "mixed"},
+                },
+            ],
+            "rule_verdicts": {
+                "rule_count": 1,
+                "confirmed_count": 1,
+                "contradicted_count": 0,
+                "unavailable_count": 0,
+                "results": [
+                    {
+                        "rule_id": "margin-rule",
+                        "name": "毛利恶化",
+                        "status": "confirmed",
+                        "clauses": [
+                            {
+                                "metric": "gross_margin_rate",
+                                "expected_direction": "down",
+                                "observed_direction": "down",
+                                "status": "confirmed",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+        report = build_html_report(task, None, None, None, run_count=1, business_findings=findings)
+
+        self.assertIn("35.70%", report.html)
+        self.assertIn("30.36%", report.html)
+        self.assertIn("0.50 个百分点", report.html)
+        self.assertIn("4,180,000", report.html)
+        self.assertIn("10,000 CNY", report.html)
+        self.assertIn("实证状态 数据支持", report.html)
+        self.assertIn("<td>下降</td>", report.html)
+        self.assertNotIn("0.3035769230769231", report.html)
+        self.assertNotIn("尚无可量化结论", report.html)
 
     def test_cycle_report_contains_methods_limits_and_no_external_assets(self):
         task = AnalysisTask.create("task-cycle-report", "异常复盘", "解释 GMV 异常")
