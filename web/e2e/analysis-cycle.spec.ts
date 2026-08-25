@@ -58,6 +58,7 @@ test('keeps deep diagnostics readable without horizontal overflow at 390px', asy
   await expect(page.getByRole('img', { name: /关键词词云/ })).toBeVisible()
   await page.getByRole('button', { name: '过程', exact: true }).click()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  expect(await page.getByRole('tab').evaluateAll((tabs) => tabs.every((tab) => tab.scrollWidth <= tab.clientWidth + 1))).toBe(true)
   const cardsFit = await page.locator('.diagnostic-card').evaluateAll((cards) => cards.every((card) => {
     const bounds = card.getBoundingClientRect()
     return bounds.left >= 0 && bounds.right <= document.documentElement.clientWidth + 1

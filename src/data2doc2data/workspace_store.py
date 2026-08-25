@@ -27,6 +27,8 @@ class WorkspaceStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
         self._lock = threading.RLock()
+        self._initialization_lock = threading.Lock()
+        self._database_initialized = False
 
     def initialize(self) -> None:
         with self._connection():
@@ -520,11 +522,9 @@ class WorkspaceStore:
         connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("PRAGMA busy_timeout = 5000")
-            self._ensure_schema(connection)
-            os.chmod(self.path, 0o600)
+            connection.execute("PRAGMA foreign_keys = ON")
+            self._initialize_database(connection)
             yield connection
         except (OSError, sqlite3.DatabaseError, json.JSONDecodeError, TypeError, ValueError) as exc:
             if isinstance(exc, (WorkspaceStoreError, RunEventError)):
@@ -533,6 +533,17 @@ class WorkspaceStore:
         finally:
             if connection is not None:
                 connection.close()
+
+    def _initialize_database(self, connection: sqlite3.Connection) -> None:
+        if self._database_initialized:
+            return
+        with self._initialization_lock:
+            if self._database_initialized:
+                return
+            connection.execute("PRAGMA journal_mode = WAL")
+            self._ensure_schema(connection)
+            os.chmod(self.path, 0o600)
+            self._database_initialized = True
 
     @staticmethod
     def _ensure_schema(connection: sqlite3.Connection) -> None:

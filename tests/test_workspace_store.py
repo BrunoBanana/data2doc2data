@@ -1,4 +1,5 @@
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -30,6 +31,16 @@ class WorkspaceStoreTests(unittest.TestCase):
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_repeated_parallel_connections_reuse_one_database_initialization(self):
+        task = AnalysisTask.create("task-parallel", "并发复盘", "验证数据库连接")
+        self.store.save_task(task)
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            results = tuple(pool.map(lambda _: self.store.list_tasks(), range(48)))
+
+        self.assertTrue(all(items == (task,) for items in results))
+        self.assertTrue(self.store._database_initialized)
 
     def test_version_one_database_is_upgraded_in_place(self):
         self.path.parent.mkdir(parents=True)

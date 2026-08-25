@@ -37,7 +37,7 @@
 .report-export { position: relative; }
 .report-export > span { position: absolute; top: calc(100% + 6px); right: 0; z-index: 2; width: 240px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-1); box-shadow: var(--shadow); font-size: 10px; }
 .tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
-.tab { min-height: 42px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; }
+.tab { min-height: 42px; flex: 1 0 58px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .tab--active { color: var(--text); border-bottom-color: var(--accent); }
 .empty-workspace { min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 760px; margin: 28px auto 0; padding: 56px; border: 1px dashed #2a3852; border-radius: var(--radius); background: linear-gradient(180deg, rgb(19 26 42 / 66%), rgb(13 18 32 / 34%)); text-align: center; }
 .empty-workspace h2 { margin: 10px 0; font-size: 24px; }
