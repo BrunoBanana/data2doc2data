@@ -17,6 +17,12 @@ class QualityContractTests(unittest.TestCase):
         self.assertIn('python-version: ["3.10", "3.11", "3.12", "3.13"]', workflow)
         self.assertIn("push:\n    branches: [main]", workflow)
 
+    def test_ci_uses_node24_github_actions(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        self.assertIn("actions/checkout@v6", workflow)
+        self.assertIn("actions/setup-python@v6", workflow)
+
     def test_development_tools_are_optional_dependencies(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
