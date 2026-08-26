@@ -18,6 +18,18 @@ export type RunEventKind =
   | 'cycle.started' | 'round.planned' | 'round.started' | 'artifact.created'
   | 'round.completed' | 'cycle.checkpointed' | 'planner.waiting' | 'planner.resumed' | 'cycle.completed'
 
+export interface CommunicationEnvelope {
+  protocol_version: 1
+  message_id: string
+  trace_id: string
+  causation_id: string | null
+  sender: string
+  receiver: string
+  attempt: number
+  idempotency_key: string
+  deadline_at: string | null
+}
+
 export interface RunEvent {
   contract_version: 1
   run_id: string
@@ -27,6 +39,7 @@ export interface RunEvent {
   summary: Record<string, unknown>
   artifact_refs: string[]
   created_at: string
+  communication?: CommunicationEnvelope
 }
 
 export interface AnalysisRun {

@@ -15,6 +15,12 @@ export function FlowInspector({ projection, selected }: { projection: FlowProjec
       <span>当前阶段</span><strong>{projection.phase}</strong>
       {projection.activeTool && <p><b>{toolStateLabel(projection.activeTool.state)}</b>{projection.activeTool.name || projection.activeTool.stepId}{projection.activeTool.progress === null ? '' : ` · ${Math.round(projection.activeTool.progress * 100)}%`}</p>}
     </section>
+    {projection.communication && <section className="flow-inspector__protocol" aria-label="协议交接">
+      <span>PROTOCOL HANDOFF</span>
+      <strong>{projection.communication.sender} → {projection.communication.receiver}</strong>
+      <small>TRACE {projection.communication.traceId}</small>
+      <small>ATTEMPT {projection.communication.attempt} · ID {projection.communication.idempotencyKey.slice(0, 18)}…</small>
+    </section>}
     <div className="flow-inspector__counts" aria-label="Flow 图统计">
       <span><b>{projection.nodes.length}</b>节点</span>
       <span><b>{projection.edges.length}</b>关系</span>

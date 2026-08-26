@@ -67,6 +67,31 @@ describe('AgentFlowCanvas readable event playback', () => {
     ])
     expect(progress).toEqual({ completedRounds: 2, maxRounds: 3, artifactCount: 3 })
   })
+  it('shows the persisted sender-to-receiver handoff in the live inspector', () => {
+    const protocolEvents = [
+      event(1, 'run.started'),
+      {
+        ...event(2, 'tool.started', { step_id: 'profile', tool: 'profile_data' }),
+        communication: {
+          protocol_version: 1,
+          message_id: 'msg-run-burst-2',
+          trace_id: 'run-burst',
+          causation_id: 'msg-run-burst-1',
+          sender: 'orchestrator',
+          receiver: 'tool.profile_data',
+          attempt: 1,
+          idempotency_key: 'delivery-profile',
+          deadline_at: null,
+        },
+      } as RunEvent,
+    ]
+
+    render(<AgentFlowCanvas events={protocolEvents} graph={{ ...graph, nodes: [], edges: [] }} />)
+    fireEvent.click(screen.getByRole('button', { name: /跳到实时/ }))
+
+    expect(screen.getByText('orchestrator → tool.profile_data')).toBeInTheDocument()
+    expect(screen.getByText('TRACE run-burst')).toBeInTheDocument()
+  })
   it('lets the analyst pause and resume a readable semantic playback', async () => {
     vi.useFakeTimers()
     render(<AgentFlowCanvas events={events} graph={graph} />)
