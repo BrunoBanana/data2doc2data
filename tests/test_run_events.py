@@ -1,5 +1,6 @@
 import unittest
 
+from data2doc2data.agent_protocol import CommunicationEnvelope
 from data2doc2data.run_events import RunEvent, RunEventError, validate_event_stream
 
 
@@ -74,6 +75,52 @@ class RunEventContractTests(unittest.TestCase):
 
         self.assertEqual(restored, event)
         self.assertEqual(restored.contract_version, 1)
+        self.assertEqual(restored.communication.trace_id, "run-1")
+        self.assertEqual(restored.communication.message_id, "msg-run-1-1")
+
+    def test_legacy_event_without_communication_gets_a_deterministic_envelope(self):
+        payload = RunEvent.create("run-legacy", 1, "run.started", "setup", {}).to_dict()
+        payload.pop("communication")
+
+        first = RunEvent.from_dict(payload)
+        second = RunEvent.from_dict(payload)
+
+        self.assertEqual(first.communication, second.communication)
+        self.assertEqual(first.communication.sender, "orchestrator")
+        self.assertEqual(first.communication.receiver, "workbench")
+
+    def test_default_envelope_supports_the_longest_valid_run_identifier(self):
+        event = RunEvent.create("r" * 200, 1, "run.started", "setup", {})
+
+        self.assertLessEqual(len(event.communication.message_id), 200)
+        self.assertLessEqual(len(event.communication.idempotency_key), 200)
+
+    def test_stream_rejects_duplicate_message_ids_and_forward_causation(self):
+        shared = CommunicationEnvelope.create(
+            message_id="msg-shared",
+            trace_id="run-1",
+            sender="orchestrator",
+            receiver="workbench",
+            attempt=1,
+            idempotency_key="delivery-shared",
+        )
+        first = RunEvent.create("run-1", 1, "run.started", "setup", {}, communication=shared)
+        duplicate = RunEvent.create("run-1", 2, "run.completed", "finish", {}, communication=shared)
+
+        with self.assertRaisesRegex(RunEventError, "message_id"):
+            validate_event_stream((first, duplicate))
+
+        forward = CommunicationEnvelope.create(
+            message_id="msg-run-1-2",
+            trace_id="run-1",
+            causation_id="msg-run-1-3",
+            sender="orchestrator",
+            receiver="workbench",
+            attempt=1,
+            idempotency_key="delivery-2",
+        )
+        with self.assertRaisesRegex(RunEventError, "causation"):
+            validate_event_stream((first, RunEvent.create("run-1", 2, "run.completed", "finish", {}, communication=forward)))
 
     def test_event_rejects_raw_records_and_oversized_summaries(self):
         with self.assertRaisesRegex(RunEventError, "raw"):

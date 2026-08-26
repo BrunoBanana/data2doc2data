@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
+from .agent_protocol import AgentProtocolError, CommunicationEnvelope, legacy_communication
 from .workspace import CONTRACT_VERSION, WorkspaceContractError, _require_identifier, _require_timestamp, _utc_now
 
 
@@ -120,6 +121,7 @@ class RunEvent:
     artifact_refs: tuple[str, ...]
     created_at: str
     contract_version: int = CONTRACT_VERSION
+    communication: CommunicationEnvelope | None = None
 
     def __post_init__(self) -> None:
         if self.contract_version != CONTRACT_VERSION:
@@ -136,6 +138,10 @@ class RunEvent:
             raise RunEventError("sequence must be a positive integer")
         if self.kind not in EVENT_KINDS:
             raise RunEventError(f"unknown event kind: {self.kind!r}")
+        communication = self.communication or legacy_communication(self.run_id, self.sequence, self.kind)
+        if communication.trace_id != self.run_id:
+            raise RunEventError("communication trace_id must match run_id")
+        object.__setattr__(self, "communication", communication)
         object.__setattr__(self, "summary", _validate_summary(self.summary))
         object.__setattr__(self, "artifact_refs", tuple(self.artifact_refs))
 
@@ -149,8 +155,18 @@ class RunEvent:
         summary: Mapping[str, Any],
         artifact_refs: Iterable[str] = (),
         now: str | None = None,
+        communication: CommunicationEnvelope | None = None,
     ) -> RunEvent:
-        return cls(run_id, sequence, kind, phase, dict(summary), tuple(artifact_refs), now or _utc_now())
+        return cls(
+            run_id,
+            sequence,
+            kind,
+            phase,
+            dict(summary),
+            tuple(artifact_refs),
+            now or _utc_now(),
+            communication=communication,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,6 +178,7 @@ class RunEvent:
             "summary": _thaw_json(self.summary),
             "artifact_refs": list(self.artifact_refs),
             "created_at": self.created_at,
+            "communication": self.communication.to_dict(),
         }
 
     @classmethod
@@ -172,15 +189,28 @@ class RunEvent:
             raise RunEventError("summary must be an object")
         if not isinstance(refs, (list, tuple)):
             raise RunEventError("artifact_refs must be a list")
+        run_id = str(payload.get("run_id", ""))
+        sequence = payload.get("sequence")
+        kind = str(payload.get("kind", ""))
+        raw_communication = payload.get("communication")
+        try:
+            communication = (
+                legacy_communication(run_id, sequence, kind)
+                if raw_communication is None
+                else CommunicationEnvelope.from_dict(raw_communication)
+            )
+        except AgentProtocolError as exc:
+            raise RunEventError(str(exc)) from exc
         return cls(
-            run_id=str(payload.get("run_id", "")),
-            sequence=payload.get("sequence"),
-            kind=str(payload.get("kind", "")),
+            run_id=run_id,
+            sequence=sequence,
+            kind=kind,
             phase=str(payload.get("phase", "")),
             summary=dict(summary),
             artifact_refs=tuple(str(ref) for ref in refs),
             created_at=str(payload.get("created_at", "")),
             contract_version=payload.get("contract_version"),
+            communication=communication,
         )
 
 
@@ -190,10 +220,16 @@ def validate_event_stream(events: Iterable[RunEvent]) -> tuple[RunEvent, ...]:
         return ordered
     run_id = ordered[0].run_id
     expected = ordered[0].sequence
+    message_ids: set[str] = set()
     for event in ordered:
         if event.run_id != run_id:
             raise RunEventError("all events must belong to the same run")
         if event.sequence != expected:
             raise RunEventError("event sequences must be contiguous and monotonic")
+        if event.communication.message_id in message_ids:
+            raise RunEventError("communication message_id must be unique within a run")
+        if event.communication.causation_id is not None and event.communication.causation_id not in message_ids:
+            raise RunEventError("communication causation_id must reference an earlier message")
+        message_ids.add(event.communication.message_id)
         expected += 1
     return ordered
