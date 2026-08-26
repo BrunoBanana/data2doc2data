@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -35,6 +36,19 @@ class WorkbenchApiTests(unittest.TestCase):
         status, payload, headers = self.request("GET", "/api/agents")
         self.assertEqual(status, 200)
         return headers["Set-Cookie"].split(";", 1)[0], payload["csrf_token"]
+
+    def test_request_timeout_defaults_to_fast_budget_and_accepts_full_analysis_override(self):
+        with patch(f"{__name__}.urlopen") as mocked_urlopen:
+            response = mocked_urlopen.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = b"{}"
+            response.headers = {}
+
+            self.request("GET", "/api/workbench/tasks")
+            self.request("POST", "/api/workbench/tasks/task-1/runs", {}, timeout=15)
+
+        self.assertEqual(mocked_urlopen.call_args_list[0].kwargs["timeout"], 2)
+        self.assertEqual(mocked_urlopen.call_args_list[1].kwargs["timeout"], 15)
 
     def test_task_create_list_update_and_csrf_boundary(self):
         status, payload, _ = self.request(
@@ -156,6 +170,7 @@ class WorkbenchApiTests(unittest.TestCase):
             {"execute": True, "proposal": {"hypotheses": []}},
             cookie=self.cookie,
             csrf=self.csrf,
+            timeout=15,
         )
         self.assertEqual(status, 201, analysis)
         demo_nodes = {node["node_id"]: node for node in analysis["evidence_graph"]["nodes"]}
@@ -235,6 +250,7 @@ class WorkbenchApiTests(unittest.TestCase):
             {"execute": True, "proposal": {"hypotheses": []}},
             cookie=self.cookie,
             csrf=self.csrf,
+            timeout=15,
         )
         self.assertEqual(status, 201, analysis)
         self.assertEqual(analysis["events"][0]["summary"]["runner"], "connected")
@@ -599,7 +615,7 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(status, 201, payload)
         return payload["task"]
 
-    def request(self, method, path, payload=None, cookie=None, csrf=None):
+    def request(self, method, path, payload=None, cookie=None, csrf=None, timeout=2):
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if cookie:
@@ -608,7 +624,7 @@ class WorkbenchApiTests(unittest.TestCase):
             headers["X-CSRF-Token"] = csrf
         request = Request(f"{self.base_url}{path}", data=data, method=method, headers=headers)
         try:
-            with urlopen(request, timeout=2) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return response.status, json.loads(response.read().decode("utf-8")), response.headers
         except HTTPError as error:
             try:
