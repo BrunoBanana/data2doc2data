@@ -9,7 +9,8 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_package_metadata_declares_the_mit_license(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn('license = { text = "MIT" }', pyproject)
+        self.assertIn('license = "MIT"', pyproject)
+        self.assertNotIn('license = { text = "MIT" }', pyproject)
 
     def test_v3_metadata_agrees_across_release_surfaces_and_records_history(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

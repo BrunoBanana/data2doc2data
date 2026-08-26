@@ -8,7 +8,7 @@ version = "3.0.0"
 description = "面向真实业务的数据与文本循环推理架构。"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Data2Doc2Data contributors" }]
 classifiers = [
   "Programming Language :: Python :: 3",
