@@ -783,6 +783,7 @@ class AgentFlowEngine:
                 text_dashboard.to_dict(),
                 graph().to_dict(),
                 run_count=len(self.store.list_runs(task.task_id)),
+                run_events=[event.to_dict() for event in events],
             )
             add_node(EvidenceNode("analysis-report", "report", report.filename, "verified", report.filename), "delivery")
             add_edge(
@@ -796,6 +797,7 @@ class AgentFlowEngine:
                 text_dashboard.to_dict(),
                 final_graph.to_dict(),
                 run_count=len(self.store.list_runs(task.task_id)),
+                run_events=[event.to_dict() for event in events],
             )
             emit("evidence.linked", "evidence", {"node_count": len(nodes), "edge_count": len(edges)}, (graph_id,))
             emit(

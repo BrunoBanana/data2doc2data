@@ -455,6 +455,7 @@ class McpBusinessWorkflowTests(unittest.TestCase):
             html = Path(resource["uri"].removeprefix("file://")).read_text(encoding="utf-8")
             self.assertIn("260", html)
             self.assertIn("detect_anomalies", html)
+            self.assertIn("通信与恢复审计", html)
             self.assertNotIn("尚无可量化结论", html)
             self.assertNotIn("当前任务尚未接入可分析的数据快照", html)
             self.assertNotIn("文本材料尚未纳入", html)

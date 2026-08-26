@@ -66,6 +66,7 @@ def build_html_report(
     run_count: int,
     artifact_dashboard: Mapping[str, Any] | None = None,
     business_findings: Mapping[str, Any] | None = None,
+    run_events: Sequence[Mapping[str, Any]] | None = None,
 ) -> HtmlReportArtifact:
     blocks = _list(dashboard, "blocks")
     kpis = [block for block in blocks if block.get("kind") == "kpi"]
@@ -86,6 +87,7 @@ def build_html_report(
 <header class="report-header"><p class="eyebrow">DATA2DOC2DATA · LOCAL ANALYSIS REPORT</p><h1>{escape(task.title)}</h1><p class="goal">{escape(task.goal)}</p><div class="meta"><span>任务 {escape(task.task_id)}</span><span>{len(task.snapshot_refs)} 项锁定资产</span><span>{run_count} 次运行</span></div></header>
 <section class="executive"><p class="eyebrow">DECISION BRIEF</p><h2>分析结论</h2><ul>{"".join(f"<li>{item}</li>" for item in summary)}</ul></section>
 {_verification_strip(nodes)}
+{_protocol_audit(run_events)}
 {_kpi_strip(kpis)}
 <section><h2>关键发现</h2>{_findings(findings, dashboard is not None)}</section>
 {_text_findings(text_dashboard, claims)}
@@ -98,6 +100,55 @@ def build_html_report(
 <section class="sources"><h2>来源与计算口径</h2>{_sources(task, blocks, claims)}</section>
 </main><footer>由 Data2Doc2Data 本地工作台生成 · 单文件 HTML · 可离线打开与打印</footer></body></html>"""
     return HtmlReportArtifact(f"data2doc2data-{task.task_id}.html", body)
+
+
+def _protocol_audit(run_events: Sequence[Mapping[str, Any]] | None) -> str:
+    deliveries: list[tuple[str, str, str, int, int]] = []
+    checkpoints = 0
+    for event in (run_events or ())[:1000]:
+        if not isinstance(event, Mapping):
+            continue
+        communication = event.get("communication")
+        if not isinstance(communication, Mapping):
+            continue
+        trace_id = str(communication.get("trace_id", ""))[:200]
+        sender = str(communication.get("sender", ""))[:200]
+        receiver = str(communication.get("receiver", ""))[:200]
+        attempt_value = communication.get("attempt", 1)
+        attempt = attempt_value if isinstance(attempt_value, int) and not isinstance(attempt_value, bool) else 1
+        refs = event.get("artifact_refs")
+        artifact_count = len(refs) if isinstance(refs, (list, tuple)) else 0
+        if trace_id and sender and receiver:
+            deliveries.append((trace_id, sender, receiver, max(1, attempt), artifact_count))
+        if event.get("kind") == "cycle.checkpointed":
+            checkpoints += 1
+    if not deliveries:
+        return (
+            '<section class="protocol-audit"><p class="eyebrow">AGENT FLOW PROTOCOL</p>'
+            '<h2>通信与恢复审计</h2><article class="empty"><strong>当前报告未附带运行事件。</strong>'
+            '<p>数据、文本、证据与结论仍由锁定快照和产物引用约束。</p></article></section>'
+        )
+    trace_id = deliveries[0][0]
+    actors = {actor for _, sender, receiver, _, _ in deliveries for actor in (sender, receiver)}
+    maximum_attempt = max(item[3] for item in deliveries)
+    artifact_count = sum(item[4] for item in deliveries)
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(sender)} → {escape(receiver)}</td>"
+        f"<td>{attempt}</td><td>{refs}</td></tr>"
+        for _, sender, receiver, attempt, refs in deliveries[-12:]
+    )
+    return (
+        '<section class="protocol-audit"><p class="eyebrow">AGENT FLOW PROTOCOL</p>'
+        '<h2>通信与恢复审计</h2>'
+        f'<div class="meta"><span>TRACE {escape(trace_id)}</span><span>{len(deliveries)} 条消息</span>'
+        f'<span>{len(actors)} 个执行节点</span><span>最大尝试 {maximum_attempt}</span>'
+        f'<span>检查点 {checkpoints}</span><span>产物引用 {artifact_count}</span></div>'
+        '<table><thead><tr><th>最近交接</th><th>尝试</th><th>产物</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+        '<p class="note">这里只展示公开协议元数据和产物计数，不包含原始数据、提示词或模型隐性思维过程。</p>'
+        "</section>"
+    )
 
 
 def _diagnostic_findings(dashboard: Mapping[str, Any] | None) -> str:
@@ -239,6 +290,7 @@ def build_html_report_from_cycle(
     text_dashboard: Mapping[str, Any] | None = None,
     artifact_dashboard: Mapping[str, Any] | None = None,
     business_findings: Mapping[str, Any] | None = None,
+    run_events: Sequence[Mapping[str, Any]] | None = None,
 ) -> HtmlReportArtifact:
     """Build the same standalone report contract directly from persisted artifacts."""
     graph = build_cycle_evidence_graph(cycle, artifact_store)
@@ -251,6 +303,7 @@ def build_html_report_from_cycle(
         run_count=run_count,
         artifact_dashboard=diagnostics,
         business_findings=business_findings,
+        run_events=run_events,
     )
     cards = []
     for index, artifact_ref in enumerate(cycle.artifact_refs, 1):

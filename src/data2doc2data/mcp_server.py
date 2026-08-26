@@ -547,6 +547,7 @@ def _generate_cycle_html_report_tool(arguments: dict[str, object], store: Profil
     text_dashboard = None
     artifact_dashboard = None
     business_findings = None
+    run_events = None
     try:
         combined = WorkbenchService(workspace)._task_dashboard(task)
         dashboard = combined.get("dashboard")
@@ -559,6 +560,7 @@ def _generate_cycle_html_report_tool(arguments: dict[str, object], store: Profil
         if isinstance(candidate, dict) and candidate.get("cycle_id") == cycle.cycle_id:
             artifact_dashboard = workspace.get_run_artifact(run.run_id, "artifact_dashboard")
             business_findings = workspace.get_run_artifact(run.run_id, "business_evidence")
+            run_events = [event.to_dict() for event in workspace.events_after(run.run_id)]
             break
     artifact = build_html_report_from_cycle(
         task,
@@ -569,6 +571,7 @@ def _generate_cycle_html_report_tool(arguments: dict[str, object], store: Profil
         text_dashboard=text_dashboard if isinstance(text_dashboard, dict) else None,
         artifact_dashboard=artifact_dashboard if isinstance(artifact_dashboard, dict) else None,
         business_findings=business_findings if isinstance(business_findings, dict) else None,
+        run_events=run_events,
     )
     approved_root = store.path.parent.expanduser().resolve() / "reports"
     safe_name = safe_report_filename(filename or artifact.filename, artifact.filename)

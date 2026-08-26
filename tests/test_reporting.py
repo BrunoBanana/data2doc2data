@@ -16,6 +16,46 @@ class _Parser(HTMLParser):
 
 
 class ReportingTests(unittest.TestCase):
+    def test_report_renders_an_escaped_protocol_audit_from_persisted_events(self):
+        task = AnalysisTask.create("task-protocol", "协议复盘", "检查 Agent Flow 可追踪性")
+        run_events = [
+            {
+                "kind": "tool.started",
+                "artifact_refs": ["artifact-1"],
+                "communication": {
+                    "trace_id": "run-protocol",
+                    "message_id": "msg-1",
+                    "sender": "<agent>",
+                    "receiver": "tool.profile_data",
+                    "attempt": 2,
+                    "idempotency_key": "delivery-abc",
+                    "deadline_at": "2026-08-26T08:00:00Z",
+                },
+            },
+            {
+                "kind": "cycle.checkpointed",
+                "artifact_refs": [],
+                "communication": {
+                    "trace_id": "run-protocol",
+                    "message_id": "msg-2",
+                    "sender": "orchestrator",
+                    "receiver": "evidence_store",
+                    "attempt": 1,
+                    "idempotency_key": "delivery-def",
+                    "deadline_at": None,
+                },
+            },
+        ]
+
+        report = build_html_report(task, None, None, None, run_count=1, run_events=run_events)
+
+        self.assertIn("通信与恢复审计", report.html)
+        self.assertIn("TRACE run-protocol", report.html)
+        self.assertIn("&lt;agent&gt; → tool.profile_data", report.html)
+        self.assertIn("最大尝试 2", report.html)
+        self.assertIn("检查点 1", report.html)
+        self.assertNotIn("<agent>", report.html)
+
     def test_report_is_answer_first_self_contained_and_escaped(self):
         task = AnalysisTask.create(
             "task-1",

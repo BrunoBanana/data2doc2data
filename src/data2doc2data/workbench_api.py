@@ -395,6 +395,7 @@ class WorkbenchService:
         graph = None
         artifact_dashboard = None
         business_findings = None
+        run_events = None
         for run in runs:
             candidate = self.store.get_run_artifact(run.run_id, "evidence_graph")
             if isinstance(candidate, Mapping):
@@ -405,6 +406,7 @@ class WorkbenchService:
                 business_candidate = self.store.get_run_artifact(run.run_id, "business_evidence")
                 if isinstance(business_candidate, Mapping):
                     business_findings = business_candidate
+                run_events = [event.to_dict() for event in self.store.events_after(run.run_id)]
                 break
         return build_html_report(
             task,
@@ -414,6 +416,7 @@ class WorkbenchService:
             run_count=len(runs),
             artifact_dashboard=artifact_dashboard,
             business_findings=business_findings,
+            run_events=run_events,
         )
 
     def events_after(self, owner_id: str, run_id: str, after: object, limit: object) -> dict[str, object]:
