@@ -22,6 +22,7 @@ class PublicBoundaryTests(unittest.TestCase):
             path
             for path in PACKAGE_ROOT.rglob("*")
             if path.is_file()
+            and ".venv" not in path.relative_to(PACKAGE_ROOT).parts
             and "tests" not in path.relative_to(PACKAGE_ROOT).parts
             and path.suffix in PUBLIC_SUFFIXES
         ]
@@ -35,4 +36,3 @@ class PublicBoundaryTests(unittest.TestCase):
                     matches.append(f"{path.relative_to(PACKAGE_ROOT)}: {marker}")
 
         self.assertEqual(matches, [], "Private markers found in public package")
-

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "default": "growth-quality-alert",
+  "scenarios": [
+    {
+      "id": "growth-quality-alert",
+      "label": "增长质量预警",
+      "summary": "激活改善，但留存下降。",
+      "suggested_question": "留存为什么下降？",
+      "learning_objective": "展示数据与策略语境相互印证时，系统如何给出受支持结论。",
+      "expected_validation": "supported"
+    },
+    {
+      "id": "strategy-data-conflict",
+      "label": "策略与数据冲突",
+      "summary": "策略假设与实际指标方向相反。",
+      "suggested_question": "留存变化符合策略预期吗？",
+      "learning_objective": "展示系统如何识别互相矛盾的结构化证据。",
+      "expected_validation": "contradicted"
+    },
+    {
+      "id": "insufficient-evidence",
+      "label": "证据不足",
+      "summary": "现有资料缺少验证所需的第二指标。",
+      "suggested_question": "留存变化已经得到充分解释了吗？",
+      "learning_objective": "展示系统如何说明缺失证据，而不是强行下结论。",
+      "expected_validation": "insufficient"
+    }
+  ]
+}

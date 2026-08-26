@@ -1,0 +1,18 @@
+{
+  "name": "data2doc2data",
+  "version": "3.0.0",
+  "description": "本地数据与文本交叉分析：Agent 调度计算、验证业务假设并生成可追溯的 HTML 报告。",
+  "author": {
+    "name": "Data2Doc2Data contributors"
+  },
+  "repository": "https://github.com/BrunoBanana/data2doc2data",
+  "license": "MIT",
+  "keywords": ["analytics", "mcp", "evidence", "business-intelligence"],
+  "mcpServers": {
+    "data2doc2data": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CODEBUDDY_PLUGIN_ROOT}/scripts/plugin_mcp.py"]
+    }
+  }
+}

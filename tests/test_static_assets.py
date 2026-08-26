@@ -6,54 +6,64 @@ STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "data2doc2data" / "s
 
 
 class StaticAssetTests(unittest.TestCase):
-    def test_setup_page_uses_only_local_assets_and_has_required_controls(self):
+    def test_page_uses_only_local_assets_and_has_required_controls(self):
         html = read_static("index.html")
 
         self.assertNotIn("https://", html)
         self.assertNotIn("http://", html)
-        for control in ("data-mode", "data-path", "knowledge-path", "analysis-question", "metric-override"):
+        for control in ("data-mode", "data-path", "knowledge-path", "agent-message", "conversation-log"):
             self.assertIn(f'id="{control}"', html)
 
-    def test_setup_page_uses_chinese_product_copy(self):
+    def test_page_uses_chinese_product_copy(self):
         html = read_static("index.html")
-        script = read_static("app.js")
+        script = read_all_js()
 
         self.assertIn('<html lang="zh-CN">', html)
-        for copy in ("本地证据工作台", "先理解指标，再采取行动。", "选择要分析的内容", "开始分析"):
+        for copy in ("本地证据工作台", "先理解指标，再采取行动。", "证据流程", "数据源设置"):
             self.assertIn(copy, html)
-        for copy in ("正在读取本地证据", "分析完成。", "留存率", "获得数据支持"):
+        for copy in ("确定性结论", "验证：", "正在保存数据源"):
             self.assertIn(copy, script)
         self.assertNotIn("Local evidence workspace", html)
 
     def test_styles_include_focus_and_reduced_motion_support(self):
         css = read_static("app.css")
 
+        self.assertIn("[hidden]", css)
         self.assertIn(":focus-visible", css)
         self.assertIn("prefers-reduced-motion", css)
         self.assertIn("transform: scale(.97)", css)
 
-    def test_validation_status_has_semantic_style_contract(self):
-        script = read_static("app.js")
+    def test_deterministic_message_and_pipeline_state_have_semantic_style(self):
+        script = read_all_js()
         css = read_static("app.css")
-
-        self.assertIn("dataset.status = result.validation.status", script)
-        self.assertIn('[data-status="mixed"]', css)
-        self.assertIn('[data-status="insufficient"]', css)
-
-    def test_setup_page_renders_secondary_data_verification(self):
         html = read_static("index.html")
-        script = read_static("app.js")
 
-        self.assertIn('id="result-verification-title"', html)
-        self.assertIn('id="result-verification-copy"', html)
-        self.assertIn("result.verification", script)
+        self.assertIn('data-step="verification"', html)
+        self.assertIn('"deterministic"', script)
+        self.assertIn(".message-deterministic", css)
+        self.assertIn('[data-state="done"]', css)
+        self.assertIn('[data-state="error"]', css)
+
+    def test_pipeline_exposes_verification_step(self):
+        html = read_static("index.html")
+        script = read_all_js()
+
+        self.assertIn('data-step="verification"', html)
+        self.assertIn('data-step="conclusion"', html)
+        self.assertIn("analysis.verification", script)
+        self.assertIn("analysis.validation", script)
 
     def test_script_calls_only_loopback_api_routes(self):
-        script = read_static("app.js")
+        script = read_all_js()
 
-        for route in ("/api/profile", "/api/analyze"):
+        for route in (
+            "/api/profile",
+            "/api/demo-scenarios",
+            "/api/analyze",
+            "/api/agents",
+            "/api/agent-sessions",
+        ):
             self.assertIn(route, script)
-        self.assertIn("metric_override", script)
         self.assertNotIn("https://", script)
         self.assertNotIn("http://", script)
 
@@ -63,6 +73,15 @@ def read_static(name: str) -> str:
     if not path.is_file():
         raise AssertionError(f"missing static asset: {name}")
     return path.read_text(encoding="utf-8")
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 if __name__ == "__main__":

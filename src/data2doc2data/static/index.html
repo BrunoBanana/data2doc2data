@@ -4,56 +4,137 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <title>Data2Doc2Data｜数据-文本循环分析</title>
+    <title>Data2Doc2Data｜本地证据工作台</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="app.css">
   </head>
   <body>
     <header class="topbar">
-      <a class="wordmark" href="/" aria-label="Data2Doc2Data 首页">Data2Doc2Data</a>
-      <p class="topbar-copy">本地证据工作台</p>
+      <div class="brand-block">
+        <a class="wordmark" href="/" aria-label="Data2Doc2Data 首页">Data2Doc2Data</a>
+        <span class="product-tagline">先理解指标，再采取行动。</span>
+      </div>
+      <div class="status-strip" aria-label="工作台状态">
+        <span class="status-item"><span class="status-dot"></span><span id="active-source-status">正在读取数据源</span></span>
+        <span id="privacy-status" class="privacy-chip">原始数据本地计算</span>
+      </div>
     </header>
 
-    <main class="app-shell">
-      <aside class="context-panel" aria-label="工作区说明">
-        <p class="eyebrow">数据-文本循环</p>
-        <h1>先理解指标，再采取行动。</h1>
-        <p class="context-copy">将指标变化与决策背景交叉分析；数据始终保留在本机。</p>
-        <dl class="context-list">
-          <div>
-            <dt>数据</dt>
-            <dd>包含 date、metric、value 的 CSV</dd>
-          </div>
-          <div>
-            <dt>文本语境</dt>
-            <dd>本地 Markdown 或文本决策文档</dd>
-          </div>
-          <div>
-            <dt>输出</dt>
-            <dd>数据信号、文档语境、验证结论与证据</dd>
-          </div>
-        </dl>
-      </aside>
+    <main id="workbench-shell" class="workbench-shell">
+      <section class="conversation-pane" aria-label="对话">
+        <div class="assistant-toolbar" aria-label="本地助手">
+          <output id="agent-status" class="state-label" aria-live="polite">正在检测</output>
+          <select id="agent-provider" name="provider" aria-label="本地助手" disabled>
+            <option value="">正在检测</option>
+          </select>
+          <select id="permission-mode" name="permission_mode" aria-label="权限模式">
+            <option value="collaborative">协作模式 · 每次变更需批准</option>
+            <option value="read_only">只读模式 · 禁止变更</option>
+            <option value="trusted_session">信任本次会话 · 同类操作可复用批准</option>
+          </select>
+          <button id="agent-connect" type="button" disabled>连接助手</button>
+          <button id="agent-interrupt" class="button-secondary" type="button" disabled>停止</button>
+        </div>
 
-      <section class="workspace" aria-label="证据工作区">
-        <section class="panel source-panel" aria-labelledby="sources-heading">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">工作区数据源</p>
-              <h2 id="sources-heading">选择要分析的内容</h2>
+        <div id="conversation-log" class="conversation-log" role="log" aria-live="polite" aria-relevant="additions text">
+          <p id="conversation-empty" class="quiet-copy">问一个业务问题开始。确定性分析结论会在对话中标注，右侧显示完整证据流程。</p>
+        </div>
+
+        <form id="agent-message-form" class="agent-message-form">
+          <label class="field" for="agent-message">
+            <span class="sr-only">发送给助手</span>
+            <textarea id="agent-message" name="message" rows="3" required placeholder="例如：留存为什么下降？"></textarea>
+          </label>
+          <div class="composer-actions">
+            <p id="agent-message-status" class="form-message" role="status" aria-live="polite"></p>
+            <button id="agent-send" type="submit">发送</button>
+          </div>
+        </form>
+
+        <details id="operation-queue" class="operations-panel">
+          <summary>操作、输出与审批 <span id="approval-badge" class="approval-badge" hidden>待审批</span></summary>
+          <div class="operation-queue" aria-live="polite">
+            <p class="quiet-copy">工具调用、命令输出、文件差异和待审批操作会显示在这里。</p>
+          </div>
+        </details>
+      </section>
+
+      <aside class="pipeline-pane" aria-label="证据流程">
+        <div class="column-heading">
+          <div>
+            <p class="eyebrow">Evidence</p>
+            <h1>证据流程</h1>
+          </div>
+          <span id="agent-context-status" class="micro-badge">等待提问</span>
+        </div>
+
+        <ol id="pipeline-steps" class="pipeline-steps">
+          <li class="pipeline-step" data-step="source">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>数据源</h2>
+              <span class="step-status">—</span>
             </div>
-            <output id="profile-state" class="state-label" aria-live="polite">正在加载工作区</output>
-          </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="signal">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>数据信号</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="retrieval">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>文档检索</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="verification">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>回到数据验证</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+          <li class="pipeline-step" data-step="conclusion">
+            <div class="step-head">
+              <span class="step-dot"></span>
+              <h2>结论</h2>
+              <span class="step-status">—</span>
+            </div>
+            <div class="step-body" hidden></div>
+          </li>
+        </ol>
 
+        <p class="snapshot-line">快照 <code id="context-snapshot-id">—</code> · 契约 <code id="context-contract-version">—</code></p>
+
+        <details class="source-settings">
+          <summary>数据源设置</summary>
           <form id="profile-form" class="source-form">
             <label class="field" for="data-mode">
-              <span>数据源类型</span>
+              <span>来源类型</span>
               <select id="data-mode" name="mode">
                 <option value="demo">内置演示</option>
                 <option value="local">本地文件</option>
               </select>
             </label>
-
+            <div id="demo-scenario-fields" class="scenario-fields">
+              <label class="field" for="demo-scenario">
+                <span>演示场景</span>
+                <select id="demo-scenario" name="demo_scenario" aria-describedby="demo-scenario-summary demo-scenario-objective" disabled>
+                  <option value="">正在加载演示场景</option>
+                </select>
+              </label>
+              <div class="scenario-notes">
+                <p id="demo-scenario-summary" aria-live="polite">所有演示资料均为虚构合成数据。</p>
+                <p id="demo-scenario-objective" aria-live="polite"></p>
+              </div>
+            </div>
             <div id="local-source-fields" class="local-fields" hidden>
               <label class="field" for="data-path">
                 <span>CSV 数据路径</span>
@@ -63,75 +144,119 @@
                 <span>文档目录</span>
                 <input id="knowledge-path" name="knowledge_path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
               </label>
-              <p class="field-hint">保存前会在本机校验路径。CSV 需要 date、metric、value 三列。</p>
+              <details class="advanced-fields">
+                <summary>高级选项</summary>
+                <label class="field" for="rules-path">
+                  <span>验证规则 JSON（可选）</span>
+                  <input id="rules-path" name="rules_path" type="text" autocomplete="off" placeholder="/Users/name/rules.json">
+                  <span class="field-hint">留空则使用内置指标；填写后按自定义指标与命名规则裁决。</span>
+                </label>
+              </details>
+              <p class="field-hint">CSV 需含 date、metric、value 三列；保存后即可在对话中开始分析。</p>
             </div>
-
-            <div class="form-footer">
-              <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
-              <button type="submit">保存工作区</button>
-            </div>
+            <p id="profile-message" class="form-message" role="status" aria-live="polite"></p>
+            <button type="submit">保存数据源</button>
           </form>
-        </section>
+          <dl id="source-summary" class="context-metadata">
+            <div><dt>记录</dt><dd id="source-record-count">—</dd></div>
+            <div><dt>指标</dt><dd id="source-metric-count">—</dd></div>
+            <div><dt>文档</dt><dd id="source-document-count">—</dd></div>
+          </dl>
+          <p id="source-profile-label" class="source-label">正在建立本地数据画像</p>
+          <p class="context-disclosure">本地统计和相关文档片段会发送给所选助手提供方。</p>
+        </details>
 
-        <section class="panel analysis-panel" aria-labelledby="analysis-heading">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">交叉验证</p>
-              <h2 id="analysis-heading">提出业务问题</h2>
-            </div>
+        <details class="ingest-settings">
+          <summary>接入任意数据源（CSV / JSON / XLSX / API）</summary>
+          <p class="field-hint">支持非标准格式：本地文件会自动探测字段并给出映射建议；数据 API 会拉取快照后在本地解析。原始数据始终留在你的机器上。</p>
+
+          <div class="ingest-tabs" role="tablist">
+            <button type="button" class="ingest-tab" data-ingest-tab="local" aria-selected="true">本地文件</button>
+            <button type="button" class="ingest-tab" data-ingest-tab="api" aria-selected="false">数据 API</button>
           </div>
 
-          <form id="analysis-form" class="analysis-form">
-            <label class="field" for="analysis-question">
-              <span>你的问题</span>
-              <textarea id="analysis-question" name="question" rows="3" required>留存为什么下降？</textarea>
+          <div class="ingest-panel" data-ingest-panel="local">
+            <label class="field" for="ingest-file">
+              <span>选择文件（CSV / TSV / JSON / XLSX）</span>
+              <input id="ingest-file" type="file" accept=".csv,.tsv,.json,.xlsx,.xlsm">
             </label>
-            <label class="field" for="metric-override">
-              <span>指定指标（可选）</span>
-              <input id="metric-override" name="metric_override" type="text" autocomplete="off" placeholder="retention_rate">
-              <span class="field-hint">当问题无法唯一指向一个指标时，请在这里明确填写。</span>
-            </label>
-            <div class="form-footer">
-              <p id="analysis-message" class="form-message" role="status" aria-live="polite"></p>
-              <button type="submit">开始分析</button>
-            </div>
-          </form>
+            <p id="ingest-local-message" class="form-message" role="status" aria-live="polite"></p>
 
-          <div id="analysis-empty" class="empty-state">
-            <p>开始一次分析，查看数据信号、最相关的文档语境与验证结论。</p>
+            <p class="field-hint">或填写本机上的文件绝对路径（适合超大文件，免上传）：</p>
+            <label class="field" for="ingest-local-path">
+              <span>本机文件路径</span>
+              <input id="ingest-local-path" type="text" autocomplete="off" placeholder="/Users/name/data.xlsx">
+            </label>
+            <button id="ingest-local-path-use" type="button" class="button-secondary">用本机路径预览</button>
+            <p id="ingest-local-path-message" class="form-message" role="status" aria-live="polite"></p>
           </div>
 
-          <article id="analysis-result" class="analysis-result" hidden aria-live="polite">
-            <section class="result-block">
-              <p class="eyebrow">数据信号</p>
-              <h3 id="result-signal-title"></h3>
-              <p id="result-signal-copy"></p>
-            </section>
-            <section class="result-block">
-              <p class="eyebrow">文档语境</p>
-              <blockquote id="result-context-copy"></blockquote>
-              <p id="result-context-source" class="source-path"></p>
-            </section>
-            <section class="result-block verification-block">
-              <p class="eyebrow">数据验证</p>
-              <h3 id="result-verification-title"></h3>
-              <p id="result-verification-copy"></p>
-            </section>
-            <section class="result-block validation-block">
-              <p class="eyebrow">验证结论</p>
-              <h3 id="result-validation-status"></h3>
-              <p id="result-validation-copy"></p>
-            </section>
-            <section class="result-block evidence-block">
-              <p class="eyebrow">证据来源</p>
-              <ul id="result-evidence"></ul>
-              <p id="result-limitation" class="limitation"></p>
-            </section>
-          </article>
-        </section>
-      </section>
+          <div class="ingest-panel" data-ingest-panel="api" hidden>
+            <label class="field" for="ingest-api-url">
+              <span>API 地址（需 https 开头）</span>
+              <input id="ingest-api-url" type="url" placeholder="API 文档或数据接口地址">
+            </label>
+            <label class="field" for="ingest-api-headers">
+              <span>请求头（可选，JSON）</span>
+              <textarea id="ingest-api-headers" rows="2" placeholder='如 {"Authorization":"Bearer ..."}'></textarea>
+            </label>
+            <button id="ingest-api-fetch" type="button" class="button-secondary">拉取快照并预览</button>
+            <p id="ingest-api-message" class="form-message" role="status" aria-live="polite"></p>
+          </div>
+
+          <div id="ingest-agent-row" class="ingest-agent-row">
+            <label class="field-checkbox" for="ingest-use-agent">
+              <input id="ingest-use-agent" type="checkbox">
+              <span>预览时请助手自动推断映射（可选；无可用助手时自动回退内置建议）</span>
+            </label>
+          </div>
+
+          <div id="ingest-preview" class="ingest-preview" hidden></div>
+
+          <div id="ingest-propose-row" class="ingest-propose-row" hidden>
+            <button id="ingest-propose" type="button" class="button-secondary">让助手帮我推断映射（可选）</button>
+            <p class="field-hint">助手只读取已解析出的字段名与样例数据来推断日期/指标/数值的映射；最终仍由确定性引擎逐行校验。</p>
+          </div>
+
+          <form id="ingest-plan-form" class="ingest-plan" hidden>
+            <p class="ingest-plan-title">字段映射方案</p>
+            <label class="field" for="ingest-date-field">
+              <span>日期字段</span>
+              <select id="ingest-date-field"></select>
+            </label>
+            <label class="field" for="ingest-metric-field">
+              <span>指标字段</span>
+              <select id="ingest-metric-field"></select>
+            </label>
+            <label class="field" for="ingest-value-field">
+              <span>数值字段</span>
+              <select id="ingest-value-field"></select>
+            </label>
+            <label class="field" for="ingest-records-path">
+              <span>记录路径（JSON 嵌套路径，可选）</span>
+              <input id="ingest-records-path" type="text" autocomplete="off" placeholder="如 data.rows">
+            </label>
+            <label class="field" for="ingest-sheet">
+              <span>工作表（XLSX，可选）</span>
+              <select id="ingest-sheet"></select>
+            </label>
+            <label class="field" for="ingest-date-format">
+              <span>日期格式（可选）</span>
+              <input id="ingest-date-format" type="text" autocomplete="off" placeholder="如 %Y-%m-%d">
+            </label>
+            <label class="field" for="ingest-knowledge-path">
+              <span>文档目录（确定性结论的证据来源，可选）</span>
+              <input id="ingest-knowledge-path" type="text" autocomplete="off" placeholder="/Users/name/decision-notes">
+            </label>
+            <p id="ingest-plan-message" class="form-message" role="status" aria-live="polite"></p>
+            <button id="ingest-apply" type="submit">应用并设为数据源</button>
+          </form>
+
+          <div id="ingest-result" class="ingest-result" hidden></div>
+        </details>
+      </aside>
     </main>
 
-    <script src="app.js" defer></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

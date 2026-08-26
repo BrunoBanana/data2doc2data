@@ -11,23 +11,91 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = ("README.md", "SKILL.md", "pyproject.toml")
 PUBLIC_RESOURCE_FILES = (
+    ".codebuddy-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
     "agents/openai.yaml",
     "references/connector-guide.md",
+    "scripts/plugin_mcp.py",
+    "skills/data2doc2data/SKILL.md",
     "src/data2doc2data/__init__.py",
+    "src/data2doc2data/agent_api.py",
+    "src/data2doc2data/agents/__init__.py",
+    "src/data2doc2data/agents/_shared.py",
+    "src/data2doc2data/agents/base.py",
+    "src/data2doc2data/agents/codex.py",
+    "src/data2doc2data/agents/gateway.py",
+    "src/data2doc2data/agents/workbuddy.py",
     "src/data2doc2data/analysis.py",
+    "src/data2doc2data/analysis_cycle.py",
+    "src/data2doc2data/analytical_table.py",
+    "src/data2doc2data/artifacts.py",
     "src/data2doc2data/cli.py",
     "src/data2doc2data/config.py",
+    "src/data2doc2data/cross_modal.py",
+    "src/data2doc2data/cycle_planner.py",
+    "src/data2doc2data/cycle_runner.py",
+    "src/data2doc2data/dashboard.py",
+    "src/data2doc2data/data_profile.py",
+    "src/data2doc2data/demo_scenarios.py",
+    "src/data2doc2data/diagnostics.py",
+    "src/data2doc2data/documents.py",
+    "src/data2doc2data/evidence_context.py",
+    "src/data2doc2data/evidence_graph.py",
+    "src/data2doc2data/flagship_cases.py",
+    "src/data2doc2data/flow_engine.py",
+    "src/data2doc2data/flow_tools.py",
+    "src/data2doc2data/hypotheses.py",
+    "src/data2doc2data/ingestion.py",
+    "src/data2doc2data/integrations.py",
+    "src/data2doc2data/knowledge.py",
+    "src/data2doc2data/mcp_server.py",
+    "src/data2doc2data/metrics.py",
+    "src/data2doc2data/orchestrator.py",
+    "src/data2doc2data/permissions.py",
+    "src/data2doc2data/plugin_service.py",
+    "src/data2doc2data/provenance.py",
+    "src/data2doc2data/providers.py",
+    "src/data2doc2data/reporting.py",
+    "src/data2doc2data/retrieval.py",
+    "src/data2doc2data/rules.py",
+    "src/data2doc2data/run_events.py",
+    "src/data2doc2data/semantic_text.py",
     "src/data2doc2data/server.py",
-    "src/data2doc2data/sample/metrics.csv",
-    "src/data2doc2data/sample/strategy.md",
+    "src/data2doc2data/sessions.py",
+    "src/data2doc2data/source_resolver.py",
+    "src/data2doc2data/text_dashboard.py",
+    "src/data2doc2data/text_ml.py",
+    "src/data2doc2data/workbench_api.py",
+    "src/data2doc2data/workspace.py",
+    "src/data2doc2data/workspace_store.py",
+    "src/data2doc2data/sample/scenarios/catalog.json",
+    "src/data2doc2data/sample/scenarios/growth-quality-alert/metrics.csv",
+    "src/data2doc2data/sample/scenarios/growth-quality-alert/strategy.md",
+    "src/data2doc2data/sample/scenarios/strategy-data-conflict/metrics.csv",
+    "src/data2doc2data/sample/scenarios/strategy-data-conflict/strategy.md",
+    "src/data2doc2data/sample/scenarios/insufficient-evidence/metrics.csv",
+    "src/data2doc2data/sample/scenarios/insufficient-evidence/strategy.md",
+    "src/data2doc2data/static/api.js",
     "src/data2doc2data/static/app.css",
     "src/data2doc2data/static/app.js",
+    "src/data2doc2data/static/assistant-panel.js",
+    "src/data2doc2data/static/data-panel.js",
     "src/data2doc2data/static/favicon.svg",
+    "src/data2doc2data/static/ingest-panel.js",
     "src/data2doc2data/static/index.html",
+    "src/data2doc2data/static/pipeline.js",
+    "src/data2doc2data/static/state.js",
+    "src/data2doc2data/static/ui.js",
+)
+PUBLIC_RESOURCE_DIRECTORIES = (
+    "integrations",
+    "src/data2doc2data/integration_templates",
+    "src/data2doc2data/sample/cases",
+    "src/data2doc2data/static/dist",
 )
 SKILLHUB_METADATA = (
     ("slug", "data2doc2data"),
-    ("version", "2.9.0"),
+    ("version", "3.0.0"),
     ("displayName", "Data2Doc2Data-面向真实业务的数据+文本循环推理架构"),
     ("summary", "面向真实业务场景，让数据指标与策略、决策文档形成可验证的循环推理。"),
     ("tags", "[analytics, local-first, evidence]"),
@@ -52,11 +120,34 @@ SENSITIVE_PUBLIC_PATTERNS = (
 
 def bundle_files(root: Path = ROOT) -> list[Path]:
     """Return the public Skill files in a stable order."""
-    files = [root / name for name in ROOT_FILES]
-    if (root / "LICENSE").is_file():
-        files.append(root / "LICENSE")
-    files.extend(root / relative_path for relative_path in PUBLIC_RESOURCE_FILES if (root / relative_path).is_file())
+    files = []
+    for name in ROOT_FILES:
+        path = root / name
+        if path.is_symlink():
+            raise ValueError(f"public bundle refuses a symbolic link at {name}")
+        files.append(path)
+    license_path = root / "LICENSE"
+    if _is_public_regular_file(license_path, root):
+        files.append(license_path)
+    files.extend(
+        root / relative_path
+        for relative_path in PUBLIC_RESOURCE_FILES
+        if _is_public_regular_file(root / relative_path, root)
+    )
+    for relative_directory in PUBLIC_RESOURCE_DIRECTORIES:
+        directory = root / relative_directory
+        if directory.is_dir() and not directory.is_symlink():
+            files.extend(
+                path for path in directory.rglob("*") if _is_public_regular_file(path, root)
+            )
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
+
+
+def _is_public_regular_file(path: Path, root: Path) -> bool:
+    if path.is_symlink():
+        relative_path = path.relative_to(root).as_posix()
+        raise ValueError(f"public bundle refuses a symbolic link at {relative_path}")
+    return path.is_file()
 
 
 def _validate_public_contents(files: list[Path], root: Path) -> None:

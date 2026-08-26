@@ -1,0 +1,7 @@
+import type { TextDashboardSpec } from '../../contracts/dashboard'
+
+const statuses = { pending: '待数据核验', supported: '数据支持', contradicted: '数据矛盾' } as const
+
+export function TextDashboard({ dashboard }: { dashboard: TextDashboardSpec }) {
+  return <section className="text-dashboard" aria-labelledby="text-dashboard-title"><div className="dashboard-heading"><div><p className="eyebrow">TEXT MATERIALS</p><h2 id="text-dashboard-title">文本材料分析</h2></div><span>{dashboard.document_count} 份文档 · {dashboard.failure_count} 个失败</span></div><div className="text-summary"><article><h3>主题</h3><div className="tag-list">{dashboard.topics.length ? dashboard.topics.map((topic) => <span key={topic}>{topic}</span>) : <small>尚未识别主题</small>}</div></article><article><h3>实体</h3><div className="tag-list">{dashboard.entities.length ? dashboard.entities.map((entity) => <span key={entity}>{entity}</span>) : <small>尚未识别实体</small>}</div></article></div><div className="claim-list"><h3>待核验主张</h3>{dashboard.claims.length ? dashboard.claims.map((claim) => <article key={claim.claim_id} className={`claim-card claim-card--${claim.status}`}><span>{statuses[claim.status]}</span><strong>{claim.text}</strong><p>{claim.citation.excerpt}</p><small>{claim.citation.document} · 第 {claim.citation.start_line}{claim.citation.end_line !== claim.citation.start_line ? `–${claim.citation.end_line}` : ''} 行</small></article>) : <p className="muted-copy">没有检测到以“主张：”开头的陈述。</p>}</div></section>
+}

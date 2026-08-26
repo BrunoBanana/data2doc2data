@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "analysis_truth": {
+    "primary_metric": "mrr",
+    "anomaly_dates": [],
+    "change_date": "2026-04-20",
+    "topic_keywords": ["团队", "收入", "留存"],
+    "representative_documents": ["pricing-experiment.md"],
+    "cycle_tools": ["detect_anomalies", "compare_periods", "segment_rank"]
+  },
+  "outcomes": [
+    {
+      "id": "E1",
+      "status": "supported",
+      "summary": "试用注册上升而8周留存下降。",
+      "evidence": [
+        "metrics.csv:trial_signups",
+        "metrics.csv:retention_8w",
+        "growth-strategy.md"
+      ]
+    },
+    {
+      "id": "E2",
+      "status": "supported",
+      "summary": "激活率下降与支持工单积压上升同时发生。",
+      "evidence": [
+        "metrics.csv:activation_rate",
+        "metrics.csv:support_backlog",
+        "customer-research.md"
+      ]
+    },
+    {
+      "id": "E3",
+      "status": "mixed",
+      "summary": "MRR增长，但低价策略的长期扩张收益尚未得到支持。",
+      "evidence": [
+        "metrics.csv:mrr",
+        "metrics.csv:expansion_revenue",
+        "pricing-experiment.md"
+      ]
+    }
+  ]
+}

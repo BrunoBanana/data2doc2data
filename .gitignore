@@ -5,9 +5,17 @@ __pycache__/
 .venv/
 venv/
 build/
-dist/
+/dist/
 *.egg-info/
 .pytest_cache/
 .coverage
 coverage.xml
 .playwright-cli/
+web/node_modules/
+web/test-results/
+web/playwright-report/
+
+# Private presentation materials remain local and must never be published.
+/docs/pitch/
+/docs/plans/*-defense-deck-*.md
+/web/e2e/defense-deck.spec.ts

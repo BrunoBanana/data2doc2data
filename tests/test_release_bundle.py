@@ -15,6 +15,84 @@ SPEC.loader.exec_module(BUNDLE_BUILDER)
 
 
 class ReleaseBundleTests(unittest.TestCase):
+    EXPECTED_RUNTIME_FILES = {
+        "src/data2doc2data/__init__.py",
+        "src/data2doc2data/agent_api.py",
+        "src/data2doc2data/agents/__init__.py",
+        "src/data2doc2data/agents/_shared.py",
+        "src/data2doc2data/agents/base.py",
+        "src/data2doc2data/agents/codex.py",
+        "src/data2doc2data/agents/gateway.py",
+        "src/data2doc2data/agents/workbuddy.py",
+        "src/data2doc2data/analysis.py",
+        "src/data2doc2data/analysis_cycle.py",
+        "src/data2doc2data/analytical_table.py",
+        "src/data2doc2data/artifacts.py",
+        "src/data2doc2data/cli.py",
+        "src/data2doc2data/config.py",
+        "src/data2doc2data/cross_modal.py",
+        "src/data2doc2data/cycle_planner.py",
+        "src/data2doc2data/cycle_runner.py",
+        "src/data2doc2data/demo_scenarios.py",
+        "src/data2doc2data/diagnostics.py",
+        "src/data2doc2data/dashboard.py",
+        "src/data2doc2data/data_profile.py",
+        "src/data2doc2data/documents.py",
+        "src/data2doc2data/evidence_context.py",
+        "src/data2doc2data/evidence_graph.py",
+        "src/data2doc2data/flagship_cases.py",
+        "src/data2doc2data/flow_engine.py",
+        "src/data2doc2data/flow_tools.py",
+        "src/data2doc2data/hypotheses.py",
+        "src/data2doc2data/ingestion.py",
+        "src/data2doc2data/integrations.py",
+        "src/data2doc2data/knowledge.py",
+        "src/data2doc2data/mcp_server.py",
+        "src/data2doc2data/metrics.py",
+        "src/data2doc2data/orchestrator.py",
+        "src/data2doc2data/plugin_service.py",
+        "src/data2doc2data/permissions.py",
+        "src/data2doc2data/provenance.py",
+        "src/data2doc2data/providers.py",
+        "src/data2doc2data/reporting.py",
+        "src/data2doc2data/retrieval.py",
+        "src/data2doc2data/run_events.py",
+        "src/data2doc2data/rules.py",
+        "src/data2doc2data/server.py",
+        "src/data2doc2data/semantic_text.py",
+        "src/data2doc2data/sessions.py",
+        "src/data2doc2data/source_resolver.py",
+        "src/data2doc2data/text_dashboard.py",
+        "src/data2doc2data/text_ml.py",
+        "src/data2doc2data/workbench_api.py",
+        "src/data2doc2data/workspace.py",
+        "src/data2doc2data/workspace_store.py",
+    }
+    EXPECTED_STATIC_FILES = {
+        "src/data2doc2data/static/api.js",
+        "src/data2doc2data/static/app.css",
+        "src/data2doc2data/static/app.js",
+        "src/data2doc2data/static/assistant-panel.js",
+        "src/data2doc2data/static/data-panel.js",
+        "src/data2doc2data/static/favicon.svg",
+        "src/data2doc2data/static/index.html",
+        "src/data2doc2data/static/pipeline.js",
+        "src/data2doc2data/static/state.js",
+        "src/data2doc2data/static/ui.js",
+    }
+    EXPECTED_SCENARIO_FILES = {
+        "src/data2doc2data/sample/scenarios/catalog.json",
+        *{
+            f"src/data2doc2data/sample/scenarios/{scenario}/{name}"
+            for scenario in (
+                "growth-quality-alert",
+                "strategy-data-conflict",
+                "insufficient-evidence",
+            )
+            for name in ("metrics.csv", "strategy.md")
+        },
+    }
+
     def test_public_bundle_requires_a_license(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "skill"
@@ -44,18 +122,42 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertTrue(
                 {
                     "SKILL.md",
+                    ".codex-plugin/plugin.json",
+                    ".codebuddy-plugin/plugin.json",
                     "agents/openai.yaml",
                     "references/connector-guide.md",
                     "pyproject.toml",
+                    "scripts/plugin_mcp.py",
+                    "skills/data2doc2data/SKILL.md",
                     "src/data2doc2data/cli.py",
                     "src/data2doc2data/static/index.html",
                 }.issubset(names)
             )
+            self.assertTrue(self.EXPECTED_RUNTIME_FILES.issubset(names))
+            self.assertTrue(self.EXPECTED_SCENARIO_FILES.issubset(names))
+            self.assertTrue(self.EXPECTED_STATIC_FILES.issubset(names))
+            self.assertIn("src/data2doc2data/static/dist/index.html", names)
+            self.assertTrue(any(name.startswith("src/data2doc2data/static/dist/assets/") for name in names))
             self.assertFalse(any(".egg-info/" in name or "__pycache__/" in name for name in names))
+            self.assertFalse(any(name.endswith(".map") for name in names))
+            for forbidden in (
+                ".env",
+                "agent-sessions.json",
+                "agent-audit.jsonl",
+                "document-index.json",
+                "customer_export.csv",
+                "analysis_results.json",
+                "run_analysis.py",
+                "docs/pitch/",
+                "defense-deck",
+                "tests/",
+            ):
+                self.assertFalse(any(forbidden in name for name in names), forbidden)
+            self.assertNotIn(".mcp.json", names)
 
             for field in (
                 "slug: data2doc2data",
-                "version: 2.9.0",
+                "version: 3.0.0",
                 "displayName: Data2Doc2Data-面向真实业务的数据+文本循环推理架构",
                 "summary: 面向真实业务场景，让数据指标与策略、决策文档形成可验证的循环推理。",
                 "tags: [analytics, local-first, evidence]",
@@ -169,6 +271,24 @@ class ReleaseBundleTests(unittest.TestCase):
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
             self.assertNotIn("src/data2doc2data/customer_export.csv", names)
+
+    def test_bundle_rejects_a_symlink_at_an_allowlisted_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "skill"
+            runtime = root / "src" / "data2doc2data"
+            runtime.mkdir(parents=True)
+            for name in ("README.md", "pyproject.toml", "LICENSE"):
+                (root / name).write_text(name, encoding="utf-8")
+            (root / "SKILL.md").write_text(
+                "---\nname: test-skill\ndescription: Test skill.\n---\n",
+                encoding="utf-8",
+            )
+            outside = Path(directory) / "outside.py"
+            outside.write_text("secret = True\n", encoding="utf-8")
+            (runtime / "analysis.py").symlink_to(outside)
+
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                BUNDLE_BUILDER.build_bundle(Path(directory) / "bundle.zip", root=root)
 
 
 if __name__ == "__main__":

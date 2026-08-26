@@ -1,0 +1,33 @@
+{
+  "id": "retail-promotion-fulfillment",
+  "title": "大促增收、利润与履约恶化",
+  "summary": "促销显著推高 GMV 与订单，但毛利、库存、配送和复购指标出现同步恶化。",
+  "business_question": "大促增长是否来自不可持续折扣，缺货与延迟交付是否正在通过退款、退货和复购影响长期价值？",
+  "learning_objective": "把交易、商品、履约和财务材料连接成可审计的促销质量证据图。",
+  "synthetic": true,
+  "record_count": 260,
+  "metrics": [
+    "gmv",
+    "orders",
+    "conversion_rate",
+    "aov",
+    "gross_margin_rate",
+    "refund_rate",
+    "return_rate",
+    "late_delivery_rate",
+    "stockout_rate",
+    "repeat_purchase_rate"
+  ],
+  "documents": [
+    "campaign-plan.md",
+    "merchandising-note.md",
+    "fulfillment-incidents.md",
+    "finance-review.md",
+    "kpi-glossary.md"
+  ],
+  "time_range": {
+    "start": "2026-01-05",
+    "end": "2026-06-29",
+    "grain": "week"
+  }
+}

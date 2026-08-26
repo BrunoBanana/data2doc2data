@@ -1,0 +1,36 @@
+{
+  "name": "data2doc2data",
+  "version": "3.0.0",
+  "description": "可验证、可恢复、可观察的本地数据与文本交叉分析插件。",
+  "author": {
+    "name": "Data2Doc2Data contributors"
+  },
+  "homepage": "https://github.com/BrunoBanana/data2doc2data",
+  "repository": "https://github.com/BrunoBanana/data2doc2data",
+  "license": "MIT",
+  "keywords": ["analytics", "evidence", "mcp", "local-first", "business-intelligence"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "data2doc2data": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["./scripts/plugin_mcp.py"],
+      "cwd": "."
+    }
+  },
+  "interface": {
+    "displayName": "Data2Doc2Data",
+    "shortDescription": "本地数据与文档交叉验证",
+    "longDescription": "识别经营数据和复盘材料，调度本地统计、文本分析与业务规则验证，交付可追溯的离线 HTML 报告。",
+    "developerName": "Data2Doc2Data contributors",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/BrunoBanana/data2doc2data",
+    "brandColor": "#16A34A",
+    "defaultPrompt": [
+      "分析这些经营数据与复盘文档，生成带证据的 HTML 报告。",
+      "验证这份业务复盘里的判断是否得到真实指标支持。",
+      "解释利润、留存和履约异常，并列出反证与行动建议。"
+    ]
+  }
+}

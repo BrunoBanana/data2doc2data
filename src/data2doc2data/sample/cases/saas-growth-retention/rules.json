@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "metrics": {
+    "mrr": {
+      "aliases": [
+        "月度经常性收入",
+        "mrr"
+      ],
+      "display_name": "月度经常性收入",
+      "unit": "CNY",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 10000,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "trial_signups": {
+      "aliases": [
+        "试用注册数",
+        "trial signups"
+      ],
+      "display_name": "试用注册数",
+      "unit": "count",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 20,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "activation_rate": {
+      "aliases": [
+        "激活率",
+        "activation rate"
+      ],
+      "display_name": "激活率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "retention_8w": {
+      "aliases": [
+        "8周留存率",
+        "retention 8w"
+      ],
+      "display_name": "8周留存率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "churn_rate": {
+      "aliases": [
+        "客户流失率",
+        "churn rate"
+      ],
+      "display_name": "客户流失率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "expansion_revenue": {
+      "aliases": [
+        "扩张收入",
+        "expansion revenue"
+      ],
+      "display_name": "扩张收入",
+      "unit": "CNY",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 10000,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "cac": {
+      "aliases": [
+        "获客成本",
+        "cac"
+      ],
+      "display_name": "获客成本",
+      "unit": "CNY",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 10000,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "support_backlog": {
+      "aliases": [
+        "支持工单积压",
+        "support backlog"
+      ],
+      "display_name": "支持工单积压",
+      "unit": "count",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 20,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    }
+  },
+  "rules": [
+    {
+      "id": "acquisition-retention-divergence",
+      "name": "获客与留存背离",
+      "description": "试用增长但8周留存下降时，增长质量需要复核。",
+      "clauses": [
+        {
+          "metric": "trial_signups",
+          "direction": "up"
+        },
+        {
+          "metric": "retention_8w",
+          "direction": "down"
+        }
+      ]
+    },
+    {
+      "id": "activation-support-pressure",
+      "name": "激活与支持压力",
+      "description": "激活下降且工单积压上升，提示产品或服务承载问题。",
+      "clauses": [
+        {
+          "metric": "activation_rate",
+          "direction": "down"
+        },
+        {
+          "metric": "support_backlog",
+          "direction": "up"
+        }
+      ]
+    },
+    {
+      "id": "unit-economics-pressure",
+      "name": "单位经济性承压",
+      "description": "CAC上升但扩张收入下降时需要收紧渠道与定价。",
+      "clauses": [
+        {
+          "metric": "cac",
+          "direction": "up"
+        },
+        {
+          "metric": "expansion_revenue",
+          "direction": "down"
+        }
+      ]
+    }
+  ]
+}

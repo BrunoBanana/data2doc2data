@@ -1,0 +1,30 @@
+{
+  "id": "saas-growth-retention",
+  "title": "增长提速、留存承压",
+  "summary": "获客和收入持续增长，但激活、留存、服务承载与单位经济性同步承压。",
+  "business_question": "新增试用与 MRR 增长是否建立在低质量获客上，产品版本和支持压力是否正在拖累长期留存？",
+  "learning_objective": "联合增长数据、实验记录、客户研究与指标口径，建立可验证的增长质量证据链。",
+  "synthetic": true,
+  "record_count": 208,
+  "metrics": [
+    "mrr",
+    "trial_signups",
+    "activation_rate",
+    "retention_8w",
+    "churn_rate",
+    "expansion_revenue",
+    "cac",
+    "support_backlog"
+  ],
+  "documents": [
+    "growth-strategy.md",
+    "pricing-experiment.md",
+    "customer-research.md",
+    "kpi-glossary.md"
+  ],
+  "time_range": {
+    "start": "2026-01-05",
+    "end": "2026-06-29",
+    "grain": "week"
+  }
+}

@@ -1,0 +1,174 @@
+import json
+from pathlib import Path
+import subprocess
+import unittest
+
+
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "data2doc2data" / "static"
+
+
+class WebAgentContractTests(unittest.TestCase):
+    def test_page_exposes_accessible_agent_controls(self):
+        html = read_static("index.html")
+
+        for control in (
+            "agent-provider",
+            "permission-mode",
+            "agent-connect",
+            "agent-interrupt",
+            "conversation-log",
+            "agent-message-form",
+            "agent-message",
+            "agent-send",
+            "operation-queue",
+            "agent-status",
+        ):
+            self.assertIn(f'id="{control}"', html)
+        self.assertIn('role="log"', html)
+        self.assertIn('aria-live="polite"', html)
+        self.assertIn("本地助手", html)
+
+    def test_script_uses_csrf_session_api_and_event_source(self):
+        script = read_all_js()
+
+        for route in (
+            '"/api/agents"',
+            '"/api/agent-sessions"',
+            '}/messages`',
+            '}/events`',
+            '}/approvals/${encodeURIComponent(approvalId)}`',
+            '}/interrupt`',
+        ):
+            self.assertIn(route, script)
+        self.assertIn('"X-CSRF-Token"', script)
+        self.assertIn("new EventSource", script)
+        self.assertIn("eventSource.close()", script)
+
+    def test_ingestion_mutations_use_the_csrf_bound_session(self):
+        script = read_static("ingest-panel.js")
+
+        self.assertIn('import { agentRequest } from "./api.js"', script)
+        self.assertEqual(script.count('agentRequest("/api/ingest/'), 6)
+        self.assertNotIn('request("/api/ingest/', script)
+
+    def test_agent_request_renews_an_expired_browser_session_once(self):
+        api_path = STATIC_ROOT / "api.js"
+        node_script = f"""
+import fs from "node:fs";
+
+globalThis.agentState = {{ csrfToken: "expired-token" }};
+const calls = [];
+const responses = [
+  new Response(JSON.stringify({{ error: "agent request authorization failed" }}), {{ status: 403 }}),
+  new Response(JSON.stringify({{ agents: [], csrf_token: "fresh-token" }}), {{ status: 200 }}),
+  new Response(JSON.stringify({{ ok: true }}), {{ status: 200 }}),
+];
+globalThis.fetch = async (path, options = {{}}) => {{
+  calls.push({{ path, token: options.headers?.["X-CSRF-Token"] || null }});
+  return responses.shift();
+}};
+const source = fs.readFileSync({json.dumps(str(api_path))}, "utf8")
+  .replace('import {{ agentState }} from "./state.js";', "const agentState = globalThis.agentState;");
+const encoded = Buffer.from(source).toString("base64");
+const api = await import(`data:text/javascript;base64,${{encoded}}`);
+const payload = await api.agentRequest("/api/ingest/preview", {{ method: "POST", body: "{{}}" }});
+process.stdout.write(JSON.stringify({{ calls, payload, token: agentState.csrfToken }}));
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "--eval", node_script],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["payload"], {"ok": True})
+        self.assertEqual(result["token"], "fresh-token")
+        self.assertEqual(
+            result["calls"],
+            [
+                {"path": "/api/ingest/preview", "token": "expired-token"},
+                {"path": "/api/agents", "token": None},
+                {"path": "/api/ingest/preview", "token": "fresh-token"},
+            ],
+        )
+
+    def test_provider_content_is_rendered_as_text_not_markup(self):
+        script = read_all_js()
+
+        self.assertIn("textContent", script)
+        self.assertIn("document.createElement", script)
+        self.assertIn('approveButton.textContent = "批准"', script)
+        self.assertIn('rejectButton.textContent = "拒绝"', script)
+        self.assertNotIn("innerHTML", script)
+        self.assertNotIn("insertAdjacentHTML", script)
+        self.assertNotIn("eval(", script)
+
+    def test_agent_layout_has_responsive_and_operation_styles(self):
+        css = read_static("app.css")
+
+        for selector in (
+            ".assistant-toolbar",
+            ".conversation-log",
+            ".message-card",
+            ".approval-card",
+            ".operation-queue",
+        ):
+            self.assertIn(selector, css)
+        self.assertIn("@media (max-width: 880px)", css)
+
+    def test_deterministic_message_is_marked_as_authoritative(self):
+        script = read_all_js()
+        css = read_static("app.css")
+
+        self.assertIn('"deterministic"', script)
+        self.assertIn(".message-deterministic", css)
+        self.assertIn('"确定性"', script)
+
+    def test_streamed_operations_are_aggregated_and_approvals_are_prioritized(self):
+        script = read_static("assistant-panel.js")
+
+        self.assertIn("operationStreams", script)
+        self.assertIn("appendStreamOperation", script)
+        self.assertIn("normalizeOperationContent", script)
+        self.assertIn("operationQueue.prepend(card)", script)
+        self.assertIn("operationQueue.scrollTop = 0", script)
+        stream_method = script[
+            script.index("function appendStreamOperation"):script.index("function normalizeOperationContent")
+        ]
+        self.assertIn('.approval-card:not([data-decision])', stream_method)
+        self.assertNotIn('case "plan.delta":\n      appendOperation', script)
+
+    def test_conversation_follows_stream_only_when_reader_is_near_bottom(self):
+        script = read_static("assistant-panel.js")
+
+        self.assertIn("function isNearBottom", script)
+        self.assertIn("const shouldFollow = isNearBottom(conversationLog)", script)
+        self.assertIn("if (shouldFollow) followConversation()", script)
+
+    def test_safe_markdown_supports_headings_and_blockquotes(self):
+        script = read_static("ui.js")
+
+        self.assertIn('document.createElement("blockquote")', script)
+        self.assertIn("headingMatch", script)
+        self.assertIn("document.createElement(`h${headingLevel}`)", script)
+        self.assertIn("appendListBlock", script)
+        self.assertNotIn("innerHTML", script)
+
+
+def read_static(name):
+    return (STATIC_ROOT / name).read_text(encoding="utf-8")
+
+
+def read_all_js() -> str:
+    """Concatenate every local script module so security and feature contracts
+    cover the whole frontend, not just the entry file."""
+    parts = []
+    for path in sorted(STATIC_ROOT.glob("*.js")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
+
+if __name__ == "__main__":
+    unittest.main()

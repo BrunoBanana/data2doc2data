@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "metrics": {
+    "gmv": {
+      "aliases": [
+        "商品交易总额",
+        "gmv"
+      ],
+      "display_name": "商品交易总额",
+      "unit": "CNY",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 10000,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "orders": {
+      "aliases": [
+        "订单量",
+        "orders"
+      ],
+      "display_name": "订单量",
+      "unit": "count",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 20,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "conversion_rate": {
+      "aliases": [
+        "转化率",
+        "conversion rate"
+      ],
+      "display_name": "转化率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "aov": {
+      "aliases": [
+        "客单价",
+        "aov"
+      ],
+      "display_name": "客单价",
+      "unit": "CNY",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 10000,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "gross_margin_rate": {
+      "aliases": [
+        "毛利率",
+        "gross margin rate"
+      ],
+      "display_name": "毛利率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "refund_rate": {
+      "aliases": [
+        "退款率",
+        "refund rate"
+      ],
+      "display_name": "退款率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "return_rate": {
+      "aliases": [
+        "退货率",
+        "return rate"
+      ],
+      "display_name": "退货率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "late_delivery_rate": {
+      "aliases": [
+        "延迟交付率",
+        "late delivery rate"
+      ],
+      "display_name": "延迟交付率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "stockout_rate": {
+      "aliases": [
+        "缺货率",
+        "stockout rate"
+      ],
+      "display_name": "缺货率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    },
+    "repeat_purchase_rate": {
+      "aliases": [
+        "复购率",
+        "repeat purchase rate"
+      ],
+      "display_name": "复购率",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "comparison": "split_window",
+      "threshold": 0.005,
+      "minimum_observations": 4,
+      "duplicate_policy": "reject"
+    }
+  },
+  "rules": [
+    {
+      "id": "promotion-margin-conflict",
+      "name": "促销规模与毛利冲突",
+      "description": "GMV上升但毛利率下降，促销质量需要复核。",
+      "clauses": [
+        {
+          "metric": "gmv",
+          "direction": "up"
+        },
+        {
+          "metric": "gross_margin_rate",
+          "direction": "down"
+        }
+      ]
+    },
+    {
+      "id": "fulfillment-customer-damage",
+      "name": "履约影响客户价值",
+      "description": "延迟交付上升且复购率下降，提示履约损害长期价值。",
+      "clauses": [
+        {
+          "metric": "late_delivery_rate",
+          "direction": "up"
+        },
+        {
+          "metric": "repeat_purchase_rate",
+          "direction": "down"
+        }
+      ]
+    },
+    {
+      "id": "stockout-refund-pressure",
+      "name": "缺货与退款压力",
+      "description": "缺货率和退款率同步上升，需要核对超卖和替代发货。",
+      "clauses": [
+        {
+          "metric": "stockout_rate",
+          "direction": "up"
+        },
+        {
+          "metric": "refund_rate",
+          "direction": "up"
+        }
+      ]
+    }
+  ]
+}
