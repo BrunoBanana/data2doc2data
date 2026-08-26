@@ -85,6 +85,55 @@ class FlowEngineTests(unittest.TestCase):
                     self.assertIsInstance(event.summary.get("duration_ms"), int)
                     self.assertGreaterEqual(event.summary["duration_ms"], 0)
 
+            message_ids = [event.communication.message_id for event in observed]
+            self.assertEqual(len(message_ids), len(set(message_ids)))
+            self.assertTrue(all(event.communication.trace_id == result.run.run_id for event in observed))
+            self.assertEqual(
+                (observed[0].communication.sender, observed[0].communication.receiver),
+                ("orchestrator", "workbench"),
+            )
+            seen_messages = {observed[0].communication.message_id}
+            for event in observed[1:]:
+                self.assertIn(event.communication.causation_id, seen_messages)
+                seen_messages.add(event.communication.message_id)
+
+            planned = next(event for event in observed if event.kind == "round.planned")
+            self.assertEqual(
+                (planned.communication.sender, planned.communication.receiver),
+                ("planner.deterministic_demo", "orchestrator"),
+            )
+            tool_started = next(
+                event
+                for event in observed
+                if event.kind == "tool.started" and event.summary.get("tool") == "inspect_sources"
+            )
+            tool_result = next(
+                event
+                for event in observed
+                if event.kind == "tool.result" and event.summary.get("tool") == "inspect_sources"
+            )
+            self.assertEqual(
+                (tool_started.communication.sender, tool_started.communication.receiver),
+                ("orchestrator", "tool.inspect_sources"),
+            )
+            self.assertEqual(
+                (tool_result.communication.sender, tool_result.communication.receiver),
+                ("tool.inspect_sources", "orchestrator"),
+            )
+            self.assertEqual(tool_result.communication.causation_id, tool_started.communication.message_id)
+            node_added = next(event for event in observed if event.kind == "node.added")
+            self.assertEqual(node_added.communication.receiver, "evidence_store")
+            artifact_created = next(event for event in observed if event.kind == "artifact.created")
+            self.assertEqual(
+                artifact_created.communication.sender,
+                f"tool.{artifact_created.summary['tool']}",
+            )
+            report_generated = next(event for event in observed if event.kind == "report.generated")
+            self.assertEqual(
+                (report_generated.communication.sender, report_generated.communication.receiver),
+                ("reporter", "workbench"),
+            )
+
     def test_tool_lifecycle_starts_before_the_local_tool_is_invoked(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
