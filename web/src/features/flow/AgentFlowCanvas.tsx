@@ -61,9 +61,10 @@ export function AgentFlowCanvas({ events, graph }: { events: RunEvent[]; graph: 
   const previousViewport = useRef({ nodeCount: 0, terminal: false })
 
   useEffect(() => {
+    if (!flow) return
     const previous = previousViewport.current
     previousViewport.current = { nodeCount: nodes.length, terminal }
-    if (!flow || !shouldAutoFitFlow(previous.nodeCount, nodes.length, previous.terminal, terminal)) return
+    if (!shouldAutoFitFlow(previous.nodeCount, nodes.length, previous.terminal, terminal)) return
     const frame = window.requestAnimationFrame(() => {
       flow.fitView({ duration: reducedMotion ? 0 : 240, padding: .14, maxZoom: .9 })
     })

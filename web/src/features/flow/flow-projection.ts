@@ -45,6 +45,16 @@ export interface ReportProjection {
   byteCount: number | null
 }
 
+export interface CommunicationProjection {
+  traceId: string
+  messageId: string
+  sender: string
+  receiver: string
+  attempt: number
+  idempotencyKey: string
+  deadlineAt: string | null
+}
+
 export interface FlowProjection {
   nodes: FlowNodeProjection[]
   edges: FlowEdgeProjection[]
@@ -57,6 +67,7 @@ export interface FlowProjection {
   report: ReportProjection | null
   lastSequence: number
   phase: string
+  communication: CommunicationProjection | null
 }
 
 export function emptyFlowProjection(): FlowProjection {
@@ -64,6 +75,7 @@ export function emptyFlowProjection(): FlowProjection {
     nodes: [], edges: [], activeNodeIds: [], activeEdgeIds: [], activeTool: null,
     planRevisionCount: 0, conflictCount: 0, converged: false, report: null,
     lastSequence: 0, phase: 'setup',
+    communication: null,
   }
 }
 
@@ -75,7 +87,12 @@ export function projectFlowEvents(events: RunEvent[]): FlowProjection {
 
 export function projectFlowEvent(current: FlowProjection, event: RunEvent): FlowProjection {
   if (event.sequence <= current.lastSequence) return current
-  let next: FlowProjection = { ...current, lastSequence: event.sequence, phase: event.phase }
+  let next: FlowProjection = {
+    ...current,
+    lastSequence: event.sequence,
+    phase: event.phase,
+    communication: communicationFromEvent(event) ?? current.communication,
+  }
   const summary = event.summary
 
   if (event.kind === 'step.added') {
@@ -317,4 +334,25 @@ function text(value: unknown) {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function communicationFromEvent(event: RunEvent): CommunicationProjection | null {
+  const value = event.communication
+  if (!value) return null
+  const traceId = text(value.trace_id)
+  const messageId = text(value.message_id)
+  const sender = text(value.sender)
+  const receiver = text(value.receiver)
+  const idempotencyKey = text(value.idempotency_key)
+  const attempt = finiteNumber(value.attempt)
+  if (!traceId || !messageId || !sender || !receiver || !idempotencyKey || attempt === null || attempt < 1) return null
+  return {
+    traceId,
+    messageId,
+    sender,
+    receiver,
+    attempt,
+    idempotencyKey,
+    deadlineAt: typeof value.deadline_at === 'string' ? value.deadline_at : null,
+  }
 }

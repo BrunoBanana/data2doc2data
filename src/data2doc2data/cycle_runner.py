@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import secrets
 from statistics import fmean
+import time
 from typing import Callable
 
 from .analysis_cycle import AnalysisCycle, AnalysisRound, EvidenceGap, RoundDecision, validate_round_decision
@@ -25,6 +28,39 @@ class CycleExecutionResult:
     cycle: AnalysisCycle
     pending_artifact_refs: tuple[str, ...] = ()
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class PlannerRetryPolicy:
+    max_attempts: int = 3
+    base_delay_seconds: float = 0.05
+    max_delay_seconds: float = 0.2
+    deadline_seconds: float = 5.0
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_attempts, int)
+            or isinstance(self.max_attempts, bool)
+            or not 1 <= self.max_attempts <= 100
+        ):
+            raise ValueError("planner max_attempts must be an integer between 1 and 100")
+        for name, value in (
+            ("base_delay_seconds", self.base_delay_seconds),
+            ("max_delay_seconds", self.max_delay_seconds),
+            ("deadline_seconds", self.deadline_seconds),
+        ):
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(f"planner {name} must be positive")
+        if self.base_delay_seconds > self.max_delay_seconds:
+            raise ValueError("planner base delay cannot exceed max delay")
+
+    def delay(self, attempt: int) -> float:
+        return min(self.max_delay_seconds, self.base_delay_seconds * (2 ** max(0, attempt - 1)))
 
 
 CONNECTED_CYCLE_TOOLS = frozenset(
@@ -49,11 +85,17 @@ class ConnectedCycleRunner:
         store: WorkspaceStore,
         planner,
         *,
+        retry_policy: PlannerRetryPolicy | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
         on_planner_event: Callable[[str, dict[str, object]], None] | None = None,
     ) -> None:
         self.store = store
         self.planner = planner
         self.artifacts = ArtifactStore(store.path.parent / "artifacts")
+        self.retry_policy = retry_policy or PlannerRetryPolicy()
+        self.monotonic = monotonic
+        self.sleep = sleep
         self.on_planner_event = on_planner_event
 
     def run(
@@ -97,7 +139,14 @@ class ConnectedCycleRunner:
         ]
         while cycle.can_continue:
             waiting_error: PlannerWaiting | None = None
-            for attempt in range(1, 4):
+            planned = None
+            deadline = self.monotonic() + self.retry_policy.deadline_seconds
+            deadline_at = _utc_deadline(self.retry_policy.deadline_seconds)
+            attempts = 0
+            for attempt in range(1, self.retry_policy.max_attempts + 1):
+                if attempt > 1 and self.monotonic() >= deadline:
+                    break
+                attempts = attempt
                 try:
                     planned = self.planner.decide(
                         cycle,
@@ -107,20 +156,56 @@ class ConnectedCycleRunner:
                     if waiting_error is not None and self.on_planner_event is not None:
                         self.on_planner_event(
                             "planner.resumed",
-                            {"round_number": len(cycle.rounds) + 1, "attempt": attempt},
+                            {
+                                "round_number": len(cycle.rounds) + 1,
+                                "attempt": attempt,
+                                "deadline_at": deadline_at,
+                            },
                         )
                     break
                 except PlannerWaiting as exc:
                     waiting_error = exc
                     provider_resume_id = exc.provider_resume_id or provider_resume_id
+                    remaining = max(0.0, deadline - self.monotonic())
+                    delay = min(self.retry_policy.delay(attempt), remaining)
                     if self.on_planner_event is not None:
                         self.on_planner_event(
                             "planner.waiting",
-                            {"round_number": len(cycle.rounds) + 1, "attempt": attempt, "retry_limit": 3},
+                            {
+                                "round_number": len(cycle.rounds) + 1,
+                                "attempt": attempt,
+                                "retry_limit": self.retry_policy.max_attempts,
+                                "backoff_ms": round(delay * 1000),
+                                "deadline_at": deadline_at,
+                            },
                         )
-            else:
+                    if attempt < self.retry_policy.max_attempts and delay > 0:
+                        self.sleep(delay)
+            if planned is None:
                 waiting = cycle.transition("waiting_for_planner")
                 self.store.save_analysis_cycle(waiting, task.task_id, context)
+                deadline_exhausted = self.monotonic() >= deadline
+                checkpoint_reason = (
+                    "planner_deadline_exhausted" if deadline_exhausted else "planner_retry_exhausted"
+                )
+                self.store.save_cycle_checkpoint(
+                    cycle.cycle_id,
+                    provider_resume_id=provider_resume_id,
+                    reason=checkpoint_reason,
+                    deadline_at=deadline_at,
+                )
+                if self.on_planner_event is not None:
+                    self.on_planner_event(
+                        "cycle.checkpointed",
+                        {
+                            "cycle_id": cycle.cycle_id,
+                            "round_number": len(cycle.rounds) + 1,
+                            "attempts": attempts,
+                            "resume_available": provider_resume_id is not None,
+                            "reason": checkpoint_reason,
+                            "deadline_at": deadline_at,
+                        },
+                    )
                 return CycleExecutionResult(waiting, error=str(waiting_error or "planner unavailable"))
             provider_resume_id = planned.provider_resume_id
             decision = planned.decision
@@ -154,6 +239,11 @@ class ConnectedCycleRunner:
             cycle = cycle.complete_round(AnalysisRound.completed(decision, result.artifact_refs))
             self.store.save_analysis_cycle(cycle, task.task_id, context)
         return CycleExecutionResult(cycle)
+
+
+def _utc_deadline(seconds: float) -> str:
+    value = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 class DemoCycleRunner:

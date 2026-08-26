@@ -3,7 +3,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from data2doc2data.config import ProfileStore
 from data2doc2data.analysis_cycle import AnalysisCycle, AnalysisRound, RoundDecision
@@ -27,7 +30,7 @@ class WorkspaceStoreTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection:
             version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
 
-        self.assertEqual(version, "4")
+        self.assertEqual(version, "6")
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
@@ -42,6 +45,40 @@ class WorkspaceStoreTests(unittest.TestCase):
         self.assertTrue(all(items == (task,) for items in results))
         self.assertTrue(self.store._database_initialized)
 
+    def test_connection_lifecycle_is_serialized_across_threads(self):
+        self.store.initialize()
+        guard = threading.Lock()
+        active = 0
+        maximum_active = 0
+
+        class FakeCursor:
+            @staticmethod
+            def fetchall():
+                return []
+
+        class FakeConnection:
+            def execute(self, *_args, **_kwargs):
+                return FakeCursor()
+
+            def close(self):
+                nonlocal active
+                with guard:
+                    active -= 1
+
+        def tracked_connect(*_args, **_kwargs):
+            nonlocal active, maximum_active
+            with guard:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            time.sleep(0.01)
+            return FakeConnection()
+
+        with patch("data2doc2data.workspace_store.sqlite3.connect", side_effect=tracked_connect):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                tuple(pool.map(lambda _: self.store.list_tasks(), range(16)))
+
+        self.assertEqual(maximum_active, 1)
+
     def test_version_one_database_is_upgraded_in_place(self):
         self.path.parent.mkdir(parents=True)
         with closing(sqlite3.connect(self.path)) as connection:
@@ -55,7 +92,7 @@ class WorkspaceStoreTests(unittest.TestCase):
             task_artifacts = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_artifacts'"
             ).fetchone()
-        self.assertEqual(version, "4")
+        self.assertEqual(version, "6")
         self.assertEqual(task_artifacts, ("task_artifacts",))
 
     def test_version_two_database_adds_append_only_knowledge_history(self):
@@ -71,8 +108,50 @@ class WorkspaceStoreTests(unittest.TestCase):
             knowledge = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_versions'"
             ).fetchone()
-        self.assertEqual(version, "4")
+        self.assertEqual(version, "6")
         self.assertEqual(knowledge, ("knowledge_versions",))
+
+    def test_version_four_database_adds_run_artifact_revisions(self):
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES ('schema_version', '4')")
+            connection.execute(
+                "CREATE TABLE run_artifacts (run_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run_id, kind))"
+            )
+            connection.execute(
+                "INSERT INTO run_artifacts VALUES ('run-old', 'evidence_graph', '{\"nodes\":[]}')"
+            )
+            connection.commit()
+
+        self.store.initialize()
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(run_artifacts)")}
+            revision = connection.execute(
+                "SELECT revision FROM run_artifacts WHERE run_id = 'run-old' AND kind = 'evidence_graph'"
+            ).fetchone()[0]
+        self.assertEqual(version, "6")
+        self.assertIn("revision", columns)
+        self.assertEqual(revision, 1)
+
+    def test_version_five_database_adds_private_cycle_checkpoints(self):
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES ('schema_version', '5')")
+            connection.commit()
+
+        self.store.initialize()
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
+            checkpoint_table = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'analysis_cycle_checkpoints'"
+            ).fetchone()
+        self.assertEqual(version, "6")
+        self.assertEqual(checkpoint_table, ("analysis_cycle_checkpoints",))
 
     def test_task_crud_keeps_versioned_contracts(self):
         task = AnalysisTask.create("task-1", "收入复盘", "解释收入下降", now="2026-08-23T08:00:00Z")
@@ -169,9 +248,29 @@ class WorkspaceStoreTests(unittest.TestCase):
         self.store.save_task(task)
         self.store.save_run(run)
 
-        self.store.save_run_artifact("run-1", "evidence_graph", {"nodes": [{"id": "n1"}]})
+        first_revision = self.store.save_run_artifact(
+            "run-1", "evidence_graph", {"nodes": [{"id": "n1"}]}, expected_revision=0
+        )
+        second_revision = self.store.save_run_artifact(
+            "run-1", "evidence_graph", {"nodes": [{"id": "n1"}, {"id": "n2"}]}, expected_revision=1
+        )
 
-        self.assertEqual(self.store.get_run_artifact("run-1", "evidence_graph"), {"nodes": [{"id": "n1"}]})
+        self.assertEqual(first_revision, 1)
+        self.assertEqual(second_revision, 2)
+        self.assertEqual(
+            self.store.get_run_artifact_version("run-1", "evidence_graph"),
+            {"revision": 2, "payload": {"nodes": [{"id": "n1"}, {"id": "n2"}]}},
+        )
+        self.assertEqual(
+            self.store.get_run_artifact("run-1", "evidence_graph"),
+            {"nodes": [{"id": "n1"}, {"id": "n2"}]},
+        )
+
+        with self.assertRaisesRegex(WorkspaceStoreError, "revision conflict"):
+            self.store.save_run_artifact(
+                "run-1", "evidence_graph", {"nodes": [{"id": "stale"}]}, expected_revision=1
+            )
+        self.assertEqual(self.store.get_run_artifact_version("run-1", "evidence_graph")["revision"], 2)
 
     def test_task_artifacts_round_trip_and_follow_task_lifecycle(self):
         task = AnalysisTask.create("task-1", "复盘", "解释变化")

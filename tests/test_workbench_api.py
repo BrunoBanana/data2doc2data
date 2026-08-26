@@ -579,6 +579,8 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
             self.assertIn("<h2>分析结论</h2>", html)
             self.assertIn('aria-label="证据验证"', html)
+            self.assertIn("通信与恢复审计", html)
+            self.assertIn("TRACE run-", html)
         self.assertIn("<svg", html)
         self.assertIn("<td>data_source</td>", html)
         self.assertNotIn("<script", html)

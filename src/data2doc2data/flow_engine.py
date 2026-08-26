@@ -12,6 +12,7 @@ import secrets
 from time import perf_counter
 from typing import Any
 
+from .agent_protocol import event_communication
 from .data_profile import DataProfile, build_default_dashboard, profile_standard_csv
 from .artifacts import ArtifactStore
 from .cycle_runner import ConnectedCycleRunner, DemoCycleRunner
@@ -225,14 +226,40 @@ class AgentFlowEngine:
         nodes: list[EvidenceNode] = []
         edges: list[EvidenceEdge] = []
         graph_id = f"graph-{run.run_id}"
+        graph_revision = 0
+        tool_commands: dict[str, str] = {}
 
         def emit(kind: str, phase: str, summary: Mapping[str, object], refs: tuple[str, ...] = ()) -> RunEvent:
-            event = RunEvent.create(run.run_id, len(events) + 1, kind, phase, summary, refs)
+            sequence = len(events) + 1
+            step_id = summary.get("step_id")
+            causation_id = events[-1].communication.message_id if events else None
+            if kind in {"tool.result", "tool.failed"} and isinstance(step_id, str):
+                causation_id = tool_commands.get(step_id, causation_id)
+            communication = event_communication(
+                run.run_id,
+                sequence,
+                kind,
+                summary,
+                refs,
+                planner_source="connected_agent" if plan.runner == "connected" else "deterministic_demo",
+                causation_id=causation_id,
+            )
+            event = RunEvent.create(
+                run.run_id,
+                sequence,
+                kind,
+                phase,
+                summary,
+                refs,
+                communication=communication,
+            )
             if events:
                 self.store.append_event(event)
             else:
                 self.store.create_run(run, event)
             events.append(event)
+            if kind == "tool.started" and isinstance(step_id, str):
+                tool_commands[step_id] = event.communication.message_id
             if on_event is not None:
                 on_event(event)
             return event
@@ -241,9 +268,15 @@ class AgentFlowEngine:
             return EvidenceGraph(graph_id, tuple(nodes), tuple(edges))
 
         def add_node(node: EvidenceNode, phase: str) -> None:
+            nonlocal graph_revision
             nodes.append(node)
             current = graph()
-            self.store.save_run_artifact(run.run_id, "evidence_graph", current.to_dict())
+            graph_revision = self.store.save_run_artifact(
+                run.run_id,
+                "evidence_graph",
+                current.to_dict(),
+                expected_revision=graph_revision,
+            )
             emit(
                 "node.added",
                 phase,
@@ -252,9 +285,15 @@ class AgentFlowEngine:
             )
 
         def add_edge(edge: EvidenceEdge, phase: str) -> None:
+            nonlocal graph_revision
             edges.append(edge)
             current = graph()
-            self.store.save_run_artifact(run.run_id, "evidence_graph", current.to_dict())
+            graph_revision = self.store.save_run_artifact(
+                run.run_id,
+                "evidence_graph",
+                current.to_dict(),
+                expected_revision=graph_revision,
+            )
             summary = {
                 "edge_id": edge.edge_id,
                 "source": edge.source,
@@ -265,6 +304,7 @@ class AgentFlowEngine:
             emit("edge.activated", phase, summary, (edge.edge_id,))
 
         def update_node(node_id: str, phase: str, *, status: str, label: str | None = None) -> None:
+            nonlocal graph_revision
             for index, node in enumerate(nodes):
                 if node.node_id != node_id:
                     continue
@@ -276,7 +316,12 @@ class AgentFlowEngine:
                     node.artifact_ref,
                 )
                 nodes[index] = updated
-                self.store.save_run_artifact(run.run_id, "evidence_graph", graph().to_dict())
+                graph_revision = self.store.save_run_artifact(
+                    run.run_id,
+                    "evidence_graph",
+                    graph().to_dict(),
+                    expected_revision=graph_revision,
+                )
                 emit(
                     "node.updated",
                     phase,
@@ -361,6 +406,7 @@ class AgentFlowEngine:
                                 "cycle_id": cycle_id,
                                 "round_number": analysis_round.round_number,
                                 "artifact_ref": artifact_ref,
+                                "tool": decision.tool,
                                 "kind": record.get("kind"),
                                 "method": payload.get("method") if isinstance(payload, Mapping) else None,
                             },
@@ -737,6 +783,7 @@ class AgentFlowEngine:
                 text_dashboard.to_dict(),
                 graph().to_dict(),
                 run_count=len(self.store.list_runs(task.task_id)),
+                run_events=[event.to_dict() for event in events],
             )
             add_node(EvidenceNode("analysis-report", "report", report.filename, "verified", report.filename), "delivery")
             add_edge(
@@ -750,6 +797,7 @@ class AgentFlowEngine:
                 text_dashboard.to_dict(),
                 final_graph.to_dict(),
                 run_count=len(self.store.list_runs(task.task_id)),
+                run_events=[event.to_dict() for event in events],
             )
             emit("evidence.linked", "evidence", {"node_count": len(nodes), "edge_count": len(edges)}, (graph_id,))
             emit(

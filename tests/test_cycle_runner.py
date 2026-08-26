@@ -5,12 +5,18 @@ import unittest
 
 from data2doc2data.analysis_cycle import RoundDecision
 from data2doc2data.cycle_planner import PlannerResult, PlannerWaiting
-from data2doc2data.cycle_runner import ConnectedCycleRunner, DemoCycleRunner
+from data2doc2data.cycle_runner import ConnectedCycleRunner, DemoCycleRunner, PlannerRetryPolicy
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
 
 class DemoCycleRunnerTests(unittest.TestCase):
+    def test_planner_retry_policy_rejects_unbounded_values(self):
+        with self.assertRaisesRegex(ValueError, "max_attempts"):
+            PlannerRetryPolicy(max_attempts=101)
+        with self.assertRaisesRegex(ValueError, "deadline_seconds"):
+            PlannerRetryPolicy(deadline_seconds=float("inf"))
+
     def test_demo_cycle_revises_using_a_real_first_round_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -124,13 +130,78 @@ class DemoCycleRunnerTests(unittest.TestCase):
             store = WorkspaceStore(root / "workbench.sqlite3")
             store.save_task(task)
             events = []
+            delays = []
             planner = Planner()
 
-            result = ConnectedCycleRunner(store, planner, on_planner_event=lambda kind, summary: events.append((kind, summary))).run(task, data, ())
+            result = ConnectedCycleRunner(
+                store,
+                planner,
+                retry_policy=PlannerRetryPolicy(base_delay_seconds=0.05),
+                sleep=delays.append,
+                on_planner_event=lambda kind, summary: events.append((kind, summary)),
+            ).run(task, data, ())
 
         self.assertEqual(result.cycle.status, "completed")
         self.assertEqual(planner.resume_ids, [None, "recover-thread"])
         self.assertEqual([kind for kind, _ in events], ["planner.waiting", "planner.resumed"])
+        self.assertEqual(delays, [0.05])
+        self.assertEqual(events[0][1]["backoff_ms"], 50)
+        self.assertTrue(str(events[0][1]["deadline_at"]).endswith("Z"))
+
+    def test_connected_cycle_stops_at_deadline_and_persists_a_checkpoint_event(self):
+        class Planner:
+            def __init__(self):
+                self.calls = 0
+
+            def decide(self, cycle, artifact_projections, *, provider_resume_id=None):
+                self.calls += 1
+                raise PlannerWaiting("offline", "recover-later")
+
+        class Clock:
+            def __init__(self):
+                self.value = 0.0
+
+            def now(self):
+                return self.value
+
+            def sleep(self, delay):
+                self.value += delay
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, task = _fixture(root)
+            store = WorkspaceStore(root / "workbench.sqlite3")
+            store.save_task(task)
+            events = []
+            planner = Planner()
+            clock = Clock()
+
+            result = ConnectedCycleRunner(
+                store,
+                planner,
+                retry_policy=PlannerRetryPolicy(
+                    max_attempts=5,
+                    base_delay_seconds=0.2,
+                    max_delay_seconds=0.2,
+                    deadline_seconds=0.25,
+                ),
+                monotonic=clock.now,
+                sleep=clock.sleep,
+                on_planner_event=lambda kind, summary: events.append((kind, summary)),
+            ).run(task, data, ())
+
+            persisted_status = store.get_analysis_cycle(result.cycle.cycle_id).status
+            checkpoint = store.get_cycle_checkpoint(result.cycle.cycle_id)
+
+        self.assertEqual(result.cycle.status, "waiting_for_planner")
+        self.assertEqual(persisted_status, "waiting_for_planner")
+        self.assertLess(planner.calls, 5)
+        self.assertEqual(events[-1][0], "cycle.checkpointed")
+        self.assertNotIn("provider_resume_id", events[-1][1])
+        self.assertTrue(events[-1][1]["resume_available"])
+        self.assertEqual(events[-1][1]["reason"], "planner_deadline_exhausted")
+        self.assertEqual(checkpoint["provider_resume_id"], "recover-later")
+        self.assertEqual(checkpoint["reason"], "planner_deadline_exhausted")
 
 
 def _fixture(root: Path) -> tuple[Path, AnalysisTask]:

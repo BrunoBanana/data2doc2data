@@ -68,6 +68,34 @@ describe('flow event projection', () => {
     expect(projection.nodes).toEqual([])
   })
 
+  it('projects real communication handoffs while keeping legacy events compatible', () => {
+    const protocolEvent = {
+      ...event(1, 'tool.started', { step_id: 'profile', tool: 'profile_data' }),
+      communication: {
+        protocol_version: 1,
+        message_id: 'msg-run-live-1',
+        trace_id: 'run-live',
+        causation_id: null,
+        sender: 'orchestrator',
+        receiver: 'tool.profile_data',
+        attempt: 2,
+        idempotency_key: 'delivery-abc',
+        deadline_at: '2026-08-24T00:01:00Z',
+      },
+    } as unknown as RunEvent
+
+    expect(projectFlowEvents([protocolEvent]).communication).toEqual({
+      traceId: 'run-live',
+      messageId: 'msg-run-live-1',
+      sender: 'orchestrator',
+      receiver: 'tool.profile_data',
+      attempt: 2,
+      idempotencyKey: 'delivery-abc',
+      deadlineAt: '2026-08-24T00:01:00Z',
+    })
+    expect(projectFlowEvents([event(1, 'run.started')]).communication).toBeNull()
+  })
+
   it('draws planned tool steps and their dependencies before evidence results exist', () => {
     const projection = projectFlowEvents([
       event(1, 'plan.created', { plan_id: 'plan-1' }),

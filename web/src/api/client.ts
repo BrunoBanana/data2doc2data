@@ -37,6 +37,7 @@ export type RunEventStream = (
 export class WorkbenchClient {
   private csrfToken = ''
   private agents: AgentProviderStatus[] = []
+  private bootstrapRequest: Promise<void> | null = null
   private readonly fetcher: Fetcher
 
   constructor(fetcher?: Fetcher) {
@@ -44,6 +45,13 @@ export class WorkbenchClient {
   }
 
   async bootstrap(): Promise<void> {
+    if (!this.bootstrapRequest) {
+      this.bootstrapRequest = this.openSession().finally(() => { this.bootstrapRequest = null })
+    }
+    await this.bootstrapRequest
+  }
+
+  private async openSession(): Promise<void> {
     const payload = await this.request<BootstrapResponse>('/api/agents', { method: 'GET' }, false)
     if (!payload.csrf_token) throw new Error('无法建立本地工作台会话。')
     this.csrfToken = payload.csrf_token
