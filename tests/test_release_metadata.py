@@ -6,6 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_changelog_records_the_one_command_github_launcher(self):
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+        self.assertIn("`ddd web`", changelog)
+        self.assertIn(
+            "`uvx --from git+https://github.com/BrunoBanana/data2doc2data ddd web`",
+            changelog,
+        )
+
     def test_package_metadata_declares_the_mit_license(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
