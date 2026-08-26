@@ -15,6 +15,7 @@ class QualityContractTests(unittest.TestCase):
 
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn('python-version: ["3.10", "3.11", "3.12", "3.13"]', workflow)
+        self.assertIn("push:\n    branches: [main]", workflow)
 
     def test_development_tools_are_optional_dependencies(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
