@@ -226,6 +226,7 @@ class AgentFlowEngine:
         nodes: list[EvidenceNode] = []
         edges: list[EvidenceEdge] = []
         graph_id = f"graph-{run.run_id}"
+        graph_revision = 0
         tool_commands: dict[str, str] = {}
 
         def emit(kind: str, phase: str, summary: Mapping[str, object], refs: tuple[str, ...] = ()) -> RunEvent:
@@ -267,9 +268,15 @@ class AgentFlowEngine:
             return EvidenceGraph(graph_id, tuple(nodes), tuple(edges))
 
         def add_node(node: EvidenceNode, phase: str) -> None:
+            nonlocal graph_revision
             nodes.append(node)
             current = graph()
-            self.store.save_run_artifact(run.run_id, "evidence_graph", current.to_dict())
+            graph_revision = self.store.save_run_artifact(
+                run.run_id,
+                "evidence_graph",
+                current.to_dict(),
+                expected_revision=graph_revision,
+            )
             emit(
                 "node.added",
                 phase,
@@ -278,9 +285,15 @@ class AgentFlowEngine:
             )
 
         def add_edge(edge: EvidenceEdge, phase: str) -> None:
+            nonlocal graph_revision
             edges.append(edge)
             current = graph()
-            self.store.save_run_artifact(run.run_id, "evidence_graph", current.to_dict())
+            graph_revision = self.store.save_run_artifact(
+                run.run_id,
+                "evidence_graph",
+                current.to_dict(),
+                expected_revision=graph_revision,
+            )
             summary = {
                 "edge_id": edge.edge_id,
                 "source": edge.source,
@@ -291,6 +304,7 @@ class AgentFlowEngine:
             emit("edge.activated", phase, summary, (edge.edge_id,))
 
         def update_node(node_id: str, phase: str, *, status: str, label: str | None = None) -> None:
+            nonlocal graph_revision
             for index, node in enumerate(nodes):
                 if node.node_id != node_id:
                     continue
@@ -302,7 +316,12 @@ class AgentFlowEngine:
                     node.artifact_ref,
                 )
                 nodes[index] = updated
-                self.store.save_run_artifact(run.run_id, "evidence_graph", graph().to_dict())
+                graph_revision = self.store.save_run_artifact(
+                    run.run_id,
+                    "evidence_graph",
+                    graph().to_dict(),
+                    expected_revision=graph_revision,
+                )
                 emit(
                     "node.updated",
                     phase,

@@ -16,7 +16,7 @@ from .run_events import RunEvent, RunEventError
 from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class WorkspaceStoreError(ValueError):
@@ -210,20 +210,54 @@ class WorkspaceStore:
             row = connection.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         return None if row is None else AnalysisRun.from_dict(json.loads(row[0]))
 
-    def save_run_artifact(self, run_id: str, kind: str, payload: object) -> None:
+    def save_run_artifact(
+        self,
+        run_id: str,
+        kind: str,
+        payload: object,
+        *,
+        expected_revision: int | None = None,
+    ) -> int:
         if kind not in {"evidence_graph", "analysis_cycle", "artifact_dashboard", "business_evidence"}:
             raise WorkspaceStoreError("unsupported run artifact kind")
+        if expected_revision is not None and (
+            not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 0
+        ):
+            raise WorkspaceStoreError("expected artifact revision must be a non-negative integer")
         encoded = _json(payload)
         if len(encoded.encode("utf-8")) > 2_000_000:
             raise WorkspaceStoreError("run artifact is too large")
         with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             try:
-                connection.execute(
-                    "INSERT INTO run_artifacts (run_id, kind, payload) VALUES (?, ?, ?) ON CONFLICT(run_id, kind) DO UPDATE SET payload = excluded.payload",
-                    (run_id, kind, encoded),
-                )
+                existing = connection.execute(
+                    "SELECT revision FROM run_artifacts WHERE run_id = ? AND kind = ?",
+                    (run_id, kind),
+                ).fetchone()
+                current_revision = 0 if existing is None else int(existing[0])
+                if expected_revision is not None and expected_revision != current_revision:
+                    raise WorkspaceStoreError(
+                        f"run artifact revision conflict: expected {expected_revision}, current {current_revision}"
+                    )
+                next_revision = current_revision + 1
+                if existing is None:
+                    connection.execute(
+                        "INSERT INTO run_artifacts (run_id, kind, revision, payload) VALUES (?, ?, ?, ?)",
+                        (run_id, kind, next_revision, encoded),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE run_artifacts SET revision = ?, payload = ? WHERE run_id = ? AND kind = ?",
+                        (next_revision, encoded, run_id, kind),
+                    )
+                connection.commit()
             except sqlite3.IntegrityError as exc:
+                connection.rollback()
                 raise WorkspaceStoreError("cannot save artifact for unknown run") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return next_revision
 
     def get_run_artifact(self, run_id: str, kind: str) -> object | None:
         with self._connection() as connection:
@@ -231,6 +265,15 @@ class WorkspaceStore:
                 "SELECT payload FROM run_artifacts WHERE run_id = ? AND kind = ?", (run_id, kind)
             ).fetchone()
         return None if row is None else json.loads(row[0])
+
+    def get_run_artifact_version(self, run_id: str, kind: str) -> dict[str, object] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT revision, payload FROM run_artifacts WHERE run_id = ? AND kind = ?", (run_id, kind)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"revision": int(row[0]), "payload": json.loads(row[1])}
 
     def save_task_artifact(self, task_id: str, kind: str, payload: object) -> None:
         if kind not in {"text_dashboard", "flagship_case", "plugin_session"}:
@@ -589,6 +632,7 @@ class WorkspaceStore:
             CREATE TABLE IF NOT EXISTS run_artifacts (
                 run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
                 kind TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
                 payload TEXT NOT NULL,
                 PRIMARY KEY(run_id, kind)
             );
@@ -636,10 +680,13 @@ class WorkspaceStore:
             );
             """
         )
+        run_artifact_columns = {row[1] for row in connection.execute("PRAGMA table_info(run_artifacts)")}
+        if "revision" not in run_artifact_columns:
+            connection.execute("ALTER TABLE run_artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
         row = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()
         if row is None:
             connection.execute("INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        elif row[0] in {"1", "2", "3"}:
+        elif row[0] in {"1", "2", "3", "4"}:
             connection.execute("UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
         elif row[0] != str(SCHEMA_VERSION):
             raise WorkspaceStoreError(f"unsupported workspace schema version: {row[0]}")
