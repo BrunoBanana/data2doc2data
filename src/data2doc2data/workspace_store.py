@@ -16,7 +16,7 @@ from .run_events import RunEvent, RunEventError
 from .workspace import AnalysisRun, AnalysisTask, SnapshotRef, WorkspaceContractError
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class WorkspaceStoreError(ValueError):
@@ -420,6 +420,47 @@ class WorkspaceStore:
             raise WorkspaceStoreError("analysis cycle context is invalid")
         return value
 
+    def save_cycle_checkpoint(
+        self,
+        cycle_id: str,
+        *,
+        provider_resume_id: str | None,
+        reason: str,
+        deadline_at: str,
+    ) -> None:
+        if provider_resume_id is not None and (
+            not isinstance(provider_resume_id, str) or not provider_resume_id or len(provider_resume_id) > 500
+        ):
+            raise WorkspaceStoreError("provider resume ID is invalid")
+        if not isinstance(reason, str) or not reason or len(reason) > 200:
+            raise WorkspaceStoreError("checkpoint reason is invalid")
+        if not isinstance(deadline_at, str) or not deadline_at.endswith("Z") or len(deadline_at) > 100:
+            raise WorkspaceStoreError("checkpoint deadline is invalid")
+        with self._lock, self._connection() as connection:
+            try:
+                connection.execute(
+                    """INSERT INTO analysis_cycle_checkpoints
+                       (cycle_id, provider_resume_id, reason, deadline_at)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(cycle_id) DO UPDATE SET
+                           provider_resume_id = excluded.provider_resume_id,
+                           reason = excluded.reason,
+                           deadline_at = excluded.deadline_at""",
+                    (cycle_id, provider_resume_id, reason, deadline_at),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise WorkspaceStoreError("checkpoint requires an existing analysis cycle") from exc
+
+    def get_cycle_checkpoint(self, cycle_id: str) -> dict[str, object] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT provider_resume_id, reason, deadline_at FROM analysis_cycle_checkpoints WHERE cycle_id = ?",
+                (cycle_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"provider_resume_id": row[0], "reason": row[1], "deadline_at": row[2]}
+
     def save_cycle_execution(
         self,
         cycle_id: str,
@@ -678,6 +719,12 @@ class WorkspaceStore:
                 projection TEXT NOT NULL,
                 PRIMARY KEY(cycle_id, round_number)
             );
+            CREATE TABLE IF NOT EXISTS analysis_cycle_checkpoints (
+                cycle_id TEXT PRIMARY KEY REFERENCES analysis_cycles(cycle_id) ON DELETE CASCADE,
+                provider_resume_id TEXT,
+                reason TEXT NOT NULL,
+                deadline_at TEXT NOT NULL
+            );
             """
         )
         run_artifact_columns = {row[1] for row in connection.execute("PRAGMA table_info(run_artifacts)")}
@@ -686,7 +733,7 @@ class WorkspaceStore:
         row = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()
         if row is None:
             connection.execute("INSERT INTO metadata (key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        elif row[0] in {"1", "2", "3", "4"}:
+        elif row[0] in {"1", "2", "3", "4", "5"}:
             connection.execute("UPDATE metadata SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION),))
         elif row[0] != str(SCHEMA_VERSION):
             raise WorkspaceStoreError(f"unsupported workspace schema version: {row[0]}")

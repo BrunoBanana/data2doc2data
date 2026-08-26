@@ -27,7 +27,7 @@ class WorkspaceStoreTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as connection:
             version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
 
-        self.assertEqual(version, "5")
+        self.assertEqual(version, "6")
         self.assertTrue(self.store.foreign_keys_enabled())
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
@@ -55,7 +55,7 @@ class WorkspaceStoreTests(unittest.TestCase):
             task_artifacts = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_artifacts'"
             ).fetchone()
-        self.assertEqual(version, "5")
+        self.assertEqual(version, "6")
         self.assertEqual(task_artifacts, ("task_artifacts",))
 
     def test_version_two_database_adds_append_only_knowledge_history(self):
@@ -71,7 +71,7 @@ class WorkspaceStoreTests(unittest.TestCase):
             knowledge = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_versions'"
             ).fetchone()
-        self.assertEqual(version, "5")
+        self.assertEqual(version, "6")
         self.assertEqual(knowledge, ("knowledge_versions",))
 
     def test_version_four_database_adds_run_artifact_revisions(self):
@@ -95,9 +95,26 @@ class WorkspaceStoreTests(unittest.TestCase):
             revision = connection.execute(
                 "SELECT revision FROM run_artifacts WHERE run_id = 'run-old' AND kind = 'evidence_graph'"
             ).fetchone()[0]
-        self.assertEqual(version, "5")
+        self.assertEqual(version, "6")
         self.assertIn("revision", columns)
         self.assertEqual(revision, 1)
+
+    def test_version_five_database_adds_private_cycle_checkpoints(self):
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES ('schema_version', '5')")
+            connection.commit()
+
+        self.store.initialize()
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            version = connection.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()[0]
+            checkpoint_table = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'analysis_cycle_checkpoints'"
+            ).fetchone()
+        self.assertEqual(version, "6")
+        self.assertEqual(checkpoint_table, ("analysis_cycle_checkpoints",))
 
     def test_task_crud_keeps_versioned_contracts(self):
         task = AnalysisTask.create("task-1", "收入复盘", "解释收入下降", now="2026-08-23T08:00:00Z")

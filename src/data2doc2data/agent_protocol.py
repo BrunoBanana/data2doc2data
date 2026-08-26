@@ -211,6 +211,7 @@ def _route(kind: str, summary: Mapping[str, object], planner_source: str) -> tup
         "knowledge.candidate",
         "knowledge.verified",
         "knowledge.superseded",
+        "cycle.checkpointed",
     }:
         return "orchestrator", "evidence_store"
     if kind == "report.generated":
