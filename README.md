@@ -31,16 +31,28 @@ Data Signal → Document Context → Data Verification → Traceable Insight
 
 Deterministic evidence analysis reads and computes over source files locally. Raw CSV rows are never placed in the agent prompt. When you explicitly send an agent message, Data2Doc2Data attaches a bounded evidence snapshot containing source counts, local metric summaries, the matching deterministic result, and only document excerpts relevant to that question. The selected Codex or WorkBuddy provider handles that snapshot under its own account and data policy; the workbench shows the snapshot ID, excerpt count, and compression state for every turn.
 
-## Installation
+## Quick start
+
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) once, then run:
+
+```bash
+uvx --from git+https://github.com/BrunoBanana/data2doc2data ddd web
+```
+
+This single command downloads DDD from GitHub, creates an isolated cached environment, installs its dependencies, starts the workbench at `http://127.0.0.1:8781`, and opens it in the default browser. No model, API key, data file, or document is required for Demo mode.
+
+For SSH or a launch where the browser should stay closed, append `--no-open`; DDD will print the local URL instead.
+
+## Developer installation
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-data2doc2data setup
+ddd web
 ```
 
-Run `data2doc2data setup` from the project directory you want the agent to inspect. The browser page is bound to `127.0.0.1` and detects optional local agents from `PATH`:
+Run `ddd web` from the project directory you want the agent to inspect. The browser page is bound to `127.0.0.1` and detects optional local agents from `PATH`. The previous `data2doc2data setup` command remains supported for compatibility.
 
 - Codex: install and sign in to the Codex CLI, then confirm `codex --version` works. Data2Doc2Data uses the public `codex app-server --stdio` interface.
 - Tencent WorkBuddy/CodeBuddy: install and sign in to the Tencent CLI, then confirm `codebuddy --version` works. Data2Doc2Data starts its public loopback service and uses ACP over HTTP/SSE.
@@ -71,9 +83,9 @@ After evidence analysis, connect Codex or Tencent WorkBuddy from the same page. 
 - **Collaborative** requires a visible approval for every state-changing operation.
 - **Trusted session** may reuse a narrowly scoped approval for the same session, operation type, workspace, and command prefix until it expires.
 
-All sessions are restricted to the directory from which `data2doc2data setup` was launched. Browser ownership, CSRF checks, approval expiry, path containment, redacted audit records, interruption, and child-process cleanup are enforced locally. Agent explanations and actions never replace the deterministic analysis result.
+All sessions are restricted to the directory from which `ddd web` was launched. Browser ownership, CSRF checks, approval expiry, path containment, redacted audit records, interruption, and child-process cleanup are enforced locally. Agent explanations and actions never replace the deterministic analysis result.
 
-The first Codex turn can take up to roughly two minutes while its local app server and tools cold-start; later turns are usually faster. If an agent is shown as unavailable, check the command above, sign-in state, CLI compatibility, and restart `data2doc2data setup`. WorkBuddy requires the `codebuddy` executable; it is not bundled with this project.
+The first Codex turn can take up to roughly two minutes while its local app server and tools cold-start; later turns are usually faster. If an agent is shown as unavailable, check the command above, sign-in state, CLI compatibility, and restart `ddd web`. WorkBuddy requires the `codebuddy` executable; it is not bundled with this project.
 
 ### Grounded context and long conversations
 
@@ -187,16 +199,28 @@ Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档
 
 确定性分析只在本机读取并计算证据文件，原始 CSV 始终留在本机，不会写入助手提示词。只有使用者明确发送助手消息时，系统才会建立有界证据快照：其中包含数据源计数、本地计算的统计摘要、与当前数据源匹配的确定性结论，以及针对问题检索出的相关文档片段。所选 Codex 或 WorkBuddy 会依据其账户与数据策略处理这份快照；工作台会逐轮展示快照编号、片段数量和压缩状态。
 
-## 安装
+## 快速开始
+
+首次使用先安装一次 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)，然后运行：
+
+```bash
+uvx --from git+https://github.com/BrunoBanana/data2doc2data ddd web
+```
+
+这一条命令会自动从 GitHub 下载 DDD、创建隔离且可复用的运行环境、安装依赖、在 `http://127.0.0.1:8781` 启动工作台并打开默认浏览器。Demo 模式不需要模型、API Key、数据文件或文档，启动后即可体验完整流程。
+
+通过 SSH 启动或不希望自动打开浏览器时，在命令末尾添加 `--no-open`；DDD 会直接打印本地访问地址。
+
+## 开发者安装
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-data2doc2data setup
+ddd web
 ```
 
-请在希望助手检查的项目目录中运行 `data2doc2data setup`。网页仅绑定 `127.0.0.1`，并从 `PATH` 检测可选的本地助手：
+请在希望助手检查的项目目录中运行 `ddd web`。网页仅绑定 `127.0.0.1`，并从 `PATH` 检测可选的本地助手。原有的 `data2doc2data setup` 命令继续保留，兼容已有脚本。
 
 - **Codex**：安装并登录 Codex CLI，确认 `codex --version` 可用。Data2Doc2Data 通过公开的 `codex app-server --stdio` 接口连接。
 - **腾讯 WorkBuddy/CodeBuddy**：安装并登录腾讯 CLI，确认 `codebuddy --version` 可用。Data2Doc2Data 启动其公开回环服务，并通过 ACP over HTTP/SSE 连接。
@@ -227,9 +251,9 @@ data2doc2data setup
 - **协作模式**：每个改变状态的操作都必须在网页中明确批准。
 - **信任本次会话**：同一会话中，仅可在有效期内复用与操作类型、工作区和命令前缀严格匹配的批准。
 
-所有会话都限制在启动 `data2doc2data setup` 时所在的目录。浏览器会话归属、CSRF、批准过期、路径边界、审计脱敏、任务中断和子进程清理都在本机执行。助手可以解释和执行，但不能覆盖确定性分析生成的证据结论。
+所有会话都限制在启动 `ddd web` 时所在的目录。浏览器会话归属、CSRF、批准过期、路径边界、审计脱敏、任务中断和子进程清理都在本机执行。助手可以解释和执行，但不能覆盖确定性分析生成的证据结论。
 
-Codex 第一次对话可能因本地 app server 与工具冷启动而耗时约两分钟，后续通常更快。若页面显示助手不可用，请检查对应命令、登录状态和 CLI 兼容性，再重启 `data2doc2data setup`。腾讯 WorkBuddy 必须先安装 `codebuddy`，本项目不会捆绑该程序。
+Codex 第一次对话可能因本地 app server 与工具冷启动而耗时约两分钟，后续通常更快。若页面显示助手不可用，请检查对应命令、登录状态和 CLI 兼容性，再重启 `ddd web`。腾讯 WorkBuddy 必须先安装 `codebuddy`，本项目不会捆绑该程序。
 
 ### 证据上下文与多轮对话
 
