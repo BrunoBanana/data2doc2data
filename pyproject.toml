@@ -39,6 +39,7 @@ Issues = "https://github.com/BrunoBanana/data2doc2data/issues"
 
 [project.scripts]
 data2doc2data = "data2doc2data.cli:main"
+ddd = "data2doc2data.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

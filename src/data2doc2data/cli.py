@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None, stdout=None) -> int:
                 file=output,
             )
             return 0
-        return _run_setup(store, args.port, args.no_browser, output)
+        return _run_setup(store, args.port, args.no_open, output)
     except (InputValidationError, ProfileError, WorkspaceStoreError, WorkbenchApiError, OSError) as error:
         print(json.dumps({"error": str(error)}), file=output)
         return 4 if isinstance(error, WorkbenchApiError) and error.status == HTTPStatus.NOT_FOUND else 2
@@ -201,9 +201,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", help="Local profile path. Defaults to ~/.config/data2doc2data/config.json")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    setup = commands.add_parser("setup", help="Open the local configuration page.")
-    setup.add_argument("--port", type=int, default=8765)
-    setup.add_argument("--no-browser", action="store_true")
+    web = commands.add_parser("web", help="Launch the local Data2Doc2Data workbench.")
+    _add_web_arguments(web, default_port=8781)
+    setup = commands.add_parser("setup", help="Open the local configuration page (legacy alias).")
+    _add_web_arguments(setup, default_port=8765)
 
     analyze_parser = commands.add_parser("analyze", help="Analyze the saved profile or built-in demo.")
     analyze_parser.add_argument("--question", required=True)
@@ -240,6 +241,11 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_report.add_argument("--output", required=True, help="Destination .html file.")
     commands.add_parser("status", help="Print whether a local profile is configured.")
     return parser
+
+
+def _add_web_arguments(command: argparse.ArgumentParser, *, default_port: int) -> None:
+    command.add_argument("--port", type=int, default=default_port)
+    command.add_argument("--no-open", "--no-browser", dest="no_open", action="store_true")
 
 
 def _run_setup(store: ProfileStore, port: int, no_browser: bool, output) -> int:

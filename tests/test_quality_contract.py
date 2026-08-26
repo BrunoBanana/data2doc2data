@@ -19,6 +19,12 @@ class QualityContractTests(unittest.TestCase):
         self.assertIn('coverage[toml]>=7.6', pyproject)
         self.assertIn('ruff>=0.9', pyproject)
 
+    def test_package_exposes_long_and_short_cli_entry_points(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn('data2doc2data = "data2doc2data.cli:main"', pyproject)
+        self.assertIn('ddd = "data2doc2data.cli:main"', pyproject)
+
     def test_coverage_measures_production_code_only(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 

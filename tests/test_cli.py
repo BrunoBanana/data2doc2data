@@ -5,12 +5,31 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from data2doc2data.cli import main
+from data2doc2data.cli import _build_parser, main
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
 
 class CliTests(unittest.TestCase):
+    def test_web_command_defaults_to_the_product_port(self):
+        args = _build_parser().parse_args(["web"])
+
+        self.assertEqual(args.command, "web")
+        self.assertEqual(args.port, 8781)
+        self.assertFalse(args.no_open)
+
+    def test_web_command_accepts_the_product_no_open_flag(self):
+        args = _build_parser().parse_args(["web", "--no-open"])
+
+        self.assertTrue(args.no_open)
+
+    def test_legacy_setup_command_keeps_its_port_and_no_browser_alias(self):
+        args = _build_parser().parse_args(["setup", "--no-browser"])
+
+        self.assertEqual(args.command, "setup")
+        self.assertEqual(args.port, 8765)
+        self.assertTrue(args.no_open)
+
     def test_status_outputs_safe_profile_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             output = StringIO()
