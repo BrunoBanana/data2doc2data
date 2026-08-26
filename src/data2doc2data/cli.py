@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from http import HTTPStatus
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -248,7 +249,11 @@ def _add_web_arguments(command: argparse.ArgumentParser, *, default_port: int) -
     command.add_argument("--no-open", "--no-browser", dest="no_open", action="store_true")
 
 
-def _run_setup(store: ProfileStore, port: int, no_browser: bool, output) -> int:
+def _is_ssh_session() -> bool:
+    return bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY"))
+
+
+def _run_setup(store: ProfileStore, port: int, no_open: bool, output) -> int:
     workspace = Path.cwd().resolve()
     gateway = AgentGateway(
         {
@@ -258,9 +263,16 @@ def _run_setup(store: ProfileStore, port: int, no_browser: bool, output) -> int:
     )
     server = create_server(store, port=port, gateway=gateway, agent_workspace=workspace)
     url = f"http://127.0.0.1:{server.server_port}"
-    print(f"Data2Doc2Data setup is available at {url}", file=output)
-    if not no_browser:
-        webbrowser.open(url)
+    print(f"Data2Doc2Data workbench is available at {url}", file=output, flush=True)
+    if _is_ssh_session() and not no_open:
+        print(f"Open this URL in your local browser: {url}", file=output, flush=True)
+    elif not no_open:
+        try:
+            opened = webbrowser.open(url)
+        except (OSError, webbrowser.Error):
+            opened = False
+        if not opened:
+            print(f"Browser did not open. Open this URL manually: {url}", file=output, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

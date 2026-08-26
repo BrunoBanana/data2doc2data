@@ -1,16 +1,24 @@
 from io import StringIO
 import json
 import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
-from data2doc2data.cli import _build_parser, main
+from data2doc2data.cli import _build_parser, _is_ssh_session, _run_setup, main
 from data2doc2data.workspace import AnalysisTask, SnapshotRef
 from data2doc2data.workspace_store import WorkspaceStore
 
 
 class CliTests(unittest.TestCase):
+    def _server_that_stops_after_start(self, port: int = 8781) -> Mock:
+        server = Mock()
+        server.server_port = port
+        server.serve_forever.side_effect = KeyboardInterrupt
+        return server
+
     def test_web_command_defaults_to_the_product_port(self):
         args = _build_parser().parse_args(["web"])
 
@@ -29,6 +37,82 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.command, "setup")
         self.assertEqual(args.port, 8765)
         self.assertTrue(args.no_open)
+
+    def test_ssh_detection_recognizes_common_connection_markers(self):
+        with patch.dict(os.environ, {"SSH_CONNECTION": "client server"}, clear=True):
+            self.assertTrue(_is_ssh_session())
+        with patch.dict(os.environ, {"SSH_CLIENT": "client"}, clear=True):
+            self.assertTrue(_is_ssh_session())
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(_is_ssh_session())
+
+    @patch("data2doc2data.cli._is_ssh_session", return_value=False)
+    @patch("data2doc2data.cli.webbrowser.open", return_value=True)
+    @patch("data2doc2data.cli.create_server")
+    def test_web_launch_prints_and_opens_the_actual_loopback_url(self, create_server, browser_open, _ssh):
+        server = self._server_that_stops_after_start(49152)
+        create_server.return_value = server
+        output = StringIO()
+
+        exit_code = _run_setup(Mock(), 8781, False, output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("http://127.0.0.1:49152", output.getvalue())
+        browser_open.assert_called_once_with("http://127.0.0.1:49152")
+        server.serve_forever.assert_called_once_with()
+        server.server_close.assert_called_once_with()
+
+    @patch("data2doc2data.cli._is_ssh_session", return_value=False)
+    @patch("data2doc2data.cli.webbrowser.open")
+    @patch("data2doc2data.cli.create_server")
+    def test_no_open_starts_the_server_without_opening_a_browser(self, create_server, browser_open, _ssh):
+        create_server.return_value = self._server_that_stops_after_start()
+
+        exit_code = _run_setup(Mock(), 8781, True, StringIO())
+
+        self.assertEqual(exit_code, 0)
+        browser_open.assert_not_called()
+
+    @patch("data2doc2data.cli._is_ssh_session", return_value=True)
+    @patch("data2doc2data.cli.webbrowser.open")
+    @patch("data2doc2data.cli.create_server")
+    def test_ssh_launch_prints_the_url_without_opening_a_remote_browser(self, create_server, browser_open, _ssh):
+        create_server.return_value = self._server_that_stops_after_start()
+        output = StringIO()
+
+        exit_code = _run_setup(Mock(), 8781, False, output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Open this URL in your local browser", output.getvalue())
+        browser_open.assert_not_called()
+
+    @patch("data2doc2data.cli._is_ssh_session", return_value=False)
+    @patch("data2doc2data.cli.webbrowser.open", return_value=False)
+    @patch("data2doc2data.cli.create_server")
+    def test_browser_declining_to_open_does_not_stop_the_server(self, create_server, _browser_open, _ssh):
+        server = self._server_that_stops_after_start()
+        create_server.return_value = server
+        output = StringIO()
+
+        exit_code = _run_setup(Mock(), 8781, False, output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Browser did not open", output.getvalue())
+        server.serve_forever.assert_called_once_with()
+
+    @patch("data2doc2data.cli._is_ssh_session", return_value=False)
+    @patch("data2doc2data.cli.webbrowser.open", side_effect=OSError("no browser"))
+    @patch("data2doc2data.cli.create_server")
+    def test_browser_error_does_not_stop_the_server(self, create_server, _browser_open, _ssh):
+        server = self._server_that_stops_after_start()
+        create_server.return_value = server
+        output = StringIO()
+
+        exit_code = _run_setup(Mock(), 8781, False, output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Browser did not open", output.getvalue())
+        server.serve_forever.assert_called_once_with()
 
     def test_status_outputs_safe_profile_summary(self):
         with tempfile.TemporaryDirectory() as directory:
