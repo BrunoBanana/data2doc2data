@@ -9,7 +9,7 @@ Make the existing pull request a trustworthy release candidate: preserve the doc
 1. Python 3.10 rejects ISO-8601 timestamps ending in `Z` when they are passed directly to `datetime.fromisoformat`. The workspace already contains a compatible conversion, but the knowledge layer bypasses it. This creates one root failure and many downstream flow, workbench, MCP, and CLI failures.
 2. Python 3.10 does not provide `tomllib`. Both production integration validation and one test import it directly even though the package declares Python 3.10 support.
 3. The native-plugin launcher test assumes the checkout contains `.venv/bin/data2doc2data`. A clean CI checkout correctly falls back to the installed interpreter, so the test currently observes the developer machine rather than controlling its fixture.
-4. The WorkBuddy reconnect test waits until the fake server has accepted a reconnect request, then immediately asserts that initialization and session restoration have finished. Those are different lifecycle points, producing a scheduling-dependent race.
+4. The WorkBuddy reconnect test waits until the fake server has accepted a reconnect request, then immediately asserts that initialization and session restoration have finished. Those are different lifecycle points, producing a scheduling-dependent race. The public `detect()` method also derives readiness from the new connection ID alone, so it can report connected before restoration completes.
 5. The CI workflow runs both `push` and `pull_request` jobs for the same feature-branch update.
 
 ## Considered approaches
@@ -48,7 +48,7 @@ Patch filesystem executability checks in the test that verifies project-virtual-
 
 ### Reconnect readiness
 
-Keep the provider's existing reconnect sequence: reconnect, initialize, resume sessions, publish connected. Change the test deadline loop to poll the public `detect().connected` state and retain the assertion that a second connection occurred. This tests the actual user-visible guarantee and avoids exposing new internal synchronization APIs.
+Keep the provider's existing reconnect sequence: reconnect, initialize, resume sessions, publish connected. Define the public `detect().connected` state as requiring both a connection ID and the existing readiness event, then change the test deadline loop to poll that state and retain the assertion that a second connection occurred. A controlled blocked-initialization test proves that an in-progress restoration remains observable as disconnected without exposing new internal synchronization APIs.
 
 ### CI event policy
 

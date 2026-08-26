@@ -86,7 +86,7 @@ class WorkBuddyProvider:
         )
 
     def detect(self) -> ProviderStatus:
-        connected = self._connection_id is not None
+        connected = self._connection_id is not None and self._connected_event.is_set()
         if self.endpoint is not None and self._health_available():
             return ProviderStatus(True, connected, version=self._version, authenticated=True)
         if self._configured_endpoint:

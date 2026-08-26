@@ -5,6 +5,7 @@ from pathlib import Path
 from queue import Queue
 import tempfile
 import threading
+import time
 import unittest
 
 from data2doc2data.agents.gateway import AgentGateway, NotAuthenticated, ProviderUnavailable
@@ -29,6 +30,7 @@ class FakeWorkBuddy:
         session_new_error=None,
         blocking_permission_stream=False,
         empty_permission_response=False,
+        block_reconnect_initialize=False,
     ):
         self.events = Queue()
         self.requests = []
@@ -40,6 +42,9 @@ class FakeWorkBuddy:
         self.blocking_permission_stream = blocking_permission_stream
         self.empty_permission_response = empty_permission_response
         self.permission_gate = threading.Event()
+        self.block_reconnect_initialize = block_reconnect_initialize
+        self.reconnect_initialize_started = threading.Event()
+        self.reconnect_initialize_gate = threading.Event()
         self.connect_count = 0
         state = self
 
@@ -80,6 +85,9 @@ class FakeWorkBuddy:
                     return
                 method = payload.get("method")
                 if method == "initialize":
+                    if state.block_reconnect_initialize and state.connect_count >= 2:
+                        state.reconnect_initialize_started.set()
+                        state.reconnect_initialize_gate.wait(timeout=2)
                     result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": True}}
                 elif method == "session/new":
                     if state.session_new_error is not None:
@@ -182,6 +190,7 @@ class FakeWorkBuddy:
 
     def close(self):
         self.permission_gate.set()
+        self.reconnect_initialize_gate.set()
         self.events.put(None)
         self.server.shutdown()
         self.thread.join(timeout=2)
@@ -189,6 +198,34 @@ class FakeWorkBuddy:
 
 
 class WorkBuddyAdapterTests(unittest.TestCase):
+    def test_reconnect_is_not_reported_connected_until_initialization_finishes(self):
+        fake = FakeWorkBuddy(block_reconnect_initialize=True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                provider = WorkBuddyProvider(
+                    workspace,
+                    endpoint=fake.endpoint,
+                    request_timeout=2,
+                    reconnect_delays=(0.01, 0.02),
+                )
+                provider.connect()
+                self.assertEqual(provider.create_session(workspace), "workbuddy-session")
+
+                fake.events.put(None)
+                self.assertTrue(fake.reconnect_initialize_started.wait(timeout=2))
+
+                self.assertFalse(provider.detect().connected)
+
+                fake.reconnect_initialize_gate.set()
+                deadline = time.monotonic() + 2
+                while not provider.detect().connected and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(provider.detect().connected)
+                provider.close()
+        finally:
+            fake.close()
+
     def test_closed_sse_reconnects_and_resumes_the_existing_session(self):
         fake = FakeWorkBuddy()
         try:
@@ -204,9 +241,9 @@ class WorkBuddyAdapterTests(unittest.TestCase):
                 self.assertEqual(provider.create_session(workspace), "workbuddy-session")
 
                 fake.events.put(None)
-                deadline = __import__("time").monotonic() + 2
-                while fake.connect_count < 2 and __import__("time").monotonic() < deadline:
-                    __import__("time").sleep(0.01)
+                deadline = time.monotonic() + 2
+                while (fake.connect_count < 2 or not provider.detect().connected) and time.monotonic() < deadline:
+                    time.sleep(0.01)
 
                 self.assertGreaterEqual(fake.connect_count, 2)
                 self.assertTrue(provider.detect().connected)

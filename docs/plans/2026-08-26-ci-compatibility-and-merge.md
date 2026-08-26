@@ -108,7 +108,8 @@ git commit -m "fix: support TOML validation on Python 3.10"
 ### Task 3: Remove environment and scheduling leaks from integration tests
 
 **Files:**
-- Modify: `tests/test_native_plugin_launcher.py`
+- Modify: `src/data2doc2data/agents/workbuddy.py`
+- Modify: `tests/test_integrations.py`
 - Modify: `tests/test_workbuddy_adapter.py`
 
 **Step 1: Make the native launcher fixture explicit**
@@ -121,9 +122,9 @@ Run: `uv run python -m unittest tests.test_native_plugin_launcher -v`
 
 Expected: PASS independent of whether `.venv/bin/data2doc2data` exists.
 
-**Step 3: Synchronize WorkBuddy on public readiness**
+**Step 3: Define and synchronize WorkBuddy public readiness**
 
-After closing the first SSE stream, poll `provider.detect().connected` until the deadline. Then assert both connected state and `fake.connect_count >= 2`, and retain the existing session-resume and event-order assertions.
+Add a controlled fake-server gate that blocks reconnect initialization and proves `provider.detect().connected` remains false. Define connected as requiring both a connection ID and the provider's existing readiness event. After closing the first SSE stream, poll `provider.detect().connected` until the deadline; then assert both connected state and `fake.connect_count >= 2`, retaining the existing session-resume and event-order assertions.
 
 **Step 4: Stress the reconnect test**
 
@@ -140,7 +141,7 @@ Expected: 10/10 PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/test_native_plugin_launcher.py tests/test_workbuddy_adapter.py
+git add src/data2doc2data/agents/workbuddy.py tests/test_integrations.py tests/test_workbuddy_adapter.py docs/plans/2026-08-26-ci-compatibility-and-merge-design.md docs/plans/2026-08-26-ci-compatibility-and-merge.md
 git commit -m "test: isolate launcher and reconnect readiness"
 ```
 

@@ -47,7 +47,11 @@ class IntegrationTests(unittest.TestCase):
         launcher = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(launcher)
 
-        with patch.object(launcher.os, "execv", side_effect=RuntimeError("intercepted")) as execute:
+        with (
+            patch.object(launcher.Path, "is_file", return_value=True),
+            patch.object(launcher.os, "access", return_value=True),
+            patch.object(launcher.os, "execv", side_effect=RuntimeError("intercepted")) as execute,
+        ):
             with self.assertRaisesRegex(RuntimeError, "intercepted"):
                 launcher.main()
 
