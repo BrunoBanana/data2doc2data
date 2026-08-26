@@ -95,7 +95,7 @@ PUBLIC_RESOURCE_DIRECTORIES = (
 )
 SKILLHUB_METADATA = (
     ("slug", "data2doc2data"),
-    ("version", "3.0.0"),
+    ("version", "3.1.0"),
     ("displayName", "Data2Doc2Data-面向真实业务的数据+文本循环推理架构"),
     ("summary", "面向真实业务场景，让数据指标与策略、决策文档形成可验证的循环推理。"),
     ("tags", "[analytics, local-first, evidence]"),

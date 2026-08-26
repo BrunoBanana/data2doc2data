@@ -2,8 +2,12 @@
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-27
+
 ### 新增
 
+- Agent Flow 的每次调度与工具交接使用带 trace、causation、attempt、幂等键和截止时间的有界通信信封；证据图采用 revision + compare-and-swap，避免旧结果静默覆盖新证据。
+- Connected Planner 支持有限重试、断线恢复、私有 checkpoint 和继续执行；工作台与离线 HTML 报告同步展示可审计协议交接、恢复状态与产物引用。
 - 新增 `ddd web` 产品入口与 GitHub 一键启动命令 `uvx --from git+https://github.com/BrunoBanana/data2doc2data ddd web`：自动创建隔离环境、安装依赖、启动 `127.0.0.1:8781` 并打开浏览器；支持 `--no-open` 与 SSH 降级，同时保留 `data2doc2data setup` 兼容入口。
 - 全新的任务优先业务分析工作台：先连接模型/本地 CLI，再创建任务、接入数据和可选文本材料，主画布交付联合 Dashboard，右侧才是可收起的 Codex/腾讯 WorkBuddy 助手。
 - SQLite 持久化的不可变运行历史、失败诊断、快照过期提示、完整事件/证据回放与幂等安全重试。
@@ -47,6 +51,8 @@
 
 ### 修复
 
+- 修复并发 CSRF 续签、ReactFlow 画布状态切换和 SQLite 证据写入竞争条件；补充协议兼容、规划器恢复、证据 CAS 与发布边界回归测试。
+- GitHub Actions 升级到 Node 24 运行时，并为完整分析集成请求设置显式有界超时，保持 Python 3.10–3.13 发布验证稳定。
 - 浏览器会话过期或本地服务重启后，写请求遇到 403 会自动重新领取 Cookie/CSRF 授权并仅重试一次，不再要求使用者手动刷新页面；并发续签会复用同一个刷新结果。
 - 导入写接口现与助手接口共用浏览器会话和 CSRF 校验，未授权页面无法上传、预览、应用或拉取 API 快照。
 - WorkBuddy/CodeBuddy 对审批决定返回成功但无响应体时不再误报“提供方响应无效”；真实 2.115 环境中拒绝审批会正确落为“已拒绝”并清除待审批状态。

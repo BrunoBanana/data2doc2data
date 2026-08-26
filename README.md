@@ -6,7 +6,7 @@
 
 <a id="english"></a>
 
-Current version: **v3.0.0**. See the [changelog](CHANGELOG.md) for release history from v1.0.0.
+Current version: **v3.1.0**. See the [changelog](CHANGELOG.md) for release history from v1.0.0.
 
 Data2Doc2Data is built for real business scenarios. It loops between data metrics and strategy/decision documents: first discover signals from data, then understand business context from text, and finally return to data to verify hypotheses — producing traceable, actionable business insights.
 
@@ -166,7 +166,7 @@ The local helper service listens only on `127.0.0.1`, accepts only expected Host
 This project is licensed under [MIT](LICENSE). Generate a public upload bundle from a clean workspace:
 
 ```bash
-python scripts/build_skill_bundle.py dist/data2doc2data-v3.0.0.zip
+python scripts/build_skill_bundle.py dist/data2doc2data-v3.1.0.zip
 ```
 
 Upload the ZIP to your target SkillHub. It includes only the explicit public-resource allowlist: the root and host-discovered Skills, the two explicitly approved native plugin manifests, the local helper UI, runtime code, the connector guide, and `LICENSE.md` (MIT). All other hidden files, tests, build caches, symlinks, private presentations, and unlisted files such as accidental business exports are excluded. The builder rejects included resources containing prohibited private markers, email addresses, or common credential patterns. `--draft` is for local experimentation only — never publish.
@@ -175,7 +175,7 @@ Upload the ZIP to your target SkillHub. It includes only the explicit public-res
 
 <a id="中文"></a>
 
-当前版本：**v3.0.0**。请查看[更新日志](CHANGELOG.md)了解从 v1.0.0 开始的版本记录。
+当前版本：**v3.1.0**。请查看[更新日志](CHANGELOG.md)了解从 v1.0.0 开始的版本记录。
 
 Data2Doc2Data 面向真实业务场景，将数据指标与策略、决策文档进行循环推理：先从数据发现信号，再从文本理解业务语境，最后回到数据验证假设，输出可追溯、可行动的业务洞察。
 
@@ -336,7 +336,7 @@ data2doc2data doctor --json
 本项目采用 [MIT](LICENSE) 许可证。请从干净工作区生成公开上传包：
 
 ```bash
-python scripts/build_skill_bundle.py dist/data2doc2data-v3.0.0.zip
+python scripts/build_skill_bundle.py dist/data2doc2data-v3.1.0.zip
 ```
 
 将该 ZIP 上传至目标 SkillHub。它仅包含明确列入公开资源白名单的根 Skill、宿主自动发现的 Skill、两份已审核的原生插件清单、本地辅助界面、运行时代码、数据连接器指南和 `LICENSE.md` 形式的 MIT 许可证；其他隐藏文件、测试、生成缓存、私人答辩材料、符号链接或未列入白名单的意外业务导出文件均不会进入发布包。构建器还会扫描每个纳入的文本资源，并在发现禁止的私有标记、邮箱地址或常见凭据模式时拒绝构建。`--draft` 仅用于无许可证的本地实验，绝不能发布。
