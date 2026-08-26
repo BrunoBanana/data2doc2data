@@ -23,6 +23,11 @@ class QualityContractTests(unittest.TestCase):
         self.assertIn('coverage[toml]>=7.6', pyproject)
         self.assertIn('ruff>=0.9', pyproject)
 
+    def test_python_310_has_a_runtime_tomllib_backport(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn("tomli>=2; python_version < '3.11'", pyproject)
+
     def test_package_exposes_long_and_short_cli_entry_points(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 

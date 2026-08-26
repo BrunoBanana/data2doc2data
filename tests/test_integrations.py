@@ -6,10 +6,14 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
-import tomllib
 import unittest
 from unittest.mock import patch
 import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from data2doc2data.cli import main
 from data2doc2data.config import ProfileStore
