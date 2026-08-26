@@ -47,8 +47,27 @@
 
 ## 后续门禁
 
-- 全量 Python、前端、类型、构建和 Playwright 测试；
 - 候选提交的 GitHub Actions Python 3.10–3.13 矩阵；
-- 从候选 Git 提交执行 `uvx` 冷安装与本地网页启动；
 - Codex、WorkBuddy/HY3 与宿主级 MCP 真实接受测试；
 - 私人 5 分钟答辩 HTML 的事实更新与 1440×900 视觉检查。
+
+## 本地完整质量门禁
+
+| 门禁 | 结果 |
+|---|---|
+| Python | 539 项通过；Ruff 通过 |
+| React/Vitest | 22 个文件、73 项测试通过 |
+| TypeScript | `tsc --noEmit` 通过 |
+| 前端生产构建 | Vite 构建通过；动态图与图表运行时保持按需分块 |
+| Playwright | 7 项确定性浏览器流程通过；2 项真实宿主流程按环境门禁跳过，转入单独接受测试 |
+
+Playwright 覆盖三轮数据—文本循环、两套旗舰案例、离线 HTML 报告下载、390px 响应式与减少动态效果、1440px 工作台布局。构建输出存在 ECharts 单块超过 500 kB 的非阻断警告，当前已与主界面异步分离；本次发布不以牺牲图表能力为代价继续拆分。
+
+## Git 冷安装
+
+- 候选运行时提交：`5e7183d7ec21a2355fdd9e0108ba89b6c7c5c655`。
+- PR：[BrunoBanana/data2doc2data#3](https://github.com/BrunoBanana/data2doc2data/pull/3)。
+- 使用全新的 uv 缓存和配置目录，从 `git+https://github.com/BrunoBanana/data2doc2data@<candidate-sha>` 安装，不复用仓库 `.venv`。
+- `ddd doctor --json` 返回 `ok: true`，案例、MCP、合成场景和宿主模板计数与 wheel 验证一致。
+- `ddd web --no-open` 在独立端口启动成功，首次轮询后返回 HTTP 200，页面标题为 `Data2Doc2Data · 业务分析工作台`。
+- 冷安装期间 Python 3.13 对第三方 `jieba 0.42.1` 报出三个无效转义序列 `SyntaxWarning`；不影响安装、诊断或运行，项目自身无对应警告。
