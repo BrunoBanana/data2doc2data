@@ -601,22 +601,27 @@ class WorkspaceStore:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.path.parent, 0o700)
-        connection: sqlite3.Connection | None = None
-        try:
-            connection = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
-            connection.execute("PRAGMA busy_timeout = 5000")
-            connection.execute("PRAGMA foreign_keys = ON")
-            self._initialize_database(connection)
-            yield connection
-        except (OSError, sqlite3.DatabaseError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            if isinstance(exc, (WorkspaceStoreError, RunEventError)):
-                raise
-            raise WorkspaceStoreError(f"cannot use workspace database: {exc}") from exc
-        finally:
-            if connection is not None:
-                connection.close()
+        # SQLite WAL permits concurrent readers, but repeatedly opening and
+        # closing the same file from HTTP/SSE threads can deadlock inside the
+        # platform SQLite file mutex. A local workspace favors deterministic
+        # recovery over parallel metadata reads, so serialize the full lifecycle.
+        with self._lock:
+            self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(self.path.parent, 0o700)
+            connection: sqlite3.Connection | None = None
+            try:
+                connection = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
+                connection.execute("PRAGMA busy_timeout = 5000")
+                connection.execute("PRAGMA foreign_keys = ON")
+                self._initialize_database(connection)
+                yield connection
+            except (OSError, sqlite3.DatabaseError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                if isinstance(exc, (WorkspaceStoreError, RunEventError)):
+                    raise
+                raise WorkspaceStoreError(f"cannot use workspace database: {exc}") from exc
+            finally:
+                if connection is not None:
+                    connection.close()
 
     def _initialize_database(self, connection: sqlite3.Connection) -> None:
         if self._database_initialized:

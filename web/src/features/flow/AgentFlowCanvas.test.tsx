@@ -1,9 +1,11 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { EvidenceGraphSpec, RunEvent } from '../../contracts/run-events'
 import { AgentFlowCanvas, analysisCycleProgress, shouldAutoFitFlow } from './AgentFlowCanvas'
+
+const { fitView } = vi.hoisted(() => ({ fitView: vi.fn() }))
 
 vi.mock('motion/react', () => ({ useReducedMotion: () => false }))
 vi.mock('@xyflow/react', () => ({
@@ -11,7 +13,8 @@ vi.mock('@xyflow/react', () => ({
   Controls: () => null,
   MarkerType: { ArrowClosed: 'arrowclosed' },
   MiniMap: () => <div aria-label="Flow 小地图" />,
-  ReactFlow: ({ nodes, children }: { nodes: Array<{ id: string; data: { label: string } }>; children: ReactNode }) => <div>
+  ReactFlow: ({ nodes, children, onInit }: { nodes: Array<{ id: string; data: { label: string } }>; children: ReactNode; onInit?: (flow: { fitView: typeof fitView }) => void }) => <div>
+    <button type="button" onClick={() => onInit?.({ fitView })}>初始化测试画布</button>
     {nodes.map((node) => <span key={node.id}>{node.data.label}</span>)}
     {children}
   </div>,
@@ -57,6 +60,17 @@ describe('AgentFlowCanvas readable event playback', () => {
     expect(shouldAutoFitFlow(1, 2, false, false)).toBe(false)
     expect(shouldAutoFitFlow(8, 9, false, true)).toBe(true)
     expect(shouldAutoFitFlow(9, 10, true, true)).toBe(false)
+  })
+
+  it('fits nodes that arrive before the ReactFlow instance is ready', async () => {
+    fitView.mockClear()
+    render(<AgentFlowCanvas events={events} graph={graph} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /跳到实时/ }))
+    expect(fitView).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '初始化测试画布' }))
+
+    await waitFor(() => expect(fitView).toHaveBeenCalled())
   })
 
   it('summarizes persisted cycle progress without exposing private reasoning', () => {

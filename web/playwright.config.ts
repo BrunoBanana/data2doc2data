@@ -6,6 +6,9 @@ const runId = (process.env.E2E_RUN_ID ?? String(process.pid)).replace(/[^A-Za-z0
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
+  // The local service intentionally owns one workspace. Running browser files in
+  // parallel would make tests overwrite the same demo task and produce false hangs.
+  workers: 1,
   timeout: 45_000,
   expect: { timeout: 10_000 },
   use: {

@@ -13,7 +13,7 @@ test('persists a three-round data-and-text cycle with inspectable local artifact
   const started = await (await startedResponse).json() as { run: { run_id: string } }
   await expect(page.getByRole('button', { name: /跳到实时/ })).toBeVisible()
   await page.getByRole('button', { name: /跳到实时/ }).click()
-  await expect(page.getByText('分析完成')).toBeVisible()
+  await expect(page.getByText('分析完成')).toBeVisible({ timeout: 30_000 })
   const diagnostics = page.getByRole('region', { name: '深度诊断产物' })
   await expect(diagnostics.getByRole('heading', { name: '深度诊断产物' })).toBeVisible()
   await expect(diagnostics.getByText(/tfidf_(?:nmf_kmeans|fallback)/)).toBeVisible()

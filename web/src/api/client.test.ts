@@ -41,6 +41,27 @@ describe('WorkbenchClient', () => {
     expect(fetcher).toHaveBeenNthCalledWith(1, '/api/agents', expect.objectContaining({ credentials: 'same-origin' }))
   })
 
+  it('coalesces concurrent workspace bootstraps into one browser session', async () => {
+    let releaseBootstrap: (() => void) | undefined
+    const bootstrapReady = new Promise<void>((resolve) => { releaseBootstrap = resolve })
+    const fetcher = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path === '/api/agents') return bootstrapReady.then(() => response({ csrf_token: 'csrf-1', agents: [] }))
+      if (path === '/api/workbench/providers') return Promise.resolve(response({ providers: [] }))
+      if (path === '/api/workbench/tasks') return Promise.resolve(response({ tasks: [] }))
+      if (path === '/api/workbench/cases') return Promise.resolve(response({ cases: [] }))
+      throw new Error(`unexpected request: ${path}`)
+    })
+    const client = new WorkbenchClient(fetcher)
+
+    const first = client.loadWorkspace()
+    const second = client.loadWorkspace()
+    releaseBootstrap?.()
+    await Promise.all([first, second])
+
+    expect(fetcher.mock.calls.filter(([input]) => input === '/api/agents')).toHaveLength(1)
+  })
+
   it('sends csrf for mutations and renews an expired session once', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response({ csrf_token: 'old', agents: [] }))

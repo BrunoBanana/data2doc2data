@@ -3,7 +3,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from data2doc2data.config import ProfileStore
 from data2doc2data.analysis_cycle import AnalysisCycle, AnalysisRound, RoundDecision
@@ -41,6 +44,40 @@ class WorkspaceStoreTests(unittest.TestCase):
 
         self.assertTrue(all(items == (task,) for items in results))
         self.assertTrue(self.store._database_initialized)
+
+    def test_connection_lifecycle_is_serialized_across_threads(self):
+        self.store.initialize()
+        guard = threading.Lock()
+        active = 0
+        maximum_active = 0
+
+        class FakeCursor:
+            @staticmethod
+            def fetchall():
+                return []
+
+        class FakeConnection:
+            def execute(self, *_args, **_kwargs):
+                return FakeCursor()
+
+            def close(self):
+                nonlocal active
+                with guard:
+                    active -= 1
+
+        def tracked_connect(*_args, **_kwargs):
+            nonlocal active, maximum_active
+            with guard:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            time.sleep(0.01)
+            return FakeConnection()
+
+        with patch("data2doc2data.workspace_store.sqlite3.connect", side_effect=tracked_connect):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                tuple(pool.map(lambda _: self.store.list_tasks(), range(16)))
+
+        self.assertEqual(maximum_active, 1)
 
     def test_version_one_database_is_upgraded_in_place(self):
         self.path.parent.mkdir(parents=True)
