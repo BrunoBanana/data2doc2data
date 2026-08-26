@@ -35,6 +35,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _parse_utc_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value[:-1] + "+00:00")
+
+
 def _require_identifier(value: str, field: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
         raise WorkspaceContractError(f"{field} must be a stable identifier")
@@ -54,7 +58,7 @@ def _require_timestamp(value: str, field: str) -> str:
     if not isinstance(value, str) or not value.endswith("Z"):
         raise WorkspaceContractError(f"{field} must be a UTC timestamp")
     try:
-        datetime.fromisoformat(value[:-1] + "+00:00")
+        _parse_utc_timestamp(value)
     except ValueError as exc:
         raise WorkspaceContractError(f"{field} must be a UTC timestamp") from exc
     return value

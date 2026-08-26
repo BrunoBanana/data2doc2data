@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from data2doc2data.knowledge import KnowledgeError, KnowledgeLedger
+from data2doc2data.knowledge import KnowledgeError, KnowledgeLedger, KnowledgeRecord
 from data2doc2data.workspace import AnalysisTask
 from data2doc2data.workspace_store import WorkspaceStore
 
@@ -15,6 +15,37 @@ class KnowledgeLedgerTests(unittest.TestCase):
         self.store.save_task(AnalysisTask.create("project-a", "项目 A", "积累可复用知识"))
         self.store.save_task(AnalysisTask.create("project-b", "项目 B", "隔离知识"))
         self.ledger = KnowledgeLedger(self.store)
+
+    def test_record_compares_canonical_z_timestamps(self):
+        record = KnowledgeRecord(
+            project_id="project-a",
+            knowledge_id="knowledge-time",
+            revision=1,
+            statement="收入增长来自可验证的订单提升。",
+            state="candidate",
+            source_refs=("dataset-1",),
+            run_id="run-1",
+            evidence_refs=("signal-1",),
+            created_at="2026-08-24T01:00:00Z",
+            updated_at="2026-08-24T02:00:00Z",
+        )
+
+        self.assertEqual(record.updated_at, "2026-08-24T02:00:00Z")
+
+    def test_record_rejects_canonical_z_timestamps_out_of_order(self):
+        with self.assertRaisesRegex(KnowledgeError, "timestamps are out of order"):
+            KnowledgeRecord(
+                project_id="project-a",
+                knowledge_id="knowledge-time",
+                revision=1,
+                statement="收入增长来自可验证的订单提升。",
+                state="candidate",
+                source_refs=("dataset-1",),
+                run_id="run-1",
+                evidence_refs=("signal-1",),
+                created_at="2026-08-24T02:00:00Z",
+                updated_at="2026-08-24T01:00:00Z",
+            )
 
     def test_candidate_keeps_provenance_but_is_excluded_from_verified_facts(self):
         candidate = self.ledger.propose(

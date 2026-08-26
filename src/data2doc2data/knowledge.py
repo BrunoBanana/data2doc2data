@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .workspace import _require_identifier, _require_timestamp, _utc_now
+from .workspace import _parse_utc_timestamp, _require_identifier, _require_timestamp, _utc_now
 
 if TYPE_CHECKING:
     from .workspace_store import WorkspaceStore
@@ -73,10 +72,10 @@ class KnowledgeRecord:
         ):
             if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > limit):
                 raise KnowledgeError(f"{field} must be bounded text")
-        if datetime.fromisoformat(self.updated_at) < datetime.fromisoformat(self.created_at):
+        if _parse_utc_timestamp(self.updated_at) < _parse_utc_timestamp(self.created_at):
             raise KnowledgeError("knowledge timestamps are out of order")
         if self.valid_from is not None and self.valid_to is not None:
-            if datetime.fromisoformat(self.valid_to) < datetime.fromisoformat(self.valid_from):
+            if _parse_utc_timestamp(self.valid_to) < _parse_utc_timestamp(self.valid_from):
                 raise KnowledgeError("knowledge validity interval is out of order")
         if self.state == "candidate" and any(
             value is not None

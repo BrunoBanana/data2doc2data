@@ -1,5 +1,6 @@
 import unittest
 from dataclasses import FrozenInstanceError
+from datetime import timezone
 
 from data2doc2data.workspace import (
     AnalysisRun,
@@ -8,10 +9,17 @@ from data2doc2data.workspace import (
     SnapshotRef,
     TaskStatus,
     WorkspaceContractError,
+    _parse_utc_timestamp,
 )
 
 
 class WorkspaceContractTests(unittest.TestCase):
+    def test_canonical_utc_timestamp_parser_accepts_z_suffix(self):
+        parsed = _parse_utc_timestamp("2026-08-23T08:00:00Z")
+
+        self.assertEqual(parsed.isoformat(), "2026-08-23T08:00:00+00:00")
+        self.assertIs(parsed.tzinfo, timezone.utc)
+
     def test_task_round_trip_keeps_versioned_immutable_snapshot_refs(self):
         snapshot = SnapshotRef(
             kind="dataset",
