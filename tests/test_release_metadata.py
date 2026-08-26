@@ -76,6 +76,14 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('"sample/scenarios/*/*.md"', pyproject)
         self.assertIn('"static/dist/assets/*"', pyproject)
 
+    def test_source_distribution_excludes_non_runtime_private_boundaries(self):
+        manifest_path = ROOT / "MANIFEST.in"
+
+        self.assertTrue(manifest_path.is_file())
+        manifest = manifest_path.read_text(encoding="utf-8")
+        self.assertIn("prune tests", manifest)
+        self.assertIn("prune docs/pitch", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()
