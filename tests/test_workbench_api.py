@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 from data2doc2data.config import ProfileStore
 from data2doc2data.agent_api import BrowserSessions
 from data2doc2data.agents.base import AgentEvent, AgentSession
+from data2doc2data.cycle_planner import PLANNER_ENVELOPE_MARKER
 from data2doc2data.run_events import RunEvent
 from data2doc2data.server import create_server
 from data2doc2data.workspace import SnapshotRef
@@ -216,7 +217,7 @@ class WorkbenchApiTests(unittest.TestCase):
 
             def send(self, provider, session, message):
                 self.messages.append(message)
-                envelope = json.loads(message.split("\n", 1)[1])
+                envelope = json.loads(message.split(PLANNER_ENVELOPE_MARKER + "\n", 1)[1])
                 round_number = envelope["cycle"]["next_round"]
                 prior = envelope["cycle"]["prior_rounds"][-1]["artifact_refs"] if round_number > 1 else []
                 if round_number == 1:
