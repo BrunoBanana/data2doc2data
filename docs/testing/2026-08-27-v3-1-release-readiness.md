@@ -7,6 +7,8 @@
 - Python wheel、sdist 与公开 Skill Bundle 均成功构建。
 - 两次独立 Skill Bundle 构建得到相同 SHA-256 和相同 121 项文件清单。
 - wheel 在全新 Python 3.13.9 虚拟环境中安装成功，`ddd doctor --json` 返回 `ok: true`。
+- `v3.1.0` 注释标签已固定到合并提交 `6fa25010c26ed244f092cb91737f09c9850f73e8`，正式 [GitHub Release](https://github.com/BrunoBanana/data2doc2data/releases/tag/v3.1.0) 已发布。
+- 从 Release 重新下载的 wheel、sdist 与 Skill Bundle 哈希与最终构建逐字节一致。
 - WorkBuddy 2.115.0 / HY3 完成三轮真实 Agent 规划与本地计算；MCP 高层入口在不提供 `task_id` 时完成自动建任务、分析和 HTML 交付。
 - Codex 0.148.0-alpha.9 的协议兼容、只读边界、低推理强度和硬超时均已验证；本机真实模型调用因 Code Mode/网络环境在 90 秒内未返回，按环境阻塞记录，不计为通过。
 - 私人答辩材料、用户生成文件、会话状态、绝对本机路径、邮箱和常见凭据模式均未进入最终归档。
@@ -15,10 +17,10 @@
 
 | 制品 | 字节数 | 文件数 | SHA-256 |
 |---|---:|---:|---|
-| `data2doc2data-3.1.0-py3-none-any.whl` | 736,398 | 111 | `a3f82e831adefce178d9f2d2054ced38e60fba58a5a764226d8076077865dd6a` |
-| `data2doc2data-3.1.0.tar.gz` | 708,361 | 117 | `5ae48f934fd32b501ca4497cbd4d1bd2dac3a3aa5157a81d7bcf6d0594b14e10` |
-| `data2doc2data-v3.1.0.zip`（构建 A） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
-| `data2doc2data-v3.1.0.zip`（构建 B） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
+| `data2doc2data-3.1.0-py3-none-any.whl` | 736,398 | 111 | `87b6052987999fe4caa620679337c7427eab8d08ee83f9313cab809c2bfd04ec` |
+| `data2doc2data-3.1.0.tar.gz` | 707,355 | 117 | `d6d9e43daad90d6644d1be7d6e93c799850c7ca804361350a821946a0633825a` |
+| `data2doc2data-skill-v3.1.0.zip`（构建 A） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
+| `data2doc2data-skill-v3.1.0.zip`（构建 B） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
 
 ## 安装后诊断
 
@@ -61,7 +63,7 @@ WorkBuddy 与 MCP 结果只记录版本、计数、匿名运行标识和报告�
 
 | 门禁 | 结果 |
 |---|---|
-| Python | 548 项通过、69 组子测试通过；Ruff 通过 |
+| Python | 548 项 pytest 通过；543 项 unittest 通过；覆盖率 85%；Ruff 通过 |
 | React/Vitest | 22 个文件、73 项测试通过 |
 | TypeScript | `tsc --noEmit` 通过 |
 | 前端生产构建 | Vite 构建通过；动态图与图表运行时保持按需分块 |
@@ -69,11 +71,12 @@ WorkBuddy 与 MCP 结果只记录版本、计数、匿名运行标识和报告�
 
 Playwright 覆盖三轮数据—文本循环、两套旗舰案例、离线 HTML 报告下载、390px 响应式与减少动态效果、1440px 工作台布局。构建输出存在 ECharts 单块超过 500 kB 的非阻断警告，当前已与主界面异步分离；本次发布不以牺牲图表能力为代价继续拆分。
 
-## Git 冷安装
+## 合并、标签与冷安装
 
-- 候选运行时提交：`5e7183d7ec21a2355fdd9e0108ba89b6c7c5c655`。
-- PR：[BrunoBanana/data2doc2data#3](https://github.com/BrunoBanana/data2doc2data/pull/3)。
-- 使用全新的 uv 缓存和配置目录，从 `git+https://github.com/BrunoBanana/data2doc2data@<candidate-sha>` 安装，不复用仓库 `.venv`。
-- `ddd doctor --json` 返回 `ok: true`，案例、MCP、合成场景和宿主模板计数与 wheel 验证一致。
-- `ddd web --no-open` 在独立端口启动成功，首次轮询后返回 HTTP 200，页面标题为 `Data2Doc2Data · 业务分析工作台`。
-- 冷安装期间 Python 3.13 对第三方 `jieba 0.42.1` 报出三个无效转义序列 `SyntaxWarning`；不影响安装、诊断或运行，项目自身无对应警告。
+- PR [#3](https://github.com/BrunoBanana/data2doc2data/pull/3) 已合并；合并提交为 `6fa25010c26ed244f092cb91737f09c9850f73e8`。
+- `v3.1.0` 是指向该合并提交的注释标签；Release 地址为 <https://github.com/BrunoBanana/data2doc2data/releases/tag/v3.1.0>。
+- [CI run 33045387773](https://github.com/BrunoBanana/data2doc2data/actions/runs/33045387773) 在 Python 3.10、3.11、3.12、3.13 全部通过。
+- 当前网络下，`uvx --from git+https://github.com/BrunoBanana/data2doc2data@v3.1.0 ...` 在 Git fetch 阶段约 8 分钟未完成，按网络传输失败停止，不计为 tag 冷安装通过。
+- 使用从 Release 重新下载并复核哈希的 wheel，在全新配置与数据目录中安装；`ddd doctor --json` 返回 `ok: true`。依赖从本机 uv 缓存离线复用，不复用仓库 `.venv`。
+- `ddd web --no-open` 在独立端口启动成功：根页面、`/api/agents`、案例、Provider 与任务 API 均返回 HTTP 200。
+- Python 3.13 对第三方 `jieba 0.42.1` 报出三个无效转义序列 `SyntaxWarning`；不影响安装、诊断或运行，项目自身无对应警告。
