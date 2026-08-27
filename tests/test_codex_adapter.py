@@ -1,10 +1,13 @@
 from pathlib import Path
+from queue import Queue
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
 
-from data2doc2data.agents.codex import CodexProvider, _nested_text
-from data2doc2data.agents.gateway import AgentGateway
+from data2doc2data.agents.base import AgentEvent, AgentSession
+from data2doc2data.agents.codex import CodexProvider, _nested_text, _resolve_codex_executable
+from data2doc2data.agents.gateway import AgentGateway, ProviderTimeout
 from data2doc2data.analysis import analyze
 from data2doc2data.config import Profile
 
@@ -14,7 +17,7 @@ FAKE_SERVER = FIXTURE_ROOT / "fake_app_server.py"
 
 
 class CodexAdapterTests(unittest.TestCase):
-    def make_provider(self, workspace, *server_args, timeout=2.0, event_timeout=None):
+    def make_provider(self, workspace, *server_args, timeout=2.0, event_timeout=None, turn_timeout=90.0):
         return CodexProvider(
             workspace=workspace,
             executable=sys.executable,
@@ -22,6 +25,7 @@ class CodexAdapterTests(unittest.TestCase):
             app_server_command=(sys.executable, "-u", str(FAKE_SERVER), *server_args),
             request_timeout=timeout,
             event_timeout=event_timeout,
+            turn_timeout=turn_timeout,
         )
 
     def test_fake_app_server_turn_is_normalized(self):
@@ -111,6 +115,25 @@ class CodexAdapterTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, "turn.completed")
             gateway.close()
 
+    def test_total_turn_timeout_interrupts_even_when_no_events_arrive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            provider = self.make_provider(
+                workspace,
+                "--delay-turn-events",
+                timeout=0.5,
+                event_timeout=1.0,
+                turn_timeout=0.02,
+            )
+            gateway = AgentGateway({"codex": provider})
+            gateway.connect("codex")
+            session = gateway.create_session("codex", workspace)
+
+            with self.assertRaisesRegex(ProviderTimeout, "timed out"):
+                list(gateway.send("codex", session, "hello"))
+
+            gateway.close()
+
     def test_default_start_command_contains_no_bypass_flags(self):
         with tempfile.TemporaryDirectory() as directory:
             provider = CodexProvider(Path(directory))
@@ -118,6 +141,55 @@ class CodexAdapterTests(unittest.TestCase):
             self.assertEqual(provider.start_command[1:], ("app-server", "--stdio"))
             self.assertNotIn("danger-full-access", " ".join(provider.start_command))
             self.assertNotIn("bypass", " ".join(provider.start_command))
+
+    def test_runtime_resolution_prefers_a_bundled_codex_with_its_required_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path_only = root / "path" / "codex"
+            bundled = root / "bundle" / "codex"
+            path_only.parent.mkdir()
+            bundled.parent.mkdir()
+            path_only.write_text("", encoding="utf-8")
+            bundled.write_text("", encoding="utf-8")
+            bundled.with_name("codex-code-mode-host").write_text("", encoding="utf-8")
+
+            selected = _resolve_codex_executable(
+                "codex",
+                resolved_path=path_only,
+                bundled_candidates=(bundled,),
+            )
+
+        self.assertEqual(selected, str(bundled))
+
+    def test_planning_turn_uses_bounded_low_reasoning_effort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            provider = CodexProvider(workspace)
+            session = AgentSession("local-1", "codex", "thread-1", workspace)
+            provider._event_queues["thread-1"] = Queue()
+            provider._event_queues["thread-1"].put(AgentEvent("turn.completed", {"turn_id": "turn-1"}))
+            provider._validate_session = Mock()
+            provider._request = Mock(return_value={"turn": {"id": "turn-1"}})
+
+            events = list(provider.stream_turn(session, "choose a tool"))
+
+        params = provider._request.call_args.args[1]
+        self.assertEqual(params["effort"], "low")
+        self.assertEqual(events[-1].kind, "turn.completed")
+
+    def test_planning_session_is_ephemeral_and_disables_user_mcp_servers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            provider = CodexProvider(workspace)
+            provider._require_connected = Mock()
+            provider._request = Mock(return_value={"thread": {"id": "thread-isolated"}})
+
+            session_id = provider.create_session(workspace)
+
+        params = provider._request.call_args.args[1]
+        self.assertEqual(session_id, "thread-isolated")
+        self.assertTrue(params["ephemeral"])
+        self.assertEqual(params["config"], {"mcp_servers": {}})
 
     def test_failed_turn_surfaces_the_provider_reason_and_code(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -164,6 +236,49 @@ class CodexProtocolHelpersTests(unittest.TestCase):
         self.assertEqual(events[0].kind, "file.diff")
         self.assertEqual(events[0].payload["path"], "a.txt")
         self.assertEqual(events[0].payload["diff"], "-x\n+y")
+
+    def test_completed_agent_message_maps_to_public_message_delta(self):
+        events = self.provider._notification_events(
+            "item/completed",
+            {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "completedAtMs": 1,
+                "item": {
+                    "id": "message-1",
+                    "type": "agentMessage",
+                    "phase": "final_answer",
+                    "text": '{"action":"finish"}',
+                },
+            },
+        )
+
+        self.assertEqual(events, [AgentEvent("message.delta", {"text": '{"action":"finish"}'})])
+
+    def test_completed_commentary_and_delta_duplicates_are_not_public_decisions(self):
+        commentary = self.provider._notification_events(
+            "item/completed",
+            {
+                "item": {
+                    "id": "message-commentary",
+                    "type": "agentMessage",
+                    "phase": "commentary",
+                    "text": "working",
+                }
+            },
+        )
+        delta = self.provider._notification_events(
+            "item/agentMessage/delta",
+            {"itemId": "message-delta", "delta": "public"},
+        )
+        duplicate = self.provider._notification_events(
+            "item/completed",
+            {"item": {"id": "message-delta", "type": "agentMessage", "text": "public"}},
+        )
+
+        self.assertEqual(commentary, [])
+        self.assertEqual(delta, [AgentEvent("message.delta", {"text": "public"})])
+        self.assertEqual(duplicate, [])
 
     def test_interrupted_turn_maps_to_cancelled(self):
         events = self.provider._notification_events(

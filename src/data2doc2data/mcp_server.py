@@ -29,7 +29,7 @@ from .workspace_store import WorkspaceStore, WorkspaceStoreError
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "data2doc2data"
-SERVER_VERSION = "3.0.0"
+SERVER_VERSION = "3.1.0"
 
 _RAW_TOOL_DEFS = (
     {

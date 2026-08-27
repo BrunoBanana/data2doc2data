@@ -1,6 +1,6 @@
 {
   "name": "data2doc2data",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "本地数据与文本交叉分析：Agent 调度计算、验证业务假设并生成可追溯的 HTML 报告。",
   "author": {
     "name": "Data2Doc2Data contributors"

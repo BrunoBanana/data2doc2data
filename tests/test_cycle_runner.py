@@ -12,6 +12,7 @@ from data2doc2data.workspace_store import WorkspaceStore
 
 class DemoCycleRunnerTests(unittest.TestCase):
     def test_planner_retry_policy_rejects_unbounded_values(self):
+        self.assertGreaterEqual(PlannerRetryPolicy().deadline_seconds, 60)
         with self.assertRaisesRegex(ValueError, "max_attempts"):
             PlannerRetryPolicy(max_attempts=101)
         with self.assertRaisesRegex(ValueError, "deadline_seconds"):
@@ -108,7 +109,7 @@ class DemoCycleRunnerTests(unittest.TestCase):
         self.assertEqual(len(planner.calls), 3)
         self.assertEqual(planner.calls[0][1][0]["tool"], "profile_data")
         self.assertEqual(planner.calls[1][1][-1]["artifact_refs"], list(result.cycle.rounds[0].artifact_refs))
-        self.assertEqual(planner.calls[2][2], "provider-thread")
+        self.assertEqual([call[2] for call in planner.calls], [None, None, None])
 
     def test_connected_cycle_reconnects_a_transient_planner_session(self):
         class Planner:

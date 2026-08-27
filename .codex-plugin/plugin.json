@@ -1,6 +1,6 @@
 {
   "name": "data2doc2data",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "可验证、可恢复、可观察的本地数据与文本交叉分析插件。",
   "author": {
     "name": "Data2Doc2Data contributors"

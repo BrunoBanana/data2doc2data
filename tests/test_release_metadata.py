@@ -21,19 +21,31 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('license = "MIT"', pyproject)
         self.assertNotIn('license = { text = "MIT" }', pyproject)
 
-    def test_v3_metadata_agrees_across_release_surfaces_and_records_history(self):
+    def test_v31_metadata_agrees_across_release_surfaces_and_records_history(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        lockfile = (ROOT / "uv.lock").read_text(encoding="utf-8")
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         bundle_builder = (ROOT / "scripts" / "build_skill_bundle.py").read_text(encoding="utf-8")
+        mcp_server = (ROOT / "src" / "data2doc2data" / "mcp_server.py").read_text(encoding="utf-8")
         provenance = (ROOT / "src" / "data2doc2data" / "provenance.py").read_text(encoding="utf-8")
         codex = (ROOT / "src" / "data2doc2data" / "agents" / "codex.py").read_text(encoding="utf-8")
         workbuddy = (ROOT / "src" / "data2doc2data" / "agents" / "workbuddy.py").read_text(encoding="utf-8")
+        codex_plugin = (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        codebuddy_plugin = (ROOT / ".codebuddy-plugin" / "plugin.json").read_text(encoding="utf-8")
 
-        self.assertIn('version = "3.0.0"', pyproject)
-        self.assertIn('("version", "3.0.0")', bundle_builder)
-        self.assertIn('ENGINE_VERSION = "3.0.0"', provenance)
-        self.assertIn('"version": "3.0.0"', codex)
-        self.assertIn('"version": "3.0.0"', workbuddy)
+        self.assertIn('version = "3.1.0"', pyproject)
+        self.assertIn('name = "data2doc2data"\nversion = "3.1.0"', lockfile)
+        self.assertIn('("version", "3.1.0")', bundle_builder)
+        self.assertIn('SERVER_VERSION = "3.1.0"', mcp_server)
+        self.assertIn('ENGINE_VERSION = "3.1.0"', provenance)
+        self.assertIn('"version": "3.1.0"', codex)
+        self.assertIn('"version": "3.1.0"', workbuddy)
+        self.assertIn('"version": "3.1.0"', codex_plugin)
+        self.assertIn('"version": "3.1.0"', codebuddy_plugin)
+        self.assertIn("Current version: **v3.1.0**", readme)
+        self.assertIn("data2doc2data-v3.1.0.zip", readme)
+        self.assertIn("## [3.1.0] - 2026-08-27", changelog)
         self.assertIn("## [3.0.0]", changelog)
         self.assertIn("## [2.9.0]", changelog)
         self.assertIn("## [2.8.0]", changelog)
@@ -63,6 +75,14 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('"sample/scenarios/*/*.csv"', pyproject)
         self.assertIn('"sample/scenarios/*/*.md"', pyproject)
         self.assertIn('"static/dist/assets/*"', pyproject)
+
+    def test_source_distribution_excludes_non_runtime_private_boundaries(self):
+        manifest_path = ROOT / "MANIFEST.in"
+
+        self.assertTrue(manifest_path.is_file())
+        manifest = manifest_path.read_text(encoding="utf-8")
+        self.assertIn("prune tests", manifest)
+        self.assertIn("prune docs/pitch", manifest)
 
 
 if __name__ == "__main__":
