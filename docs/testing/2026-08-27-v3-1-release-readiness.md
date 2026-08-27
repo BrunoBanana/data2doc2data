@@ -7,16 +7,18 @@
 - Python wheel、sdist 与公开 Skill Bundle 均成功构建。
 - 两次独立 Skill Bundle 构建得到相同 SHA-256 和相同 121 项文件清单。
 - wheel 在全新 Python 3.13.9 虚拟环境中安装成功，`ddd doctor --json` 返回 `ok: true`。
+- WorkBuddy 2.115.0 / HY3 完成三轮真实 Agent 规划与本地计算；MCP 高层入口在不提供 `task_id` 时完成自动建任务、分析和 HTML 交付。
+- Codex 0.148.0-alpha.9 的协议兼容、只读边界、低推理强度和硬超时均已验证；本机真实模型调用因 Code Mode/网络环境在 90 秒内未返回，按环境阻塞记录，不计为通过。
 - 私人答辩材料、用户生成文件、会话状态、绝对本机路径、邮箱和常见凭据模式均未进入最终归档。
 
 ## 制品清单
 
 | 制品 | 字节数 | 文件数 | SHA-256 |
 |---|---:|---:|---|
-| `data2doc2data-3.1.0-py3-none-any.whl` | 734,280 | 111 | `7bb7b2bd9eedd4e88a05d5eb54eea37fb113f4e377551a2b328eacd15f3d09d9` |
-| `data2doc2data-3.1.0.tar.gz` | 706,558 | 117 | `a9f42ca10459ed8b2c3416d46b15422f8babcea1133ce1d14a0db1104b2b8f9c` |
-| `data2doc2data-v3.1.0.zip`（构建 A） | 743,267 | 121 | `4723bf94a68ba3883292f98d647dfb1f500c89f749bfbe12f631396d685a0adf` |
-| `data2doc2data-v3.1.0.zip`（构建 B） | 743,267 | 121 | `4723bf94a68ba3883292f98d647dfb1f500c89f749bfbe12f631396d685a0adf` |
+| `data2doc2data-3.1.0-py3-none-any.whl` | 736,398 | 111 | `a3f82e831adefce178d9f2d2054ced38e60fba58a5a764226d8076077865dd6a` |
+| `data2doc2data-3.1.0.tar.gz` | 708,361 | 117 | `5ae48f934fd32b501ca4497cbd4d1bd2dac3a3aa5157a81d7bcf6d0594b14e10` |
+| `data2doc2data-v3.1.0.zip`（构建 A） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
+| `data2doc2data-v3.1.0.zip`（构建 B） | 745,381 | 121 | `0c239d4108e26ab608196bff7c1eff53d495f57d700d046b788ee353864a80f0` |
 
 ## 安装后诊断
 
@@ -45,17 +47,21 @@
 
 私人答辩 HTML 未复制到构建目录，后续只在本机更新与验证，不纳入 Git、GitHub Release 或公开 Skill Bundle。
 
-## 后续门禁
+## 真实宿主与 MCP 接受测试
 
-- 候选提交的 GitHub Actions Python 3.10–3.13 矩阵；
-- Codex、WorkBuddy/HY3 与宿主级 MCP 真实接受测试；
-- 私人 5 分钟答辩 HTML 的事实更新与 1440×900 视觉检查。
+| 入口 | 结果 | 可审计摘要 |
+|---|---|---|
+| WorkBuddy / CodeBuddy 2.115.0 + HY3 | 通过 | 无预置假设；3 轮自主规划、3 个本地分析产物、173 个事件、30 个证据节点、39 条关系；生成 43,399 字节 HTML，SHA-256 `4d1c80aae0bce789e9fac433de9acbc5009f6774059b686171d64a47dbb0e053` |
+| MCP stdio `analyze_business_case` | 通过 | 请求不含 `task_id`；自动识别 260 条记录与 5 份文档，完成 10 个指标发现和 3 条规则实证；生成 60,154 字节 HTML，SHA-256 `384668cfd90eb07dd3815cd9fb930d41444685d65981aed47d2999bbc9b4e981` |
+| Codex 0.148.0-alpha.9 | 环境阻塞 | 已兼容 `item/completed` 最终消息、隔离临时线程、低推理强度和 90 秒硬中断；本机 Code Mode 运行时/网络回退未在时限内返回公开决策，不计为真实通过 |
+
+WorkBuddy 与 MCP 结果只记录版本、计数、匿名运行标识和报告哈希；未保存原始业务行、模型私有思考或完整提示词。`install-mcp --host codex/codebuddy --dry-run` 均生成正确的当前环境注册命令，CodeBuddy 插件清单验证通过。
 
 ## 本地完整质量门禁
 
 | 门禁 | 结果 |
 |---|---|
-| Python | 539 项通过；Ruff 通过 |
+| Python | 548 项通过、69 组子测试通过；Ruff 通过 |
 | React/Vitest | 22 个文件、73 项测试通过 |
 | TypeScript | `tsc --noEmit` 通过 |
 | 前端生产构建 | Vite 构建通过；动态图与图表运行时保持按需分块 |
