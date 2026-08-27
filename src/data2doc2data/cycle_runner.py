@@ -35,7 +35,7 @@ class PlannerRetryPolicy:
     max_attempts: int = 3
     base_delay_seconds: float = 0.05
     max_delay_seconds: float = 0.2
-    deadline_seconds: float = 5.0
+    deadline_seconds: float = 200.0
 
     def __post_init__(self) -> None:
         if (
@@ -165,7 +165,7 @@ class ConnectedCycleRunner:
                     break
                 except PlannerWaiting as exc:
                     waiting_error = exc
-                    provider_resume_id = exc.provider_resume_id or provider_resume_id
+                    provider_resume_id = exc.provider_resume_id
                     remaining = max(0.0, deadline - self.monotonic())
                     delay = min(self.retry_policy.delay(attempt), remaining)
                     if self.on_planner_event is not None:
@@ -207,7 +207,10 @@ class ConnectedCycleRunner:
                         },
                     )
                 return CycleExecutionResult(waiting, error=str(waiting_error or "planner unavailable"))
-            provider_resume_id = planned.provider_resume_id
+            # A completed planner turn has already committed a public decision.
+            # The next round receives a fresh bounded envelope; resume IDs are
+            # reserved for retrying the same interrupted turn.
+            provider_resume_id = None
             decision = planned.decision
             prior_decision = cycle.rounds[-1].decision if cycle.rounds else None
             validate_round_decision(decision, CONNECTED_CYCLE_TOOLS, prior_decision=prior_decision)

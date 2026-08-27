@@ -8,6 +8,7 @@ from queue import Empty, Full, Queue
 import shutil
 import subprocess
 import threading
+import time
 from typing import Mapping
 
 from .base import AgentEvent, AgentSession, ProviderStatus
@@ -20,6 +21,26 @@ class _ReaderFailure:
 
 
 READER_FAILURE = _ReaderFailure()
+_BUNDLED_CODEX_CANDIDATES = (
+    Path("/Applications/ChatGPT.app/Contents/Resources/codex"),
+)
+
+
+def _resolve_codex_executable(
+    executable: str,
+    *,
+    resolved_path: Path | None = None,
+    bundled_candidates: tuple[Path, ...] | None = None,
+) -> str:
+    """Prefer a complete Codex runtime without mutating the user's PATH."""
+    if executable != "codex":
+        return executable
+    resolved = resolved_path or (Path(found) if (found := shutil.which(executable)) else None)
+    candidates = bundled_candidates if bundled_candidates is not None else _BUNDLED_CODEX_CANDIDATES
+    for candidate in tuple(item for item in (resolved, *candidates) if item is not None):
+        if candidate.is_file() and candidate.with_name("codex-code-mode-host").is_file():
+            return str(candidate)
+    return str(resolved) if resolved is not None else executable
 
 
 class CodexProvider:
@@ -33,6 +54,8 @@ class CodexProvider:
         app_server_command: tuple[str, ...] | None = None,
         request_timeout: float = 10.0,
         event_timeout: float | None = None,
+        turn_timeout: float = 90.0,
+        reasoning_effort: str = "low",
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
         if not self.workspace.is_dir():
@@ -41,11 +64,21 @@ class CodexProvider:
             raise ValueError("Codex request timeout must be positive")
         if event_timeout is not None and event_timeout <= 0:
             raise ValueError("Codex event timeout must be positive")
-        self.executable = executable
-        self.version_command = version_command or (executable, "--version")
-        self.start_command = app_server_command or (executable, "app-server", "--stdio")
+        if turn_timeout <= 0:
+            raise ValueError("Codex turn timeout must be positive")
+        if not reasoning_effort.strip() or len(reasoning_effort) > 50:
+            raise ValueError("Codex reasoning effort must be bounded text")
+        self.executable = _resolve_codex_executable(executable)
+        self.version_command = version_command or (self.executable, "--version")
+        self.start_command = app_server_command or (
+            self.executable,
+            "app-server",
+            "--stdio",
+        )
         self.request_timeout = request_timeout
         self.event_timeout = event_timeout if event_timeout is not None else 120.0
+        self.turn_timeout = turn_timeout
+        self.reasoning_effort = reasoning_effort
         self._process: subprocess.Popen[str] | None = None
         self._reader_thread: threading.Thread | None = None
         self._write_lock = threading.Lock()
@@ -56,6 +89,7 @@ class CodexProvider:
         self._event_queues: dict[str, Queue[AgentEvent]] = {}
         self._active_turns: dict[str, str] = {}
         self._approvals: dict[str, tuple[object, str]] = {}
+        self._agent_message_delta_items: set[str] = set()
         self._closing = False
         self._version: str | None = None
 
@@ -140,9 +174,10 @@ class CodexProvider:
             "approvalPolicy": "on-request",
             "approvalsReviewer": "user",
             "sandbox": "read-only",
+            "config": {"mcp_servers": {}},
         }
         if resume_id is None:
-            result = self._request("thread/start", {**common_params, "ephemeral": False})
+            result = self._request("thread/start", {**common_params, "ephemeral": True})
         else:
             result = self._request("thread/resume", {**common_params, "threadId": resume_id})
         thread_id = _nested_text(result, "thread", "id")
@@ -164,6 +199,7 @@ class CodexProvider:
                 "cwd": str(self.workspace),
                 "approvalPolicy": "on-request",
                 "sandboxPolicy": {"type": "readOnly", "networkAccess": False},
+                "effort": self.reasoning_effort,
             },
         )
         turn_id = _nested_text(result, "turn", "id")
@@ -171,15 +207,30 @@ class CodexProvider:
             raise InvalidProviderPayload(self.name, "Codex turn response is missing its ID")
         self._active_turns[session.provider_session_id] = turn_id
         event_queue = self._event_queues[session.provider_session_id]
+        deadline = time.monotonic() + self.turn_timeout
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._timeout_turn(session)
             try:
-                event = event_queue.get(timeout=self.event_timeout)
+                event = event_queue.get(timeout=min(self.event_timeout, remaining))
             except Empty as error:
+                if time.monotonic() >= deadline:
+                    self._timeout_turn(session)
                 raise TimeoutError("Codex event stream timed out") from error
             yield event
             if event.kind in {"turn.completed", "turn.cancelled", "turn.error", "provider.error"}:
                 self._active_turns.pop(session.provider_session_id, None)
                 return
+
+    def _timeout_turn(self, session: AgentSession) -> None:
+        try:
+            self.interrupt(session)
+        except Exception:
+            pass
+        finally:
+            self._active_turns.pop(session.provider_session_id, None)
+        raise TimeoutError("Codex turn timed out")
 
     def _reconnect_session(self, session: AgentSession) -> None:
         with self._reconnect_lock:
@@ -198,6 +249,7 @@ class CodexProvider:
                     previous.stdout.close()
             self._approvals.clear()
             self._active_turns.clear()
+            self._agent_message_delta_items.clear()
             event_queue = self._event_queues.get(session.provider_session_id)
             if event_queue is not None:
                 while True:
@@ -259,6 +311,7 @@ class CodexProvider:
         self._process = None
         self._approvals.clear()
         self._active_turns.clear()
+        self._agent_message_delta_items.clear()
         if process is not None and process.poll() is None:
             process.terminate()
             try:
@@ -386,7 +439,21 @@ class CodexProvider:
 
     def _notification_events(self, method: str, params: dict[str, object]) -> list[AgentEvent]:
         if method == "item/agentMessage/delta":
+            item_id = required_text(self.name, params, "itemId", nonempty=True)
+            self._agent_message_delta_items.add(item_id)
             return [AgentEvent("message.delta", {"text": required_text(self.name, params, "delta")})]
+        if method == "item/completed":
+            item = params.get("item")
+            if not isinstance(item, Mapping) or item.get("type") != "agentMessage":
+                return []
+            item_id = required_text(self.name, item, "id", nonempty=True)
+            if item.get("phase") == "commentary":
+                self._agent_message_delta_items.discard(item_id)
+                return []
+            if item_id in self._agent_message_delta_items:
+                self._agent_message_delta_items.discard(item_id)
+                return []
+            return [AgentEvent("message.delta", {"text": required_text(self.name, item, "text")})]
         if method == "item/plan/delta":
             return [AgentEvent("plan.delta", {"text": required_text(self.name, params, "delta")})]
         if method in {"item/commandExecution/outputDelta", "item/fileChange/outputDelta"}:
@@ -410,6 +477,7 @@ class CodexProvider:
                 )
             return events
         if method == "turn/completed":
+            self._agent_message_delta_items.clear()
             turn = params.get("turn")
             if not isinstance(turn, dict):
                 raise InvalidProviderPayload(self.name, "Codex completed turn is invalid")
@@ -452,6 +520,7 @@ class CodexProvider:
             except Full:
                 pass
         self._approvals.clear()
+        self._agent_message_delta_items.clear()
         if not self._closing:
             self._emit_provider_error("Codex App Server exited unexpectedly", "providerExited")
 
