@@ -577,6 +577,7 @@ class WorkbenchApiTests(unittest.TestCase):
             {"execute": True},
             cookie=self.cookie,
             csrf=self.csrf,
+            timeout=20,
         )
         status, _, _ = self.request(
             "POST",

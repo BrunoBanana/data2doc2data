@@ -13,7 +13,8 @@ class QualityContractTests(unittest.TestCase):
     def test_ci_runs_the_complete_unittest_suite(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-        self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("python -m coverage run -m unittest discover -s tests -v", workflow)
+        self.assertEqual(workflow.count("unittest discover -s tests -v"), 1)
         self.assertIn('python-version: ["3.10", "3.11", "3.12", "3.13"]', workflow)
         self.assertIn("push:\n    branches: [main]", workflow)
 
